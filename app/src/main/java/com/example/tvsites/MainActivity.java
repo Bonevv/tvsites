@@ -2,9 +2,11 @@ package com.example.tvsites;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.SystemClock;
@@ -14,6 +16,7 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -21,10 +24,21 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ListView;
 import android.widget.TextView;
+import android.widget.Toast;
+
+import java.util.AbstractMap;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.concurrent.CopyOnWriteArraySet;
 
 public class MainActivity extends Activity {
 
@@ -37,7 +51,7 @@ public class MainActivity extends Activity {
     };
 
     // Рекламни и проследяващи домейни. Блокират се заедно с поддомейните им.
-    // Добави още тук, ако видиш реклама, която се промъква.
+    // Допълнително можеш да блокираш домейни от журнала (дълго задържане на OK или бутон Menu).
     private static final String[] BLOCKED = {
             "doubleclick.net", "googlesyndication.com", "googleadservices.com",
             "adservice.google.com", "google-analytics.com", "googletagmanager.com",
@@ -65,21 +79,39 @@ public class MainActivity extends Activity {
     private FrameLayout root;
     private LinearLayout menu;
     private WebView web;
+    private WebChromeClient chromeClient;
     private CursorView cursor;
     private float cx, cy;
     private View customView;
     private WebChromeClient.CustomViewCallback customCallback;
     private String allowedHost;
+    private boolean exiting;
+    private boolean clearHistoryPending;
+    private boolean okLongHandled;
+
+    // Журнал на домейните и списъци, които потребителят променя.
+    private final HashMap<String, Integer> hostCounts = new HashMap<>();
+    private final CopyOnWriteArraySet<String> userBlocked = new CopyOnWriteArraySet<>();
+    private final CopyOnWriteArraySet<String> userAllowed = new CopyOnWriteArraySet<>();
+    private SharedPreferences prefs;
+    private LinearLayout logPanel;
+    private ListView logList;
+    private ArrayAdapter<String> logAdapter;
+    private final ArrayList<String> logHosts = new ArrayList<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        prefs = getSharedPreferences("tvsites", MODE_PRIVATE);
+        loadLists();
         root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
         setContentView(root);
         buildMenu();
         hideSystemBars();
     }
+
+    // ---------- Меню ----------
 
     private void buildMenu() {
         menu = new LinearLayout(this);
@@ -90,20 +122,20 @@ public class MainActivity extends Activity {
         TextView title = new TextView(this);
         title.setText("Избери сайт");
         title.setTextColor(Color.WHITE);
-        title.setTextSize(32);
+        title.setTextSize(30);
         title.setGravity(Gravity.CENTER);
-        title.setPadding(0, 0, 0, 48);
+        title.setPadding(0, 0, 0, 32);
         menu.addView(title);
 
         boolean first = true;
         for (final String[] site : SITES) {
             Button b = new Button(this);
             b.setText(site[0]);
-            b.setTextSize(24);
+            b.setTextSize(22);
             b.setAllCaps(false);
             b.setFocusable(true);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(720, 140);
-            lp.setMargins(0, 0, 0, 32);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(720, 100);
+            lp.setMargins(0, 0, 0, 16);
             b.setOnClickListener(v -> openSite(site[1]));
             menu.addView(b, lp);
             if (first) {
@@ -112,12 +144,27 @@ public class MainActivity extends Activity {
             }
         }
 
+        // Бутон Изход: затваря приложението напълно.
+        Button exit = new Button(this);
+        exit.setText("Изход");
+        exit.setTextSize(22);
+        exit.setAllCaps(false);
+        exit.setFocusable(true);
+        LinearLayout.LayoutParams elp = new LinearLayout.LayoutParams(720, 100);
+        elp.setMargins(0, 24, 0, 0);
+        exit.setOnClickListener(v -> exitApp());
+        menu.addView(exit, elp);
+
         root.addView(menu, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
     }
 
     private void openSite(String url) {
         allowedHost = Uri.parse(url).getHost();
+        clearHistoryPending = false;
+        synchronized (hostCounts) {
+            hostCounts.clear();
+        }
         if (web == null) {
             web = new WebView(this);
             WebSettings s = web.getSettings();
@@ -135,8 +182,15 @@ public class MainActivity extends Activity {
             web.setWebViewClient(new WebViewClient() {
                 @Override
                 public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
-                    // Връща празен отговор за рекламните домейни (скриптове, рамки, картинки).
-                    if (isBlocked(r.getUrl().getHost())) {
+                    String host = r.getUrl().getHost();
+                    if (host != null) {
+                        synchronized (hostCounts) {
+                            Integer c = hostCounts.get(host);
+                            hostCounts.put(host, c == null ? 1 : c + 1);
+                        }
+                    }
+                    // Празен отговор за блокираните домейни (скриптове, рамки, картинки).
+                    if (isBlocked(host)) {
                         return new WebResourceResponse("text/plain", "utf-8",
                                 new java.io.ByteArrayInputStream(new byte[0]));
                     }
@@ -150,9 +204,18 @@ public class MainActivity extends Activity {
                     return r.isForMainFrame() && host != null && allowedHost != null
                             && !host.endsWith(stripWww(allowedHost));
                 }
+
+                @Override
+                public void onPageFinished(WebView v, String u) {
+                    // След връщане към менюто чистим историята, за да не се връщаме в празна страница.
+                    if (clearHistoryPending && "about:blank".equals(u)) {
+                        v.clearHistory();
+                        clearHistoryPending = false;
+                    }
+                }
             });
 
-            web.setWebChromeClient(new WebChromeClient() {
+            chromeClient = new WebChromeClient() {
                 @Override
                 public void onShowCustomView(View view, CustomViewCallback cb) {
                     // Цял екран за видеото
@@ -161,7 +224,7 @@ public class MainActivity extends Activity {
                     root.addView(view, new FrameLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
                     web.setVisibility(View.GONE);
-                    updateCursorVisibility();
+                    updateState();
                 }
 
                 @Override
@@ -171,14 +234,15 @@ public class MainActivity extends Activity {
                     customView = null;
                     web.setVisibility(View.VISIBLE);
                     if (customCallback != null) customCallback.onCustomViewHidden();
-                    updateCursorVisibility();
+                    updateState();
                 }
 
                 @Override
                 public boolean onCreateWindow(WebView v, boolean d, boolean g, android.os.Message m) {
                     return false; // без изскачащи прозорци
                 }
-            });
+            };
+            web.setWebChromeClient(chromeClient);
 
             root.addView(web, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -186,6 +250,9 @@ public class MainActivity extends Activity {
             // Курсорът се рисува върху страницата и се управлява със стрелките.
             cursor = new CursorView(this);
             root.addView(cursor, new FrameLayout.LayoutParams(CURSOR_SIZE, CURSOR_SIZE));
+
+            // Журналът е най-отгоре.
+            buildLogPanel();
         }
         menu.setVisibility(View.GONE);
         web.setVisibility(View.VISIBLE);
@@ -194,43 +261,219 @@ public class MainActivity extends Activity {
         cx = (root.getWidth() > 0 ? root.getWidth() : 1920) / 2f;
         cy = (root.getHeight() > 0 ? root.getHeight() : 1080) / 2f;
         updateCursor();
-        updateCursorVisibility();
+        updateState();
 
         web.loadUrl(url);
         web.requestFocus();
-    }
-
-    private static boolean isBlocked(String host) {
-        if (host == null) return false;
-        for (String d : BLOCKED) {
-            if (host.equals(d) || host.endsWith("." + d)) return true;
-        }
-        return false;
     }
 
     private static String stripWww(String host) {
         return host.startsWith("www.") ? host.substring(4) : host;
     }
 
+    // Връща към менюто и спира всичко, което върви в страницата.
     private void backToMenu() {
+        if (logPanel != null) logPanel.setVisibility(View.GONE);
+        if (customView != null && chromeClient != null) chromeClient.onHideCustomView();
         if (web != null) {
+            clearHistoryPending = true;
             web.loadUrl("about:blank");
             web.setVisibility(View.GONE);
         }
         menu.setVisibility(View.VISIBLE);
-        updateCursorVisibility();
+        updateState();
         if (menu.getChildCount() > 1) menu.getChildAt(1).requestFocus();
     }
 
-    // ---------- Курсор, управляван от дистанционното ----------
+    // Пълно затваряне: приложението и процесът му се прекратяват.
+    private void exitApp() {
+        exiting = true;
+        if (web != null) {
+            web.stopLoading();
+            web.loadUrl("about:blank");
+        }
+        finishAndRemoveTask();
+    }
 
     private boolean webActive() {
-        return web != null && web.getVisibility() == View.VISIBLE && customView == null;
+        return web != null && web.getVisibility() == View.VISIBLE
+                && customView == null && !logShown();
     }
 
-    private void updateCursorVisibility() {
+    private void updateState() {
         if (cursor != null) cursor.setVisibility(webActive() ? View.VISIBLE : View.GONE);
+        // Докато гледаш, екранът не заспива.
+        boolean inSite = customView != null || (web != null && web.getVisibility() == View.VISIBLE);
+        if (inSite) {
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        } else {
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        }
     }
+
+    // ---------- Блокиране на домейни ----------
+
+    private static boolean matches(String host, String d) {
+        return host.equals(d) || host.endsWith("." + d);
+    }
+
+    private boolean isBlocked(String host) {
+        if (host == null) return false;
+        for (String a : userAllowed) {
+            if (matches(host, a)) return false;
+        }
+        for (String d : userBlocked) {
+            if (matches(host, d)) return true;
+        }
+        for (String d : BLOCKED) {
+            if (matches(host, d)) return true;
+        }
+        return false;
+    }
+
+    private boolean isOwnHost(String host) {
+        if (allowedHost == null) return false;
+        String base = stripWww(allowedHost);
+        return host.equals(base) || host.endsWith("." + base);
+    }
+
+    private void loadLists() {
+        userBlocked.addAll(prefs.getStringSet("blocked", new HashSet<String>()));
+        userAllowed.addAll(prefs.getStringSet("allowed", new HashSet<String>()));
+    }
+
+    private void saveLists() {
+        prefs.edit()
+                .putStringSet("blocked", new HashSet<String>(userBlocked))
+                .putStringSet("allowed", new HashSet<String>(userAllowed))
+                .apply();
+    }
+
+    private void toggleBlock(String host) {
+        if (isBlocked(host)) {
+            userBlocked.remove(host);
+            userAllowed.add(host);
+        } else {
+            userAllowed.remove(host);
+            userBlocked.add(host);
+        }
+        saveLists();
+    }
+
+    // ---------- Журнал на домейните ----------
+
+    private void buildLogPanel() {
+        logPanel = new LinearLayout(this);
+        logPanel.setOrientation(LinearLayout.VERTICAL);
+        logPanel.setBackgroundColor(Color.parseColor("#F2111827"));
+        logPanel.setPadding(80, 40, 80, 40);
+
+        TextView t = new TextView(this);
+        t.setText("Домейни, към които страницата праща заявки");
+        t.setTextColor(Color.WHITE);
+        t.setTextSize(26);
+        logPanel.addView(t);
+
+        TextView hint = new TextView(this);
+        hint.setText("OK = блокирай / отблокирай   Назад = затвори   Червените са блокирани."
+                + " След промяна избери \"Презареди страницата\".");
+        hint.setTextColor(Color.parseColor("#9CA3AF"));
+        hint.setTextSize(16);
+        hint.setPadding(0, 8, 0, 16);
+        logPanel.addView(hint);
+
+        logList = new ListView(this);
+        logList.setSelector(new ColorDrawable(0x553B82F6));
+        logList.setDividerHeight(0);
+        logAdapter = new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1,
+                new ArrayList<String>()) {
+            @Override
+            public View getView(int pos, View convertView, ViewGroup parent) {
+                TextView tv = (TextView) super.getView(pos, convertView, parent);
+                tv.setTextSize(20);
+                tv.setPadding(24, 16, 24, 16);
+                String host = pos < logHosts.size() ? logHosts.get(pos) : "";
+                if (host.isEmpty()) {
+                    tv.setTextColor(Color.parseColor("#93C5FD"));
+                } else if (isBlocked(host)) {
+                    tv.setTextColor(Color.parseColor("#F87171"));
+                } else {
+                    tv.setTextColor(Color.WHITE);
+                }
+                return tv;
+            }
+        };
+        logList.setAdapter(logAdapter);
+        logList.setOnItemClickListener((p, v, pos, id) -> onLogItem(pos));
+        logPanel.addView(logList, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        logPanel.setVisibility(View.GONE);
+        root.addView(logPanel, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+    }
+
+    private boolean logShown() {
+        return logPanel != null && logPanel.getVisibility() == View.VISIBLE;
+    }
+
+    private void showLog() {
+        if (web == null || logPanel == null) return;
+        refreshLog(1);
+        logPanel.setVisibility(View.VISIBLE);
+        updateState();
+        logList.requestFocus();
+    }
+
+    private void hideLog() {
+        if (logPanel != null) logPanel.setVisibility(View.GONE);
+        if (web != null) web.requestFocus();
+        updateState();
+    }
+
+    private void refreshLog(int keepPos) {
+        ArrayList<Map.Entry<String, Integer>> list = new ArrayList<>();
+        synchronized (hostCounts) {
+            for (Map.Entry<String, Integer> en : hostCounts.entrySet()) {
+                list.add(new AbstractMap.SimpleEntry<String, Integer>(en.getKey(), en.getValue()));
+            }
+        }
+        Collections.sort(list, (a, b) -> b.getValue() - a.getValue());
+
+        logHosts.clear();
+        ArrayList<String> rows = new ArrayList<>();
+        logHosts.add("");
+        rows.add("↻  Презареди страницата");
+        int n = 0;
+        for (Map.Entry<String, Integer> en : list) {
+            if (n++ >= 80) break;
+            String h = en.getKey();
+            String tag = isOwnHost(h) ? "   [сайтът]" : (isBlocked(h) ? "   [БЛОКИРАН]" : "");
+            logHosts.add(h);
+            rows.add(h + "   x" + en.getValue() + tag);
+        }
+        logAdapter.clear();
+        logAdapter.addAll(rows);
+        logList.setSelection(Math.max(0, Math.min(keepPos, rows.size() - 1)));
+    }
+
+    private void onLogItem(int pos) {
+        if (pos < 0 || pos >= logHosts.size()) return;
+        String host = logHosts.get(pos);
+        if (host.isEmpty()) {
+            hideLog();
+            web.reload();
+            return;
+        }
+        if (isOwnHost(host)) {
+            Toast.makeText(this, "Това е самият сайт - не се блокира", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        toggleBlock(host);
+        refreshLog(pos);
+    }
+
+    // ---------- Курсор, управляван от дистанционното ----------
 
     private void updateCursor() {
         if (cursor == null) return;
@@ -313,7 +556,8 @@ public class MainActivity extends Activity {
             return super.dispatchKeyEvent(e);
         }
 
-        // Страницата е отворена: стрелките местят курсора, OK е клик.
+        // Страницата е отворена: стрелките местят курсора, OK е клик,
+        // дълго задържане на OK (или бутон Menu) отваря журнала.
         if (webActive()) {
             switch (code) {
                 case KeyEvent.KEYCODE_DPAD_UP:
@@ -325,8 +569,23 @@ public class MainActivity extends Activity {
                 default:
                     break;
             }
+            if (code == KeyEvent.KEYCODE_MENU) {
+                if (down && e.getRepeatCount() == 0) showLog();
+                return true;
+            }
             if (okKey) {
-                if (down && e.getRepeatCount() == 0) tapAt(web, cx, cy);
+                if (down) {
+                    int rc = e.getRepeatCount();
+                    if (rc == 0) {
+                        okLongHandled = false;
+                    } else if (!okLongHandled) {
+                        okLongHandled = true;
+                        showLog();
+                    }
+                } else {
+                    if (!okLongHandled && !e.isCanceled()) tapAt(web, cx, cy);
+                    okLongHandled = false;
+                }
                 return true;
             }
             if (playKey) {
@@ -340,8 +599,12 @@ public class MainActivity extends Activity {
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (logShown()) {
+                hideLog();
+                return true;
+            }
             if (customView != null) {
-                web.getWebChromeClient().onHideCustomView();
+                chromeClient.onHideCustomView();
                 return true;
             }
             if (web != null && web.getVisibility() == View.VISIBLE) {
@@ -349,6 +612,9 @@ public class MainActivity extends Activity {
                 else backToMenu();
                 return true;
             }
+            // В менюто Назад затваря приложението напълно.
+            exitApp();
+            return true;
         }
         return super.onKeyDown(keyCode, event);
     }
@@ -375,11 +641,26 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onStop() {
+        super.onStop();
+        // Когато излезеш (Home), всичко се спира и при връщане започваш от менюто.
+        if (!exiting && !isFinishing() && !isChangingConfigurations()) {
+            backToMenu();
+        }
+    }
+
+    @Override
     protected void onDestroy() {
         if (web != null) {
+            root.removeView(web);
             web.destroy();
+            web = null;
         }
         super.onDestroy();
+        // При Изход прекратяваме и процеса, за да не остава нищо на заден фон.
+        if (exiting) {
+            android.os.Process.killProcess(android.os.Process.myPid());
+        }
     }
 
     // Малък кръг, който служи за курсор.
