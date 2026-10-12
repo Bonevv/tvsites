@@ -97,6 +97,8 @@ public class MainActivity extends Activity {
             {"Filmi9", "https://filmi9.com/", "", "Филми"},
             {"ZenoPlay", "https://zenoplay.to/movies/", "", "Филми"},
             {"Всички филми", "https://vsichkifilmi.net/", "", "Филми"},
+            {"BG Radio", "https://bg-radio.org/", "", "Радио"},
+            {"RadiosBG", "https://www.radiosbg.com/", "", "Радио"},
     };
 
     // Вграден списък с рекламни и проследяващи домейни (заедно с поддомейните им).
