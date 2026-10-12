@@ -8,10 +8,17 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.ColorFilter;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
+import android.graphics.PixelFormat;
+import android.graphics.RadialGradient;
+import android.graphics.Shader;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.net.Uri;
@@ -37,6 +44,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.ArrayAdapter;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.ScrollView;
@@ -134,7 +142,14 @@ public class MainActivity extends Activity {
             0xFF6366F1, 0xFFEC4899, 0xFF10B981, 0xFFF59E0B,
             0xFF06B6D4, 0xFFEF4444, 0xFF8B5CF6,
     };
+    private static final int C_AMBER = 0xFFFFB020;
     private static final int COLS = 3;
+
+    // Над този размер на кеша приложението пита дали да го изчисти.
+    private static final long CACHE_ASK_BYTES = 150L * 1024 * 1024;
+    private static final long CACHE_ASK_EVERY_MS = 6L * 60 * 60 * 1000;
+    private TextView cacheBtn;
+    private final HashSet<String> iconBusy = new HashSet<>();
 
     private static final int CURSOR_SIZE = 40;
     private static final int CURSOR_HIDE_MS = 4000;
@@ -259,8 +274,7 @@ public class MainActivity extends Activity {
         menuHolder.setClipChildren(false);
         menuHolder.setClipToPadding(false);
         menuHolder.setVerticalScrollBarEnabled(false);
-        menuHolder.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                new int[]{0xFF0B1020, 0xFF1A1442}));
+        menuHolder.setBackground(new GlowDrawable());
         menu = new LinearLayout(this);
         menu.setOrientation(LinearLayout.VERTICAL);
         menu.setGravity(Gravity.CENTER_VERTICAL);
@@ -282,6 +296,7 @@ public class MainActivity extends Activity {
         }
         fetchConfig();
         hideSystemBars();
+        maybeAskClearCache();
     }
 
     // ---------- Настройки от текстов файл ----------
@@ -430,16 +445,10 @@ public class MainActivity extends Activity {
         h.setGravity(Gravity.CENTER_VERTICAL);
         h.setPadding(dp(8), 0, 0, dp(20));
 
-        TextView logo = new TextView(this);
-        logo.setText("▶");
-        logo.setTextColor(Color.WHITE);
-        logo.setTextSize(22);
-        logo.setGravity(Gravity.CENTER);
-        GradientDrawable lg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                new int[]{0xFF8B7CFF, 0xFFEC4899});
-        lg.setShape(GradientDrawable.OVAL);
-        logo.setBackground(lg);
-        h.addView(logo, new LinearLayout.LayoutParams(dp(64), dp(64)));
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.app_icon);
+        logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        h.addView(logo, new LinearLayout.LayoutParams(dp(76), dp(76)));
 
         LinearLayout t = new LinearLayout(this);
         t.setOrientation(LinearLayout.VERTICAL);
@@ -447,12 +456,14 @@ public class MainActivity extends Activity {
         TextView title = new TextView(this);
         title.setText("ТВ Сайтове");
         title.setTextColor(Color.WHITE);
-        title.setTextSize(34);
+        title.setTextSize(38);
         title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.getPaint().setShader(new LinearGradient(0, 0, dp(300), 0,
+                new int[]{0xFFFFFFFF, 0xFFFFD27A}, null, Shader.TileMode.CLAMP));
         TextView sub = new TextView(this);
         sub.setText("Телевизия и филми на големия екран");
-        sub.setTextColor(C_MUTED);
-        sub.setTextSize(15);
+        sub.setTextColor(0xFFC9C3F5);
+        sub.setTextSize(16);
         t.addView(title);
         t.addView(sub);
         h.addView(t);
@@ -498,30 +509,138 @@ public class MainActivity extends Activity {
         return sl;
     }
 
+    // Полупрозрачна "стъклена" карта; на фокус получава кехлибарена рамка.
+    private StateListDrawable glassBg() {
+        GradientDrawable normal = new GradientDrawable();
+        normal.setColor(0x2EFFFFFF);
+        normal.setCornerRadius(dp(20));
+        normal.setStroke(dp(1), 0x33FFFFFF);
+        GradientDrawable focused = new GradientDrawable();
+        focused.setColor(0x4DFFFFFF);
+        focused.setCornerRadius(dp(20));
+        focused.setStroke(dp(3), C_AMBER);
+        StateListDrawable sl = new StateListDrawable();
+        sl.addState(new int[]{android.R.attr.state_focused}, focused);
+        sl.addState(new int[]{}, normal);
+        return sl;
+    }
+
+    // Плочка с иконата на сайта; докато я няма, показва буква на цветен фон.
+    private View makeIconTile(String host, int color, String letter, int sizeDp) {
+        final FrameLayout tile = new FrameLayout(this);
+        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{lighter(color), color});
+        bg.setCornerRadius(dp(16));
+        tile.setBackground(bg);
+
+        final TextView t = new TextView(this);
+        t.setText(letter);
+        t.setTextColor(Color.WHITE);
+        t.setTextSize(sizeDp / 3);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setGravity(Gravity.CENTER);
+        tile.addView(t, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        final ImageView iv = new ImageView(this);
+        iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        iv.setPadding(dp(10), dp(10), dp(10), dp(10));
+        iv.setVisibility(View.GONE);
+        tile.addView(iv, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        if (host != null) loadIcon(host, tile, iv, t);
+        return tile;
+    }
+
+    private static int lighter(int c) {
+        int r = Math.min(255, ((c >> 16) & 0xFF) + 50);
+        int g = Math.min(255, ((c >> 8) & 0xFF) + 50);
+        int b = Math.min(255, (c & 0xFF) + 50);
+        return 0xFF000000 | (r << 16) | (g << 8) | b;
+    }
+
+    private void showIcon(FrameLayout tile, ImageView iv, TextView letter, Bitmap bmp) {
+        GradientDrawable white = new GradientDrawable();
+        white.setColor(0xFFF4F5FF);
+        white.setCornerRadius(dp(16));
+        tile.setBackground(white);
+        iv.setImageBitmap(bmp);
+        iv.setVisibility(View.VISIBLE);
+        letter.setVisibility(View.GONE);
+    }
+
+    // Иконата се сваля веднъж и се пази във файловете на приложението (не в кеша).
+    private void loadIcon(final String host, final FrameLayout tile, final ImageView iv,
+                          final TextView letter) {
+        final File f = new File(new File(getFilesDir(), "icons"), host + ".png");
+        if (f.exists()) {
+            Bitmap b = BitmapFactory.decodeFile(f.getAbsolutePath());
+            if (b != null) {
+                showIcon(tile, iv, letter, b);
+                return;
+            }
+        }
+        synchronized (iconBusy) {
+            if (!iconBusy.add(host)) return;
+        }
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                Bitmap bmp = null;
+                try {
+                    HttpURLConnection c = (HttpURLConnection) new URL(
+                            "https://www.google.com/s2/favicons?domain=" + host + "&sz=128")
+                            .openConnection();
+                    c.setConnectTimeout(8000);
+                    c.setReadTimeout(8000);
+                    if (c.getResponseCode() == 200) {
+                        InputStream in = c.getInputStream();
+                        java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+                        byte[] buf = new byte[4096];
+                        int n;
+                        while ((n = in.read(buf)) > 0 && bo.size() < 400000) bo.write(buf, 0, n);
+                        in.close();
+                        byte[] data = bo.toByteArray();
+                        bmp = BitmapFactory.decodeByteArray(data, 0, data.length);
+                        if (bmp != null) {
+                            f.getParentFile().mkdirs();
+                            FileOutputStream fo = new FileOutputStream(f);
+                            fo.write(data);
+                            fo.close();
+                        }
+                    }
+                } catch (Exception ignored) {
+                }
+                final Bitmap result = bmp;
+                if (result != null) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (!isFinishing()) showIcon(tile, iv, letter, result);
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
     private View makeCard(String title, String subtitle, int badgeColor, String badgeText,
-                          boolean hero, final Runnable action) {
+                          boolean hero, String host, final Runnable action) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.HORIZONTAL);
         card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setPadding(dp(16), dp(14), dp(16), dp(14));
-        card.setMinimumHeight(dp(88));
+        card.setPadding(dp(18), dp(16), dp(18), dp(16));
+        card.setMinimumHeight(dp(hero ? 104 : 96));
         card.setFocusable(true);
         card.setClickable(true);
-        card.setBackground(hero ? heroBg() : stateBg(C_CARD, C_CARD_FOCUS, C_ACCENT));
+        card.setBackground(hero ? heroBg() : glassBg());
 
-        TextView badge = new TextView(this);
-        badge.setText(badgeText);
-        badge.setTextColor(Color.WHITE);
-        badge.setTextSize(22);
-        badge.setTypeface(Typeface.DEFAULT_BOLD);
-        badge.setGravity(Gravity.CENTER);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setShape(GradientDrawable.OVAL);
-        bg.setColor(hero ? 0x33FFFFFF : badgeColor);
-        badge.setBackground(bg);
-        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(dp(52), dp(52));
-        blp.setMargins(0, 0, dp(16), 0);
-        card.addView(badge, blp);
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+                dp(hero ? 68 : 64), dp(hero ? 68 : 64));
+        blp.setMargins(0, 0, dp(18), 0);
+        card.addView(makeIconTile(host, hero ? 0xFF7C3AED : badgeColor, badgeText,
+                hero ? 68 : 64), blp);
 
         LinearLayout texts = new LinearLayout(this);
         texts.setOrientation(LinearLayout.VERTICAL);
@@ -586,7 +705,7 @@ public class MainActivity extends Activity {
             final String[] last = findSite(lastUrl, lastName);
             LinearLayout row = newRow();
             row.addView(makeCard("Продължи: " + last[0], "Последно отворен сайт",
-                    0, "▶", true, new Runnable() {
+                    0, "▶", true, hostOf(last[1]), new Runnable() {
                         @Override
                         public void run() {
                             openSite(last);
@@ -617,7 +736,7 @@ public class MainActivity extends Activity {
                 }
                 final String[] site = list.get(i);
                 row.addView(makeCard(site[0], hostOf(site[1]), badgeColor(site[0]),
-                        initial(site[0]), false, new Runnable() {
+                        initial(site[0]), false, hostOf(site[1]), new Runnable() {
                             @Override
                             public void run() {
                                 openSite(site);
@@ -638,13 +757,20 @@ public class MainActivity extends Activity {
                 checkUpdate();
             }
         }), cellLp());
+        cacheBtn = (TextView) makeButton("♻  Изчисти кеша", false, new Runnable() {
+            @Override
+            public void run() {
+                clearCacheNow();
+            }
+        });
+        bottom.addView(cacheBtn, cellLp());
         bottom.addView(makeButton("⏻  Изход", true, new Runnable() {
             @Override
             public void run() {
                 exitApp();
             }
         }), cellLp());
-        bottom.addView(new View(this), cellLp());
+        refreshCacheLabel();
         LinearLayout.LayoutParams blp = rowLp();
         blp.topMargin = dp(20);
         menu.addView(bottom, blp);
@@ -663,6 +789,137 @@ public class MainActivity extends Activity {
                 if (menuHolder.getVisibility() == View.VISIBLE) menu.requestFocus();
             }
         });
+    }
+
+    // ---------- Кеш ----------
+
+    private static long dirSize(File f) {
+        if (f == null || !f.exists()) return 0;
+        if (f.isFile()) return f.length();
+        long s = 0;
+        File[] l = f.listFiles();
+        if (l != null) {
+            for (File c : l) s += dirSize(c);
+        }
+        return s;
+    }
+
+    private static void deleteTree(File f, boolean keepSelf) {
+        if (f == null || !f.exists()) return;
+        File[] l = f.listFiles();
+        if (l != null) {
+            for (File c : l) deleteTree(c, false);
+        }
+        if (!keepSelf) f.delete();
+    }
+
+    private static String mb(long bytes) {
+        return Math.round(bytes / 1048576.0) + " МБ";
+    }
+
+    // Смята размера на заден план и го показва върху бутона.
+    private void refreshCacheLabel() {
+        final TextView btn = cacheBtn;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final long size = dirSize(getCacheDir());
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (btn != null) btn.setText("♻  Изчисти кеша (" + mb(size) + ")");
+                    }
+                });
+            }
+        }).start();
+    }
+
+    private void clearCacheNow() {
+        final long before = dirSize(getCacheDir());
+        if (web != null) web.clearCache(true);
+        // Старият свален файл за актуализация вече не трябва, освен ако чака инсталиране.
+        File[] l = getCacheDir().listFiles();
+        if (l != null) {
+            for (File c : l) {
+                if (c.getName().equals("WebView")) continue;
+                if (c.getName().equals("updates") && pendingApk != null) continue;
+                deleteTree(c, false);
+            }
+        }
+        if (web == null) deleteTree(new File(getCacheDir(), "WebView"), false);
+        long after = dirSize(getCacheDir());
+        Toast.makeText(this, "Изчистено: " + mb(Math.max(0, before - after))
+                + " (остава " + mb(after) + ")", Toast.LENGTH_LONG).show();
+        refreshCacheLabel();
+    }
+
+    // Когато кешът е голям, пита дали да се изчисти (най-много веднъж на няколко часа).
+    private void maybeAskClearCache() {
+        long last = prefs.getLong("cacheAsk", 0);
+        if (System.currentTimeMillis() - last < CACHE_ASK_EVERY_MS) return;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final long size = dirSize(getCacheDir());
+                if (size < CACHE_ASK_BYTES) return;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (isFinishing() || menuHolder.getVisibility() != View.VISIBLE) return;
+                        prefs.edit().putLong("cacheAsk", System.currentTimeMillis()).apply();
+                        new AlertDialog.Builder(MainActivity.this)
+                                .setTitle("Кешът е голям")
+                                .setMessage("Заема " + mb(size) + ". Да се изчисти ли? "
+                                        + "Няма да изтрие сайтовете и входовете ти.")
+                                .setPositiveButton("Изчисти", new DialogInterface.OnClickListener() {
+                                    @Override
+                                    public void onClick(DialogInterface d, int w) {
+                                        clearCacheNow();
+                                    }
+                                })
+                                .setNegativeButton("Не сега", null)
+                                .show();
+                    }
+                });
+            }
+        }).start();
+    }
+
+    // Меко "светещо" фоново оформление на менюто.
+    private static class GlowDrawable extends Drawable {
+        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        @Override
+        public void draw(Canvas c) {
+            int w = getBounds().width();
+            int h = getBounds().height();
+            p.setShader(new LinearGradient(0, 0, w, h,
+                    new int[]{0xFF140C3A, 0xFF241261, 0xFF0E1A55}, null, Shader.TileMode.CLAMP));
+            c.drawRect(0, 0, w, h, p);
+            blob(c, w * 0.92f, h * 0.05f, Math.max(w, h) * 0.55f, 0x88D946A8);
+            blob(c, w * 0.05f, h * 0.95f, Math.max(w, h) * 0.45f, 0x773B82F6);
+            blob(c, w * 0.55f, h * 0.45f, Math.max(w, h) * 0.35f, 0x338B5CF6);
+            p.setShader(null);
+        }
+
+        private void blob(Canvas c, float x, float y, float r, int color) {
+            p.setShader(new RadialGradient(x, y, r, color, color & 0x00FFFFFF,
+                    Shader.TileMode.CLAMP));
+            c.drawCircle(x, y, r, p);
+        }
+
+        @Override
+        public void setAlpha(int a) {
+        }
+
+        @Override
+        public void setColorFilter(ColorFilter cf) {
+        }
+
+        @Override
+        public int getOpacity() {
+            return PixelFormat.OPAQUE;
+        }
     }
 
     // ---------- Отваряне на сайт ----------
@@ -832,6 +1089,7 @@ public class MainActivity extends Activity {
         menuHolder.setVisibility(View.VISIBLE);
         updateState();
         fillMenu();
+        maybeAskClearCache();
     }
 
     // Пълно затваряне: приложението и процесът му се прекратяват.
@@ -1081,6 +1339,8 @@ public class MainActivity extends Activity {
                 : "изключен (стрелките местят фокуса по страницата)"));
         logKeys.add("#update");
         rows.add("⬇  Провери за актуализации");
+        logKeys.add("#cache");
+        rows.add("♻  Изчисти кеша");
         logKeys.add("#stats");
         rows.add("▣  Статистика на екрана: " + (statsOn ? "ВКЛЮЧЕНА" : "изключена"));
 
@@ -1144,6 +1404,10 @@ public class MainActivity extends Activity {
         }
         if (key.equals("#update")) {
             checkUpdate();
+            return;
+        }
+        if (key.equals("#cache")) {
+            clearCacheNow();
             return;
         }
         if (key.equals("#stats")) {
