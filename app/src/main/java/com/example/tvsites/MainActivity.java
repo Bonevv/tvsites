@@ -151,8 +151,37 @@ public class MainActivity extends Activity {
     private static final long CACHE_ASK_BYTES = 150L * 1024 * 1024;
     private static final long CACHE_ASK_EVERY_MS = 6L * 60 * 60 * 1000;
     private static final long CACHE_AUTO_BYTES = 200L * 1024 * 1024;
+    private static final long CACHE_WATCH_MS = 90L * 1000;
+
+    // Докато гледаш сайт, на всеки 90 секунди проверява кеша и го чисти над прага
+    // (ако авто чистенето е включено). Не показва съобщения, за да не пречи на картината.
+    private final Runnable cacheWatch = new Runnable() {
+        @Override
+        public void run() {
+            if (web == null || web.getVisibility() != View.VISIBLE) return;
+            if (autoCacheOn()) {
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (dirSize(getCacheDir()) < CACHE_AUTO_BYTES) return;
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (web != null && web.getVisibility() == View.VISIBLE) {
+                                    web.clearCache(true);
+                                }
+                            }
+                        });
+                    }
+                }).start();
+            }
+            root.postDelayed(this, CACHE_WATCH_MS);
+        }
+    };
     private TextView cacheBtn;
     private TextView autoBtn;
+    // Версия на отворения сайт: "" (както е по подразбиране на устройството), "mobile" или "desktop".
+    private String curMode = "";
     private final HashSet<String> iconBusy = new HashSet<>();
 
     private static final int CURSOR_SIZE = 40;
@@ -850,6 +879,19 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    // Сменя между нормална и мобилна версия за отворения сайт, запомня избора и презарежда.
+    private void toggleSiteMode() {
+        if (allowedHost == null || web == null) return;
+        boolean toMobile = !"mobile".equals(curMode);
+        prefs.edit().putString("mode:" + allowedHost, toMobile ? "mobile" : "normal").apply();
+        curMode = toMobile ? "mobile" : "";
+        web.getSettings().setUserAgentString(toMobile ? MOBILE_UA : null);
+        Toast.makeText(this, toMobile ? "Мобилна версия" : "Нормална версия",
+                Toast.LENGTH_SHORT).show();
+        hideLog();
+        web.reload();
+    }
+
     private boolean autoCacheOn() {
         return prefs.getBoolean("autoCache", true);
     }
@@ -979,6 +1021,10 @@ public class MainActivity extends Activity {
         String url = site[1];
         String mode = site.length > 2 ? site[2] : "";
         allowedHost = Uri.parse(url).getHost();
+        // Личният избор на потребителя (от журнала) е по-важен от настройката по подразбиране.
+        String chosen = prefs.getString("mode:" + allowedHost, null);
+        if (chosen != null) mode = chosen.equals("mobile") ? "mobile" : "";
+        curMode = mode;
         cursorEnabled = allowedHost == null || !cursorOff.contains(allowedHost);
         clearHistoryPending = false;
         pageUrl = null;
@@ -1005,6 +1051,8 @@ public class MainActivity extends Activity {
 
         menuHolder.setVisibility(View.GONE);
         web.setVisibility(View.VISIBLE);
+        root.removeCallbacks(cacheWatch);
+        root.postDelayed(cacheWatch, CACHE_WATCH_MS);
 
         // Курсорът започва в средата на екрана.
         cx = (root.getWidth() > 0 ? root.getWidth() : 1920) / 2f;
@@ -1129,6 +1177,7 @@ public class MainActivity extends Activity {
 
     // Връща към менюто и спира всичко, което върви.
     private void backToMenu() {
+        root.removeCallbacks(cacheWatch);
         closeNative(false);
         if (logPanel != null) logPanel.setVisibility(View.GONE);
         if (customView != null && chromeClient != null) chromeClient.onHideCustomView();
@@ -1146,6 +1195,7 @@ public class MainActivity extends Activity {
     // Пълно затваряне: приложението и процесът му се прекратяват.
     private void exitApp() {
         exiting = true;
+        root.removeCallbacks(cacheWatch);
         closeNative(false);
         if (web != null) {
             web.stopLoading();
@@ -1390,6 +1440,10 @@ public class MainActivity extends Activity {
                 : "изключен (стрелките местят фокуса по страницата)"));
         logKeys.add("#update");
         rows.add("⬇  Провери за актуализации");
+        logKeys.add("#mode");
+        rows.add("▤  Версия на сайта: " + ("mobile".equals(curMode) ? "МОБИЛНА"
+                : "desktop".equals(curMode) ? "ДЕСКТОП" : "нормална")
+                + "  (натисни за смяна)");
         logKeys.add("#cache");
         rows.add("♻  Изчисти кеша");
         logKeys.add("#autocache");
@@ -1457,6 +1511,10 @@ public class MainActivity extends Activity {
         }
         if (key.equals("#update")) {
             checkUpdate();
+            return;
+        }
+        if (key.equals("#mode")) {
+            toggleSiteMode();
             return;
         }
         if (key.equals("#cache")) {
