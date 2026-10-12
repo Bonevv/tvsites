@@ -150,7 +150,9 @@ public class MainActivity extends Activity {
     // Над този размер на кеша приложението пита дали да го изчисти.
     private static final long CACHE_ASK_BYTES = 150L * 1024 * 1024;
     private static final long CACHE_ASK_EVERY_MS = 6L * 60 * 60 * 1000;
+    private static final long CACHE_AUTO_BYTES = 200L * 1024 * 1024;
     private TextView cacheBtn;
+    private TextView autoBtn;
     private final HashSet<String> iconBusy = new HashSet<>();
 
     private static final int CURSOR_SIZE = 40;
@@ -766,16 +768,28 @@ public class MainActivity extends Activity {
             }
         });
         bottom.addView(cacheBtn, cellLp());
-        bottom.addView(makeButton("⏻  Изход", true, new Runnable() {
+        autoBtn = (TextView) makeButton(autoLabel(), false, new Runnable() {
+            @Override
+            public void run() {
+                toggleAutoCache();
+            }
+        });
+        bottom.addView(autoBtn, cellLp());
+        refreshCacheLabel();
+        LinearLayout.LayoutParams blp = rowLp();
+        blp.topMargin = dp(20);
+        menu.addView(bottom, blp);
+
+        LinearLayout bottom2 = newRow();
+        bottom2.addView(makeButton("⏻  Изход", true, new Runnable() {
             @Override
             public void run() {
                 exitApp();
             }
         }), cellLp());
-        refreshCacheLabel();
-        LinearLayout.LayoutParams blp = rowLp();
-        blp.topMargin = dp(20);
-        menu.addView(bottom, blp);
+        bottom2.addView(new View(this), cellLp());
+        bottom2.addView(new View(this), cellLp());
+        menu.addView(bottom2, rowLp());
 
         TextView ver = new TextView(this);
         ver.setText("Версия " + installedName());
@@ -836,7 +850,27 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    private boolean autoCacheOn() {
+        return prefs.getBoolean("autoCache", true);
+    }
+
+    private void toggleAutoCache() {
+        boolean on = !autoCacheOn();
+        prefs.edit().putBoolean("autoCache", on).apply();
+        Toast.makeText(this, on ? "Автоматичното чистене е включено (над 200 МБ)"
+                : "Автоматичното чистене е изключено", Toast.LENGTH_SHORT).show();
+        if (autoBtn != null) autoBtn.setText(autoLabel());
+    }
+
+    private String autoLabel() {
+        return "⟳  Авто чистене: " + (autoCacheOn() ? "ДА" : "не");
+    }
+
     private void clearCacheNow() {
+        clearCache(false);
+    }
+
+    private void clearCache(boolean quiet) {
         final long before = dirSize(getCacheDir());
         if (web != null) web.clearCache(true);
         // Старият свален файл за актуализация вече не трябва, освен ако чака инсталиране.
@@ -850,19 +884,34 @@ public class MainActivity extends Activity {
         }
         if (web == null) deleteTree(new File(getCacheDir(), "WebView"), false);
         long after = dirSize(getCacheDir());
-        Toast.makeText(this, "Изчистено: " + mb(Math.max(0, before - after))
+        Toast.makeText(this, (quiet ? "Кешът е изчистен автоматично: " : "Изчистено: ")
+                + mb(Math.max(0, before - after))
                 + " (остава " + mb(after) + ")", Toast.LENGTH_LONG).show();
         refreshCacheLabel();
     }
 
-    // Когато кешът е голям, пита дали да се изчисти (най-много веднъж на няколко часа).
+    // Автоматично чистене над 200 МБ (ако е включено), иначе - въпрос над 150 МБ.
+    // Ако кешът е изчистен ръчно и е малък, не се прави нищо.
     private void maybeAskClearCache() {
+        final boolean auto = autoCacheOn();
         long last = prefs.getLong("cacheAsk", 0);
-        if (System.currentTimeMillis() - last < CACHE_ASK_EVERY_MS) return;
+        if (!auto && System.currentTimeMillis() - last < CACHE_ASK_EVERY_MS) return;
         new Thread(new Runnable() {
             @Override
             public void run() {
                 final long size = dirSize(getCacheDir());
+                if (auto) {
+                    if (size < CACHE_AUTO_BYTES) return;
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (!isFinishing() && menuHolder.getVisibility() == View.VISIBLE) {
+                                clearCache(true);
+                            }
+                        }
+                    });
+                    return;
+                }
                 if (size < CACHE_ASK_BYTES) return;
                 runOnUiThread(new Runnable() {
                     @Override
@@ -1343,6 +1392,8 @@ public class MainActivity extends Activity {
         rows.add("⬇  Провери за актуализации");
         logKeys.add("#cache");
         rows.add("♻  Изчисти кеша");
+        logKeys.add("#autocache");
+        rows.add("⟳  Авто чистене на кеша: " + (autoCacheOn() ? "ВКЛЮЧЕНО (над 200 МБ)" : "изключено"));
         logKeys.add("#stats");
         rows.add("▣  Статистика на екрана: " + (statsOn ? "ВКЛЮЧЕНА" : "изключена"));
 
@@ -1410,6 +1461,11 @@ public class MainActivity extends Activity {
         }
         if (key.equals("#cache")) {
             clearCacheNow();
+            return;
+        }
+        if (key.equals("#autocache")) {
+            toggleAutoCache();
+            refreshLog(pos);
             return;
         }
         if (key.equals("#stats")) {
