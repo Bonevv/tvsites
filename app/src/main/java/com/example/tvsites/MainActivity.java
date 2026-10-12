@@ -2,16 +2,24 @@ package com.example.tvsites;
 
 import android.app.Activity;
 import android.app.ActivityManager;
+import android.app.AlertDialog;
 import android.content.Context;
+import android.content.DialogInterface;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
-import android.graphics.drawable.ColorDrawable;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.provider.Settings;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.InputDevice;
 import android.view.KeyEvent;
@@ -28,7 +36,6 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.ArrayAdapter;
-import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ListView;
@@ -36,6 +43,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.core.content.FileProvider;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
@@ -44,6 +52,14 @@ import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -57,17 +73,22 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class MainActivity extends Activity {
 
+    // Хранилището в GitHub, откъдето се проверяват новите версии.
+    private static final String UPDATE_REPO = "Bonevv/tvsites";
+
     // Адрес на текстов файл с настройки (сайтове и блокирани домейни).
     // Остави го празен, ако не искаш да го ползваш. Пример за формата: tvsites-example.txt
-    // Пример: "https://gist.githubusercontent.com/ТВОЕТО_ИМЕ/ИДЕНТИФИКАТОР/raw/tvsites.txt"
     private static final String CONFIG_URL = "";
 
-    // Сайтове по подразбиране: {етикет, адрес, режим}. Режим: "" | "mobile" | "desktop"
+    // Сайтове по подразбиране: {етикет, адрес, режим, група}. Режим: "" | "mobile" | "desktop"
     private static final String[][] DEFAULT_SITES = {
-            {"IPTV-BG", "https://iptv-bg.com/", ""},
-            {"GledaiTV", "https://www.gledaitv.fan/", ""},
-            {"FilmiZip", "https://filmizip.com/", ""},
-            {"Filmi9", "https://filmi9.com/", ""},
+            {"GledaiTV", "https://www.gledaitv.fan/", "", "Телевизия"},
+            {"GledaiTV Live", "https://www.gledaitv.live/", "", "Телевизия"},
+            {"IPTV-BG", "https://iptv-bg.com/", "", "Телевизия"},
+            {"FilmiZip", "https://filmizip.com/", "", "Филми"},
+            {"Filmi9", "https://filmi9.com/", "", "Филми"},
+            {"ZenoPlay", "https://zenoplay.to/movies/", "", "Филми"},
+            {"Всички филми", "https://vsichkifilmi.net/", "", "Филми"},
     };
 
     // Вграден списък с рекламни и проследяващи домейни (заедно с поддомейните им).
@@ -85,6 +106,9 @@ public class MainActivity extends Activity {
             "revcontent.com", "adcash.com", "bidvertiser.com", "a-ads.com",
             "monetag.com", "richpush.co", "pushame.com", "realsrv.com",
             "an.yandex.ru", "mc.yandex.ru", "ads.yahoo.com", "adskeeper.com", "adsco.re",
+            "adapex.io", "adsrvr.org", "casalemedia.com", "bidswitch.net",
+            "sharethrough.com", "sovrn.com", "33across.com", "id5-sync.com",
+            "contextweb.com", "teads.tv", "onetag-sys.com",
     };
 
     private static final String MOBILE_UA =
@@ -99,6 +123,18 @@ public class MainActivity extends Activity {
             "(function(){var v=document.querySelector('video');"
                     + "if(v){if(v.paused){v.play();}else{v.pause();}return 'ok';}"
                     + "return 'none';})()";
+
+    // Цветове
+    private static final int C_CARD = 0xFF1B2142;
+    private static final int C_CARD_FOCUS = 0xFF2E3578;
+    private static final int C_ACCENT = 0xFF8B7CFF;
+    private static final int C_MUTED = 0xFF9AA4D0;
+    private static final int C_DANGER = 0xFFF87171;
+    private static final int[] BADGES = {
+            0xFF6366F1, 0xFFEC4899, 0xFF10B981, 0xFFF59E0B,
+            0xFF06B6D4, 0xFFEF4444, 0xFF8B5CF6,
+    };
+    private static final int COLS = 3;
 
     private static final int CURSOR_SIZE = 40;
     private static final int CURSOR_HIDE_MS = 4000;
@@ -116,7 +152,9 @@ public class MainActivity extends Activity {
     private CursorView cursor;
     private float cx, cy;
     private boolean cursorIdle;
+    private boolean cursorEnabled = true;
     private boolean okLongHandled;
+    private final HashSet<String> cursorOff = new HashSet<>();
     private final Runnable hideCursor = new Runnable() {
         @Override
         public void run() {
@@ -133,6 +171,10 @@ public class MainActivity extends Activity {
     private String resumeUrl;
     private SharedPreferences prefs;
     private final ArrayList<String[]> sites = new ArrayList<>();
+
+    // ---- обновяване ----
+    private volatile boolean updCancel;
+    private File pendingApk;
 
     // ---- блокиране ----
     private final CopyOnWriteArraySet<String> userBlocked = new CopyOnWriteArraySet<>();
@@ -190,6 +232,18 @@ public class MainActivity extends Activity {
         }
     };
 
+    // Лек ефект при фокус върху бутон в менюто.
+    private final View.OnFocusChangeListener focusAnim = new View.OnFocusChangeListener() {
+        @Override
+        public void onFocusChange(View v, boolean has) {
+            v.animate().scaleX(has ? 1.05f : 1f).scaleY(has ? 1.05f : 1f).setDuration(120).start();
+        }
+    };
+
+    private int dp(int v) {
+        return Math.round(v * getResources().getDisplayMetrics().density);
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -202,10 +256,17 @@ public class MainActivity extends Activity {
 
         menuHolder = new ScrollView(this);
         menuHolder.setFillViewport(true);
-        menuHolder.setBackgroundColor(Color.parseColor("#111827"));
+        menuHolder.setClipChildren(false);
+        menuHolder.setClipToPadding(false);
+        menuHolder.setVerticalScrollBarEnabled(false);
+        menuHolder.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{0xFF0B1020, 0xFF1A1442}));
         menu = new LinearLayout(this);
         menu.setOrientation(LinearLayout.VERTICAL);
-        menu.setGravity(Gravity.CENTER);
+        menu.setGravity(Gravity.CENTER_VERTICAL);
+        menu.setClipChildren(false);
+        menu.setClipToPadding(false);
+        menu.setPadding(dp(56), dp(36), dp(56), dp(36));
         menuHolder.addView(menu, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(menuHolder, new FrameLayout.LayoutParams(
@@ -230,26 +291,29 @@ public class MainActivity extends Activity {
         for (String[] s : DEFAULT_SITES) sites.add(s);
     }
 
+    private static String readAll(InputStream in) throws java.io.IOException {
+        java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+        byte[] buf = new byte[4096];
+        int n;
+        while ((n = in.read(buf)) > 0) {
+            bo.write(buf, 0, n);
+            if (bo.size() > 500000) break;
+        }
+        in.close();
+        return bo.toString("UTF-8");
+    }
+
     private void fetchConfig() {
         if (CONFIG_URL.isEmpty()) return;
         new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
-                    java.net.HttpURLConnection c =
-                            (java.net.HttpURLConnection) new java.net.URL(CONFIG_URL).openConnection();
+                    HttpURLConnection c = (HttpURLConnection) new URL(CONFIG_URL).openConnection();
                     c.setConnectTimeout(8000);
                     c.setReadTimeout(8000);
                     if (c.getResponseCode() != 200) return;
-                    java.io.InputStream in = c.getInputStream();
-                    java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
-                    byte[] buf = new byte[4096];
-                    int n;
-                    while ((n = in.read(buf)) > 0 && bo.size() < 200000) {
-                        bo.write(buf, 0, n);
-                    }
-                    in.close();
-                    final String text = bo.toString("UTF-8");
+                    final String text = readAll(c.getInputStream());
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
@@ -281,8 +345,9 @@ public class MainActivity extends Activity {
                     String name = p[0].trim();
                     String url = p[1].trim();
                     String mode = p.length >= 3 ? p[2].trim().toLowerCase(Locale.ROOT) : "";
+                    String group = p.length >= 4 ? p[3].trim() : "";
                     if (!name.isEmpty() && url.startsWith("http")) {
-                        newSites.add(new String[]{name, url, mode});
+                        newSites.add(new String[]{name, url, mode, group});
                     }
                 }
             } else if (key.equals("block")) {
@@ -302,75 +367,302 @@ public class MainActivity extends Activity {
 
     // ---------- Меню ----------
 
-    private Button addMenuButton(String text, int topMargin, final Runnable action) {
-        Button b = new Button(this);
+    private String[] findSite(String url, String name) {
+        for (String[] s : sites) {
+            if (s[1].equals(url)) return s;
+        }
+        return new String[]{name, url, "", ""};
+    }
+
+    private static String hostOf(String url) {
+        String h = Uri.parse(url).getHost();
+        return h == null ? url : stripWww(h);
+    }
+
+    private static int badgeColor(String name) {
+        return BADGES[(name.hashCode() & 0x7fffffff) % BADGES.length];
+    }
+
+    private static String initial(String name) {
+        return name.isEmpty() ? "?" : name.substring(0, 1).toUpperCase(Locale.ROOT);
+    }
+
+    private String installedName() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            return "?";
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private int installedCode() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private LinearLayout newRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setClipChildren(false);
+        row.setClipToPadding(false);
+        return row;
+    }
+
+    private LinearLayout.LayoutParams rowLp() {
+        return new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+    }
+
+    private LinearLayout.LayoutParams cellLp() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
+        lp.setMargins(dp(8), dp(8), dp(8), dp(8));
+        return lp;
+    }
+
+    private View buildHeader() {
+        LinearLayout h = new LinearLayout(this);
+        h.setOrientation(LinearLayout.HORIZONTAL);
+        h.setGravity(Gravity.CENTER_VERTICAL);
+        h.setPadding(dp(8), 0, 0, dp(20));
+
+        TextView logo = new TextView(this);
+        logo.setText("▶");
+        logo.setTextColor(Color.WHITE);
+        logo.setTextSize(22);
+        logo.setGravity(Gravity.CENTER);
+        GradientDrawable lg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{0xFF8B7CFF, 0xFFEC4899});
+        lg.setShape(GradientDrawable.OVAL);
+        logo.setBackground(lg);
+        h.addView(logo, new LinearLayout.LayoutParams(dp(64), dp(64)));
+
+        LinearLayout t = new LinearLayout(this);
+        t.setOrientation(LinearLayout.VERTICAL);
+        t.setPadding(dp(20), 0, 0, 0);
+        TextView title = new TextView(this);
+        title.setText("ТВ Сайтове");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(34);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        TextView sub = new TextView(this);
+        sub.setText("Телевизия и филми на големия екран");
+        sub.setTextColor(C_MUTED);
+        sub.setTextSize(15);
+        t.addView(title);
+        t.addView(sub);
+        h.addView(t);
+        return h;
+    }
+
+    private View makeSectionLabel(String text) {
+        TextView t = new TextView(this);
+        t.setText(text.toUpperCase(Locale.forLanguageTag("bg")));
+        t.setTextColor(C_MUTED);
+        t.setTextSize(14);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setLetterSpacing(0.15f);
+        t.setPadding(dp(10), dp(20), 0, dp(4));
+        return t;
+    }
+
+    private StateListDrawable stateBg(int normalColor, int focusColor, int strokeColor) {
+        GradientDrawable normal = new GradientDrawable();
+        normal.setColor(normalColor);
+        normal.setCornerRadius(dp(16));
+        GradientDrawable focused = new GradientDrawable();
+        focused.setColor(focusColor);
+        focused.setCornerRadius(dp(16));
+        focused.setStroke(dp(3), strokeColor);
+        StateListDrawable sl = new StateListDrawable();
+        sl.addState(new int[]{android.R.attr.state_focused}, focused);
+        sl.addState(new int[]{}, normal);
+        return sl;
+    }
+
+    private StateListDrawable heroBg() {
+        GradientDrawable normal = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[]{0xFF5B3FD6, 0xFFB5179E});
+        normal.setCornerRadius(dp(16));
+        GradientDrawable focused = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[]{0xFF7358F0, 0xFFD62BB8});
+        focused.setCornerRadius(dp(16));
+        focused.setStroke(dp(3), Color.WHITE);
+        StateListDrawable sl = new StateListDrawable();
+        sl.addState(new int[]{android.R.attr.state_focused}, focused);
+        sl.addState(new int[]{}, normal);
+        return sl;
+    }
+
+    private View makeCard(String title, String subtitle, int badgeColor, String badgeText,
+                          boolean hero, final Runnable action) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setPadding(dp(16), dp(14), dp(16), dp(14));
+        card.setMinimumHeight(dp(88));
+        card.setFocusable(true);
+        card.setClickable(true);
+        card.setBackground(hero ? heroBg() : stateBg(C_CARD, C_CARD_FOCUS, C_ACCENT));
+
+        TextView badge = new TextView(this);
+        badge.setText(badgeText);
+        badge.setTextColor(Color.WHITE);
+        badge.setTextSize(22);
+        badge.setTypeface(Typeface.DEFAULT_BOLD);
+        badge.setGravity(Gravity.CENTER);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setShape(GradientDrawable.OVAL);
+        bg.setColor(hero ? 0x33FFFFFF : badgeColor);
+        badge.setBackground(bg);
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(dp(52), dp(52));
+        blp.setMargins(0, 0, dp(16), 0);
+        card.addView(badge, blp);
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        TextView tt = new TextView(this);
+        tt.setText(title);
+        tt.setTextColor(Color.WHITE);
+        tt.setTextSize(20);
+        tt.setTypeface(Typeface.DEFAULT_BOLD);
+        tt.setSingleLine(true);
+        tt.setEllipsize(TextUtils.TruncateAt.END);
+        TextView st = new TextView(this);
+        st.setText(subtitle);
+        st.setTextColor(hero ? 0xCCFFFFFF : C_MUTED);
+        st.setTextSize(13);
+        st.setSingleLine(true);
+        st.setEllipsize(TextUtils.TruncateAt.END);
+        texts.addView(tt);
+        texts.addView(st);
+        card.addView(texts, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        card.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                action.run();
+            }
+        });
+        card.setOnFocusChangeListener(focusAnim);
+        return card;
+    }
+
+    private View makeButton(String text, boolean danger, final Runnable action) {
+        TextView b = new TextView(this);
         b.setText(text);
-        b.setTextSize(22);
-        b.setAllCaps(false);
+        b.setTextColor(Color.WHITE);
+        b.setTextSize(18);
+        b.setGravity(Gravity.CENTER);
+        b.setPadding(dp(16), dp(18), dp(16), dp(18));
         b.setFocusable(true);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(720, 100);
-        lp.setMargins(0, topMargin, 0, 16);
+        b.setClickable(true);
+        b.setBackground(danger
+                ? stateBg(0xFF3A1D2A, 0xFF5B2437, C_DANGER)
+                : stateBg(0xFF161B38, C_CARD_FOCUS, C_ACCENT));
         b.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 action.run();
             }
         });
-        menu.addView(b, lp);
+        b.setOnFocusChangeListener(focusAnim);
         return b;
-    }
-
-    private String[] findSite(String url, String name) {
-        for (String[] s : sites) {
-            if (s[1].equals(url)) return s;
-        }
-        return new String[]{name, url, ""};
     }
 
     private void fillMenu() {
         menu.removeAllViews();
-
-        TextView title = new TextView(this);
-        title.setText("Избери сайт");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(30);
-        title.setGravity(Gravity.CENTER);
-        title.setPadding(0, 32, 0, 32);
-        menu.addView(title);
+        menu.addView(buildHeader());
 
         // Продължи от последния сайт.
         String lastUrl = prefs.getString("lastUrl", null);
         String lastName = prefs.getString("lastName", null);
         if (lastUrl != null && lastName != null) {
             final String[] last = findSite(lastUrl, lastName);
-            addMenuButton("▶  Продължи: " + last[0], 0, new Runnable() {
-                @Override
-                public void run() {
-                    openSite(last);
-                }
-            });
+            LinearLayout row = newRow();
+            row.addView(makeCard("Продължи: " + last[0], "Последно отворен сайт",
+                    0, "▶", true, new Runnable() {
+                        @Override
+                        public void run() {
+                            openSite(last);
+                        }
+                    }), cellLp());
+            menu.addView(row, rowLp());
         }
 
-        for (final String[] site : sites) {
-            addMenuButton(site[0], 0, new Runnable() {
-                @Override
-                public void run() {
-                    openSite(site);
+        // Групи от сайтове.
+        LinkedHashMap<String, ArrayList<String[]>> groups = new LinkedHashMap<>();
+        for (String[] s : sites) {
+            String g = (s.length > 3 && !s[3].isEmpty()) ? s[3] : "Сайтове";
+            ArrayList<String[]> l = groups.get(g);
+            if (l == null) {
+                l = new ArrayList<>();
+                groups.put(g, l);
+            }
+            l.add(s);
+        }
+        for (Map.Entry<String, ArrayList<String[]>> en : groups.entrySet()) {
+            menu.addView(makeSectionLabel(en.getKey()));
+            ArrayList<String[]> list = en.getValue();
+            LinearLayout row = null;
+            for (int i = 0; i < list.size(); i++) {
+                if (i % COLS == 0) {
+                    row = newRow();
+                    menu.addView(row, rowLp());
                 }
-            });
+                final String[] site = list.get(i);
+                row.addView(makeCard(site[0], hostOf(site[1]), badgeColor(site[0]),
+                        initial(site[0]), false, new Runnable() {
+                            @Override
+                            public void run() {
+                                openSite(site);
+                            }
+                        }), cellLp());
+            }
+            int rem = list.size() % COLS;
+            if (rem != 0 && row != null) {
+                for (int k = rem; k < COLS; k++) row.addView(new View(this), cellLp());
+            }
         }
 
-        // Изход: затваря приложението напълно.
-        addMenuButton("Изход", 24, new Runnable() {
+        // Бутони най-долу.
+        LinearLayout bottom = newRow();
+        bottom.addView(makeButton("↻  Провери за актуализации", false, new Runnable() {
+            @Override
+            public void run() {
+                checkUpdate();
+            }
+        }), cellLp());
+        bottom.addView(makeButton("⏻  Изход", true, new Runnable() {
             @Override
             public void run() {
                 exitApp();
             }
-        });
+        }), cellLp());
+        bottom.addView(new View(this), cellLp());
+        LinearLayout.LayoutParams blp = rowLp();
+        blp.topMargin = dp(20);
+        menu.addView(bottom, blp);
 
-        if (menuHolder.getVisibility() == View.VISIBLE && menu.getChildCount() > 1) {
-            menu.getChildAt(1).requestFocus();
-        }
+        TextView ver = new TextView(this);
+        ver.setText("Версия " + installedName());
+        ver.setTextColor(0xFF5B6490);
+        ver.setTextSize(13);
+        ver.setGravity(Gravity.CENTER);
+        ver.setPadding(0, dp(16), 0, 0);
+        menu.addView(ver);
+
+        menu.post(new Runnable() {
+            @Override
+            public void run() {
+                if (menuHolder.getVisibility() == View.VISIBLE) menu.requestFocus();
+            }
+        });
     }
 
     // ---------- Отваряне на сайт ----------
@@ -379,6 +671,7 @@ public class MainActivity extends Activity {
         String url = site[1];
         String mode = site.length > 2 ? site[2] : "";
         allowedHost = Uri.parse(url).getHost();
+        cursorEnabled = allowedHost == null || !cursorOff.contains(allowedHost);
         clearHistoryPending = false;
         pageUrl = null;
         synchronized (hostCounts) {
@@ -563,7 +856,8 @@ public class MainActivity extends Activity {
 
     private void updateState() {
         if (cursor != null) {
-            cursor.setVisibility(webActive() && !cursorIdle ? View.VISIBLE : View.GONE);
+            cursor.setVisibility(webActive() && cursorEnabled && !cursorIdle
+                    ? View.VISIBLE : View.GONE);
         }
         // Докато гледаш, екранът не заспива.
         boolean inSite = customView != null || nativeActive()
@@ -610,12 +904,14 @@ public class MainActivity extends Activity {
     private void loadLists() {
         userBlocked.addAll(prefs.getStringSet("blocked", new HashSet<String>()));
         userAllowed.addAll(prefs.getStringSet("allowed", new HashSet<String>()));
+        cursorOff.addAll(prefs.getStringSet("cursorOff", new HashSet<String>()));
     }
 
     private void saveLists() {
         prefs.edit()
                 .putStringSet("blocked", new HashSet<String>(userBlocked))
                 .putStringSet("allowed", new HashSet<String>(userAllowed))
+                .putStringSet("cursorOff", new HashSet<String>(cursorOff))
                 .apply();
     }
 
@@ -628,6 +924,20 @@ public class MainActivity extends Activity {
             userBlocked.add(host);
         }
         saveLists();
+    }
+
+    private void toggleCursor() {
+        cursorEnabled = !cursorEnabled;
+        if (allowedHost != null) {
+            if (cursorEnabled) cursorOff.remove(allowedHost);
+            else cursorOff.add(allowedHost);
+            saveLists();
+        }
+        Toast.makeText(this, cursorEnabled
+                ? "Курсорът е включен: стрелките го местят, OK кликва"
+                : "Курсорът е изключен: стрелките местят фокуса по страницата, OK натиска",
+                Toast.LENGTH_LONG).show();
+        updateState();
     }
 
     // Запомня адресите на видео потоци, които страницата зарежда.
@@ -672,40 +982,44 @@ public class MainActivity extends Activity {
     private void buildLogPanel() {
         logPanel = new LinearLayout(this);
         logPanel.setOrientation(LinearLayout.VERTICAL);
-        logPanel.setBackgroundColor(Color.parseColor("#F2111827"));
-        logPanel.setPadding(80, 40, 80, 40);
+        logPanel.setBackgroundColor(0xF20B1020);
+        logPanel.setPadding(dp(64), dp(32), dp(64), dp(32));
 
         TextView t = new TextView(this);
-        t.setText("Журнал");
+        t.setText("Меню на страницата");
         t.setTextColor(Color.WHITE);
-        t.setTextSize(26);
+        t.setTextSize(28);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
         logPanel.addView(t);
 
         TextView hint = new TextView(this);
         hint.setText("OK = избери   Назад = затвори.   Червените домейни са блокирани."
                 + " След промяна избери \"Презареди страницата\".");
-        hint.setTextColor(Color.parseColor("#9CA3AF"));
-        hint.setTextSize(16);
-        hint.setPadding(0, 8, 0, 16);
+        hint.setTextColor(C_MUTED);
+        hint.setTextSize(15);
+        hint.setPadding(0, dp(6), 0, dp(14));
         logPanel.addView(hint);
 
         logList = new ListView(this);
-        logList.setSelector(new ColorDrawable(0x553B82F6));
+        GradientDrawable sel = new GradientDrawable();
+        sel.setColor(0x558B7CFF);
+        sel.setCornerRadius(dp(10));
+        logList.setSelector(sel);
         logList.setDividerHeight(0);
         logAdapter = new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1,
                 new ArrayList<String>()) {
             @Override
             public View getView(int pos, View convertView, ViewGroup parent) {
                 TextView tv = (TextView) super.getView(pos, convertView, parent);
-                tv.setTextSize(20);
-                tv.setPadding(24, 16, 24, 16);
+                tv.setTextSize(19);
+                tv.setPadding(dp(16), dp(12), dp(16), dp(12));
                 String key = pos < logKeys.size() ? logKeys.get(pos) : "";
                 if (key.equals("#none")) {
-                    tv.setTextColor(Color.parseColor("#6B7280"));
+                    tv.setTextColor(0xFF6B7280);
                 } else if (key.startsWith("#")) {
-                    tv.setTextColor(Color.parseColor("#93C5FD"));
+                    tv.setTextColor(0xFF93C5FD);
                 } else if (isBlocked(key)) {
-                    tv.setTextColor(Color.parseColor("#F87171"));
+                    tv.setTextColor(C_DANGER);
                 } else {
                     tv.setTextColor(Color.WHITE);
                 }
@@ -733,7 +1047,7 @@ public class MainActivity extends Activity {
 
     private void showLog() {
         if (web == null || logPanel == null) return;
-        refreshLog(2);
+        refreshLog(0);
         logPanel.setVisibility(View.VISIBLE);
         updateState();
         logList.requestFocus();
@@ -761,6 +1075,12 @@ public class MainActivity extends Activity {
 
         logKeys.add("#reload");
         rows.add("↻  Презареди страницата");
+        logKeys.add("#cursor");
+        rows.add("⌖  Курсор: " + (cursorEnabled
+                ? "ВКЛЮЧЕН (стрелките го местят)"
+                : "изключен (стрелките местят фокуса по страницата)"));
+        logKeys.add("#update");
+        rows.add("⬇  Провери за актуализации");
         logKeys.add("#stats");
         rows.add("▣  Статистика на екрана: " + (statsOn ? "ВКЛЮЧЕНА" : "изключена"));
 
@@ -784,7 +1104,7 @@ public class MainActivity extends Activity {
         }
         if (shown == 0) {
             logKeys.add("#none");
-            rows.add("(още няма намерени видео потоци - пусни канала и отвори журнала пак)");
+            rows.add("(още няма намерени видео потоци - пусни канала и отвори менюто пак)");
         }
 
         // Домейни, към които страницата праща заявки.
@@ -817,6 +1137,15 @@ public class MainActivity extends Activity {
             web.reload();
             return;
         }
+        if (key.equals("#cursor")) {
+            toggleCursor();
+            refreshLog(pos);
+            return;
+        }
+        if (key.equals("#update")) {
+            checkUpdate();
+            return;
+        }
         if (key.equals("#stats")) {
             toggleStats();
             refreshLog(pos);
@@ -834,6 +1163,216 @@ public class MainActivity extends Activity {
         }
         toggleBlock(key);
         refreshLog(pos);
+    }
+
+    // ---------- Актуализации ----------
+
+    private void showInfo(String title, String msg) {
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMessage(msg)
+                .setPositiveButton("OK", null)
+                .show();
+    }
+
+    // Проверява само когато потребителят го поиска.
+    private void checkUpdate() {
+        Toast.makeText(this, "Проверявам за нова версия...", Toast.LENGTH_SHORT).show();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                String err = null;
+                int latest = 0;
+                String apkUrl = null;
+                try {
+                    HttpURLConnection c = (HttpURLConnection) new URL(
+                            "https://api.github.com/repos/" + UPDATE_REPO + "/releases/latest")
+                            .openConnection();
+                    c.setRequestProperty("Accept", "application/vnd.github+json");
+                    c.setRequestProperty("User-Agent", "TvSites");
+                    c.setConnectTimeout(10000);
+                    c.setReadTimeout(10000);
+                    int rc = c.getResponseCode();
+                    if (rc != 200) {
+                        err = "GitHub отговори с код " + rc
+                                + (rc == 404 ? " (няма публикувана версия или хранилището не е публично)" : "");
+                    } else {
+                        JSONObject o = new JSONObject(readAll(c.getInputStream()));
+                        String digits = o.optString("tag_name", "").replaceAll("[^0-9]", "");
+                        latest = digits.isEmpty() ? 0 : Integer.parseInt(digits);
+                        JSONArray assets = o.optJSONArray("assets");
+                        if (assets != null) {
+                            for (int i = 0; i < assets.length(); i++) {
+                                JSONObject a = assets.getJSONObject(i);
+                                if (a.optString("name", "").endsWith(".apk")) {
+                                    apkUrl = a.optString("browser_download_url", null);
+                                    break;
+                                }
+                            }
+                        }
+                        if (apkUrl == null) err = "В последната версия няма APK файл.";
+                    }
+                } catch (Exception e) {
+                    err = "Няма връзка или грешка при проверката.";
+                }
+                final String ferr = err;
+                final int flatest = latest;
+                final String furl = apkUrl;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (ferr != null) {
+                            showInfo("Проверка за актуализации", ferr);
+                        } else if (flatest > installedCode()) {
+                            askUpdate(flatest, furl);
+                        } else {
+                            showInfo("Проверка за актуализации",
+                                    "Имаш последната версия (" + installedName() + ").");
+                        }
+                    }
+                });
+            }
+        }).start();
+    }
+
+    private void askUpdate(final int latest, final String url) {
+        new AlertDialog.Builder(this)
+                .setTitle("Има нова версия")
+                .setMessage("Инсталирана: " + installedName() + "\nНова: 2." + latest
+                        + "\n\nДа се свали и инсталира ли?")
+                .setPositiveButton("Да, обнови", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int w) {
+                        downloadUpdate(url, latest);
+                    }
+                })
+                .setNegativeButton("Не сега", null)
+                .show();
+    }
+
+    private void downloadUpdate(final String url, final int ver) {
+        updCancel = false;
+        final AlertDialog dlg = new AlertDialog.Builder(this)
+                .setTitle("Сваляне на версия 2." + ver)
+                .setMessage("Свалям... 0%")
+                .setOnCancelListener(new DialogInterface.OnCancelListener() {
+                    @Override
+                    public void onCancel(DialogInterface d) {
+                        updCancel = true;
+                    }
+                })
+                .create();
+        dlg.show();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                File f = null;
+                String err = null;
+                try {
+                    File dir = new File(getCacheDir(), "updates");
+                    dir.mkdirs();
+                    f = new File(dir, "update.apk");
+                    HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+                    c.setRequestProperty("User-Agent", "TvSites");
+                    c.setConnectTimeout(15000);
+                    c.setReadTimeout(20000);
+                    if (c.getResponseCode() != 200) {
+                        throw new java.io.IOException("код " + c.getResponseCode());
+                    }
+                    final long total = c.getContentLength();
+                    InputStream in = c.getInputStream();
+                    FileOutputStream out = new FileOutputStream(f);
+                    byte[] buf = new byte[16384];
+                    long done = 0;
+                    long lastUi = 0;
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        if (updCancel) break;
+                        out.write(buf, 0, n);
+                        done += n;
+                        long now = SystemClock.uptimeMillis();
+                        if (now - lastUi > 400) {
+                            lastUi = now;
+                            final String msg = total > 0
+                                    ? "Свалям... " + (done * 100 / total) + "%"
+                                    : "Свалям... " + (done / 1048576) + " МБ";
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    dlg.setMessage(msg);
+                                }
+                            });
+                        }
+                    }
+                    out.close();
+                    in.close();
+                    if (!updCancel && total > 0 && done != total) {
+                        throw new java.io.IOException("файлът е свален непълно");
+                    }
+                } catch (Exception e) {
+                    err = "Неуспешно сваляне (" + e.getMessage() + ")";
+                }
+                final File fin = f;
+                final String ferr = err;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        dlg.dismiss();
+                        if (updCancel) {
+                            if (fin != null) fin.delete();
+                        } else if (ferr != null) {
+                            showInfo("Актуализация", ferr);
+                        } else {
+                            installApk(fin);
+                        }
+                    }
+                });
+            }
+        }).start();
+    }
+
+    private boolean canInstallPackages() {
+        return Build.VERSION.SDK_INT < 26 || getPackageManager().canRequestPackageInstalls();
+    }
+
+    private void installApk(File f) {
+        if (f == null || !f.exists()) {
+            showInfo("Актуализация", "Файлът за инсталиране липсва.");
+            return;
+        }
+        if (!canInstallPackages()) {
+            pendingApk = f;
+            new AlertDialog.Builder(this)
+                    .setTitle("Нужно е разрешение")
+                    .setMessage("Разреши на приложението да инсталира приложения. "
+                            + "След като го разрешиш, върни се и инсталирането продължава.")
+                    .setPositiveButton("Към настройките", new DialogInterface.OnClickListener() {
+                        @Override
+                        public void onClick(DialogInterface d, int w) {
+                            try {
+                                startActivity(new Intent(
+                                        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                        Uri.parse("package:" + getPackageName())));
+                            } catch (Exception e) {
+                                showInfo("Настройки",
+                                        "Отвори ръчно: Настройки, Сигурност, Неизвестни източници, "
+                                                + "и разреши за това приложение.");
+                            }
+                        }
+                    })
+                    .setNegativeButton("Отказ", null)
+                    .show();
+            return;
+        }
+        try {
+            Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", f);
+            Intent i = new Intent(Intent.ACTION_VIEW);
+            i.setDataAndType(uri, "application/vnd.android.package-archive");
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+        } catch (Exception e) {
+            showInfo("Актуализация", "Не може да се стартира инсталирането на тази система.");
+        }
     }
 
     // ---------- Статистика ----------
@@ -1058,6 +1597,14 @@ public class MainActivity extends Activity {
         tapAt(target, target.getWidth() / 2f, target.getHeight() / 2f);
     }
 
+    // OK, когато курсорът е изключен: натиска фокусирания елемент на страницата.
+    private void sendOkToWeb() {
+        if (web == null) return;
+        long t = SystemClock.uptimeMillis();
+        web.dispatchKeyEvent(new KeyEvent(t, t, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER, 0));
+        web.dispatchKeyEvent(new KeyEvent(t, t + 50, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_CENTER, 0));
+    }
+
     private void togglePlayback() {
         if (web == null) return;
         web.evaluateJavascript(TOGGLE_JS, new android.webkit.ValueCallback<String>() {
@@ -1110,22 +1657,25 @@ public class MainActivity extends Activity {
             return super.dispatchKeyEvent(e);
         }
 
-        // Страницата е отворена: стрелките местят курсора, OK е клик,
-        // дълго задържане на OK (или бутон Menu) отваря журнала.
+        // Страницата е отворена. С курсор: стрелките го местят, OK е клик.
+        // Без курсор: стрелките местят фокуса по страницата, OK натиска.
+        // Дълго задържане на OK (или бутон Menu) отваря менюто на страницата.
         if (webActive()) {
-            switch (code) {
-                case KeyEvent.KEYCODE_DPAD_UP:
-                case KeyEvent.KEYCODE_DPAD_DOWN:
-                case KeyEvent.KEYCODE_DPAD_LEFT:
-                case KeyEvent.KEYCODE_DPAD_RIGHT:
-                    if (down) moveCursor(code, e.getRepeatCount());
-                    return true;
-                default:
-                    break;
-            }
             if (code == KeyEvent.KEYCODE_MENU) {
                 if (down && e.getRepeatCount() == 0) showLog();
                 return true;
+            }
+            if (cursorEnabled) {
+                switch (code) {
+                    case KeyEvent.KEYCODE_DPAD_UP:
+                    case KeyEvent.KEYCODE_DPAD_DOWN:
+                    case KeyEvent.KEYCODE_DPAD_LEFT:
+                    case KeyEvent.KEYCODE_DPAD_RIGHT:
+                        if (down) moveCursor(code, e.getRepeatCount());
+                        return true;
+                    default:
+                        break;
+                }
             }
             if (okKey) {
                 if (down) {
@@ -1138,8 +1688,10 @@ public class MainActivity extends Activity {
                     }
                 } else {
                     if (!okLongHandled && !e.isCanceled()) {
-                        // Ако курсорът е скрит, първото натискане само го показва.
-                        if (cursorIdle) {
+                        if (!cursorEnabled) {
+                            sendOkToWeb();
+                        } else if (cursorIdle) {
+                            // Ако курсорът е скрит, първото натискане само го показва.
                             pokeCursor();
                         } else {
                             tapAt(web, cx, cy);
@@ -1204,6 +1756,12 @@ public class MainActivity extends Activity {
         super.onResume();
         if (web != null) web.onResume();
         hideSystemBars();
+        // Ако чакаме разрешение за инсталиране и вече е дадено, продължаваме.
+        if (pendingApk != null && canInstallPackages()) {
+            File f = pendingApk;
+            pendingApk = null;
+            installApk(f);
+        }
     }
 
     @Override
