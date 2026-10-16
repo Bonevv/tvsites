@@ -123,12 +123,12 @@ public class MainActivity extends Activity {
     //   "https://example.com/embed/movie/{tmdb}"
     //   "https://example.com/embed/tv/{tmdb}/{season}/{episode}"
     // Може и без редактиране на кода: бутон "Източници" в каталога.
- private static final String[] FILM_SOURCES = {
+    private static final String[] FILM_SOURCES = {
             "https://vidcore.org/embed/movie/{tmdb}",  //Основен
             "https://seapi.link/?type=tmdb&id={tmdb}&max_results=1",   // резервен 1
             ""    // резервен 2
     };
-   private static final String[] TV_SOURCES = {
+    private static final String[] TV_SOURCES = {
             "https://vidcore.org/embed/tv/{tmdb}/{season}/{episode}",   //основен сер
             "https://seapi.link/?type=tmdb&id={tmdb}&season={season}&episode={episode}&max_results=1",   // резервен 1
             ""    // резервен 2
@@ -2280,6 +2280,7 @@ public class MainActivity extends Activity {
         srcQueue = null;
         srcIdx = 0;
         catReturn = null;
+        wheelMode = false;
         curSiteName = site[0];
         // Личният избор на потребителя (от журнала) е по-важен от настройката по подразбиране.
         String chosen = prefs.getString("mode:" + allowedHost, null);
@@ -3174,10 +3175,13 @@ public class MainActivity extends Activity {
                         "Отваря клавиатура", null, 0),
                 optTile("#mode", IC_MONITOR, C_ICON_BG, C_ICON_FG, "Версия на сайта",
                         "Мобилната е по-лека", modeName, 0),
-                optTile("#cursor", IC_CURSOR, cursorEnabled ? C_GREEN_BG : C_ICON_BG,
-                        cursorEnabled ? C_GREEN_FG : C_ICON_FG, "Курсор",
-                        cursorEnabled ? "Стрелките го движат" : "Стрелките движат фокуса",
-                        onOffWord(cursorEnabled, "Включен", "Изключен"), cursorEnabled ? 1 : 0),
+                optTile("#cursor", IC_CURSOR,
+                        wheelMode ? C_AMBER_BG : cursorEnabled ? C_GREEN_BG : C_ICON_BG,
+                        wheelMode ? C_AMBER_FG : cursorEnabled ? C_GREEN_FG : C_ICON_FG, "Курсор",
+                        wheelMode ? "Нагоре и надолу въртят списък"
+                                : cursorEnabled ? "Стрелките го движат" : "Стрелките движат фокуса",
+                        wheelMode ? "Превъртане" : onOffWord(cursorEnabled, "Включен", "Изключен"),
+                        wheelMode ? 2 : cursorEnabled ? 1 : 0),
                 optTile("#sleep", IC_MOON, sleepAt != 0 ? C_AMBER_BG : C_ICON_BG,
                         sleepAt != 0 ? C_AMBER_FG : C_ICON_FG, "Таймер за заспиване",
                         "Спира всичко след време", sleepState(), sleepAt != 0 ? 2 : 0),
@@ -3370,8 +3374,20 @@ public class MainActivity extends Activity {
             hideLog();
             if (web != null) web.reload();
         } else if (key.equals("#cursor")) {
-            toggleCursor();
-            refreshLog(0);
+            // Три състояния: курсор -> превъртане на списък (субтитри) -> без курсор -> курсор.
+            if (cursorEnabled && !wheelMode) {
+                wheelMode = true;
+                Toast.makeText(this, "Превъртане: сложи курсора върху списъка и натискай нагоре и надолу",
+                        Toast.LENGTH_LONG).show();
+                hideLog();
+            } else if (wheelMode) {
+                wheelMode = false;
+                toggleCursor();
+                refreshLog(0);
+            } else {
+                toggleCursor();
+                refreshLog(0);
+            }
         } else if (key.equals("#sleep")) {
             chooseSleep();
         } else if (key.equals("#mode")) {
@@ -4080,6 +4096,7 @@ public class MainActivity extends Activity {
         ev.recycle();
     }
 
+    private boolean wheelMode; // стрелките нагоре/надолу въртят списъка под курсора
     private boolean fsScroll; // в цял екран: стрелките нагоре/надолу превъртат списъка под курсора
 
     private void tapCenter() {
@@ -4347,7 +4364,7 @@ public class MainActivity extends Activity {
                 }
                 return true;
             }
-            if (fsScroll && cursorEnabled && (code == KeyEvent.KEYCODE_DPAD_UP
+            if ((fsScroll || wheelMode) && cursorEnabled && (code == KeyEvent.KEYCODE_DPAD_UP
                     || code == KeyEvent.KEYCODE_DPAD_DOWN)) {
                 if (down) {
                     wheelAt(customView, cx, cy, code == KeyEvent.KEYCODE_DPAD_UP ? 1f : -1f);
@@ -4402,6 +4419,14 @@ public class MainActivity extends Activity {
         if (webActive()) {
             if (code == KeyEvent.KEYCODE_MENU) {
                 if (down && e.getRepeatCount() == 0) showLog();
+                return true;
+            }
+            if (cursorEnabled && wheelMode
+                    && (code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN)) {
+                if (down) {
+                    wheelAt(web, cx, cy, code == KeyEvent.KEYCODE_DPAD_UP ? 1f : -1f);
+                    pokeCursor();
+                }
                 return true;
             }
             if (cursorEnabled) {
