@@ -13,6 +13,8 @@ import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.RectF;
 import android.graphics.PorterDuff;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
@@ -27,6 +29,7 @@ import android.os.SystemClock;
 import android.provider.Settings;
 import android.text.InputType;
 import android.text.TextUtils;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.InputDevice;
 import android.view.KeyEvent;
@@ -224,10 +227,8 @@ public class MainActivity extends Activity {
     // Цветове
     // Спокойна тъмна основа с един акцент (кехлибарен); фокусът е бяла рамка.
     private static final int C_BG = 0xFF0C0D10;
-    private static final int C_CARD = 0xFF15181E;
-    private static final int C_CARD_FOCUS = 0xFF222731;
     private static final int C_ACCENT = 0xFFF5A524;
-    private static final int C_MUTED = 0xFF9AA0AB;
+    private static final int C_MUTED = 0xFFA2ADCB;
     private static final int C_DANGER = 0xFFF87171;
     private static final int[] BADGES = {
             0xFF3F6FB5, 0xFF2F8F83, 0xFF6B5BB8, 0xFFB5566B,
@@ -328,8 +329,6 @@ public class MainActivity extends Activity {
         root.removeCallbacks(cacheWatch);
         root.postDelayed(cacheWatch, CACHE_WATCH_MS);
     }
-    private TextView cacheBtn;
-    private TextView autoBtn;
     private final Handler ui = new Handler(Looper.getMainLooper());
     // Икони на сайтовете, вече прочетени от диска (само от главната нишка).
     private static final HashMap<String, Bitmap> ICONS = new HashMap<>();
@@ -337,10 +336,9 @@ public class MainActivity extends Activity {
     // ---- нова версия, намерена при пускане ----
     private int updateAvail; // номер на по-нова версия (0 = няма)
     private String updateUrl;
-    private View updateBanner;
 
     // ---- последни страници ----
-    private static final int RECENT_MAX = 6;
+    private static final int RECENT_MAX = 4;
     private String curSiteName = "";
     private final Runnable rememberTick = new Runnable() {
         @Override
@@ -442,7 +440,6 @@ public class MainActivity extends Activity {
     private ListView logList;
     private BaseAdapter logAdapter;
     private final ArrayList<LogRow> logRows = new ArrayList<>();
-    private TextView logSub;
     private String cacheSizeText;
 
     // ---- зареждане, подсказки, въвеждане на текст ----
@@ -540,6 +537,12 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // Мерна единица на менюто (макет 1600x900) и шрифтове на системата.
+        android.util.DisplayMetrics dm0 = getResources().getDisplayMetrics();
+        U = Math.min(dm0.heightPixels, dm0.widthPixels * 9f / 16f) / 900f;
+        tfCondBold = Typeface.create("sans-serif-condensed", Typeface.BOLD);
+        tfCond = Typeface.create("sans-serif-condensed", Typeface.NORMAL);
+        tfMedium = Typeface.create("sans-serif-medium", Typeface.NORMAL);
         installCrashLogger();
         logEvent("Приложението стартира (v" + installedName() + ") - " + deviceLine(), true);
         prefs = getSharedPreferences("tvsites", MODE_PRIVATE);
@@ -554,13 +557,13 @@ public class MainActivity extends Activity {
         menuHolder.setClipChildren(false);
         menuHolder.setClipToPadding(false);
         menuHolder.setVerticalScrollBarEnabled(false);
-        menuHolder.setBackgroundColor(C_BG);
+        menuHolder.setBackground(pageBg());
         menu = new LinearLayout(this);
         menu.setOrientation(LinearLayout.VERTICAL);
         menu.setGravity(Gravity.CENTER_VERTICAL);
         menu.setClipChildren(false);
         menu.setClipToPadding(false);
-        menu.setPadding(dp(56), dp(36), dp(56), dp(36));
+        menu.setPadding(u(64), u(30), u(64), u(22));
         menuHolder.addView(menu, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(menuHolder, new FrameLayout.LayoutParams(
@@ -913,26 +916,403 @@ public class MainActivity extends Activity {
         return lp;
     }
 
+    // ---------- Нов вид: мерна единица, шрифтове, иконки ----------
+
+    // Макетът е чертан на 1600x900 "единици". U са пикселите за една единица, така че
+    // менюто изглежда еднакво на всеки телевизор (720p, 1080p, 4K).
+    private float U = 1f;
+    private Typeface tfCondBold = Typeface.DEFAULT_BOLD;
+    private Typeface tfCond = Typeface.DEFAULT;
+    private Typeface tfMedium = Typeface.DEFAULT;
+
+    private static final int C_BG_TOP = 0xFF0E1426;
+    private static final int C_BG_BOTTOM = 0xFF080B16;
+    private static final int C_PANEL = 0xFF141B30;
+    private static final int C_PANEL_LINE = 0xFF243053;
+    private static final int C_PANEL_FOCUS = 0xFF1F2A4A;
+    private static final int C_ICON_BG = 0xFF1F2B4D;
+    private static final int C_ICON_FG = 0xFF7DD3FC;
+    private static final int C_GREEN_BG = 0xFF12382F;
+    private static final int C_GREEN_FG = 0xFF6EE7B7;
+    private static final int C_AMBER_BG = 0xFF4A3512;
+    private static final int C_AMBER_FG = 0xFFFBBF24;
+    private static final int C_RED_BG = 0xFF4A1D2C;
+    private static final int C_RED_FG = 0xFFFDA4AF;
+    private static final int TILES_PER_ROW = 6;
+
+    // Цветове на плочките по вид: телевизия (сини), филми (розови и лилави), радио (кехлибарени).
+    private static final int[][][] PALS = {
+            {{0xFF2563EB, 0xFF1E3A8A}, {0xFF0EA5E9, 0xFF0B4A73}, {0xFF6366F1, 0xFF312E81},
+                    {0xFF3B82F6, 0xFF1E40AF}},
+            {{0xFFF43F5E, 0xFF881337}, {0xFFD946EF, 0xFF701A75}, {0xFFFB923C, 0xFF9A3412},
+                    {0xFF14B8A6, 0xFF115E59}, {0xFF8B5CF6, 0xFF4C1D95}, {0xFFEC4899, 0xFF831843},
+                    {0xFFEF4444, 0xFF7F1D1D}},
+            {{0xFFF59E0B, 0xFF92400E}, {0xFFEAB308, 0xFF713F12}, {0xFFF97316, 0xFF7C2D12}},
+            {{0xFF6366F1, 0xFF312E81}, {0xFF14B8A6, 0xFF115E59}, {0xFFF43F5E, 0xFF881337},
+                    {0xFFF59E0B, 0xFF92400E}, {0xFF8B5CF6, 0xFF4C1D95}},
+    };
+
+    private static final int IC_CHIP = 0, IC_DB = 1, IC_MOON = 2, IC_CHECK = 3, IC_PLAY = 4,
+            IC_CLOCK = 5, IC_REFRESH = 6, IC_TRASH = 7, IC_SPARK = 8, IC_PULSE = 9, IC_POWER = 10,
+            IC_TV = 11, IC_FILM = 12, IC_RADIO = 13, IC_SEARCH = 14, IC_MONITOR = 15,
+            IC_CURSOR = 16, IC_BARS = 17, IC_SHIELD = 18, IC_DOWN = 19;
+
+    // Иконка, нарисувана с няколко линии (без файлове). Координатите са на мрежа 24x24.
+    private static class IconView extends View {
+        private final int kind;
+        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path path = new Path();
+        private final Path path2 = new Path();
+        private final RectF rf = new RectF();
+
+        IconView(Context c, int kind, int color) {
+            super(c);
+            this.kind = kind;
+            p.setColor(color);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(2f);
+            p.setStrokeCap(Paint.Cap.ROUND);
+            p.setStrokeJoin(Paint.Join.ROUND);
+        }
+
+        private void line(Canvas c, float x1, float y1, float x2, float y2) {
+            c.drawLine(x1, y1, x2, y2, p);
+        }
+
+        private void poly(Canvas c, boolean close, float... xy) {
+            path.reset();
+            path.moveTo(xy[0], xy[1]);
+            for (int i = 2; i + 1 < xy.length; i += 2) path.lineTo(xy[i], xy[i + 1]);
+            if (close) path.close();
+            c.drawPath(path, p);
+        }
+
+        private void rect(Canvas c, float l, float t, float r, float b, float rad) {
+            rf.set(l, t, r, b);
+            c.drawRoundRect(rf, rad, rad, p);
+        }
+
+        private void arc(Canvas c, float l, float t, float r, float b, float start, float sweep) {
+            rf.set(l, t, r, b);
+            c.drawArc(rf, start, sweep, false, p);
+        }
+
+        @Override
+        protected void onDraw(Canvas c) {
+            float s = Math.min(getWidth(), getHeight()) / 24f;
+            if (s <= 0) return;
+            c.save();
+            c.scale(s, s);
+            switch (kind) {
+                case IC_CHIP:
+                    rect(c, 6, 6, 18, 18, 2);
+                    line(c, 9, 2, 9, 5);
+                    line(c, 15, 2, 15, 5);
+                    line(c, 9, 19, 9, 22);
+                    line(c, 15, 19, 15, 22);
+                    line(c, 2, 9, 5, 9);
+                    line(c, 2, 15, 5, 15);
+                    line(c, 19, 9, 22, 9);
+                    line(c, 19, 15, 22, 15);
+                    break;
+                case IC_DB:
+                    rf.set(5, 3, 19, 9);
+                    c.drawOval(rf, p);
+                    arc(c, 5, 9, 19, 15, 0, 180);
+                    arc(c, 5, 15, 19, 21, 0, 180);
+                    line(c, 5, 6, 5, 18);
+                    line(c, 19, 6, 19, 18);
+                    break;
+                case IC_MOON:
+                    path.reset();
+                    path.addCircle(12, 12, 8, Path.Direction.CW);
+                    path2.reset();
+                    path2.addCircle(16.5f, 8.5f, 7f, Path.Direction.CW);
+                    if (path.op(path2, Path.Op.DIFFERENCE)) c.drawPath(path, p);
+                    break;
+                case IC_CHECK:
+                    poly(c, false, 5, 12.5f, 9.5f, 17, 19, 7.5f);
+                    break;
+                case IC_PLAY:
+                    p.setStyle(Paint.Style.FILL_AND_STROKE);
+                    poly(c, true, 7.5f, 4.5f, 7.5f, 19.5f, 19.5f, 12);
+                    p.setStyle(Paint.Style.STROKE);
+                    break;
+                case IC_CLOCK:
+                    c.drawCircle(12, 12, 9, p);
+                    poly(c, false, 12, 7, 12, 12, 15, 14);
+                    break;
+                case IC_REFRESH:
+                    arc(c, 4, 4, 20, 20, -35, 300);
+                    poly(c, false, 20, 4, 20, 9, 15, 9);
+                    break;
+                case IC_TRASH:
+                    line(c, 4, 7, 20, 7);
+                    poly(c, false, 9, 7, 9, 4.5f, 15, 4.5f, 15, 7);
+                    poly(c, false, 6.5f, 7, 7.4f, 19.5f, 16.6f, 19.5f, 17.5f, 7);
+                    break;
+                case IC_SPARK:
+                    poly(c, true, 12, 3, 13.8f, 8.2f, 19, 10, 13.8f, 11.8f, 12, 17, 10.2f, 11.8f,
+                            5, 10, 10.2f, 8.2f);
+                    break;
+                case IC_PULSE:
+                    poly(c, false, 3, 12, 7, 12, 9.5f, 6, 13.5f, 18, 16, 12, 21, 12);
+                    break;
+                case IC_POWER:
+                    line(c, 12, 3.5f, 12, 11.5f);
+                    arc(c, 4.5f, 4.5f, 19.5f, 19.5f, -60, 300);
+                    break;
+                case IC_TV:
+                    rect(c, 3, 5, 21, 17, 2);
+                    line(c, 9, 21, 15, 21);
+                    break;
+                case IC_FILM:
+                    rect(c, 3, 4, 21, 20, 2);
+                    line(c, 3, 9, 21, 9);
+                    line(c, 3, 15, 21, 15);
+                    line(c, 8, 4, 8, 20);
+                    line(c, 16, 4, 16, 20);
+                    break;
+                case IC_RADIO:
+                    rect(c, 3, 9, 21, 20, 2);
+                    line(c, 7, 9, 17, 4);
+                    c.drawCircle(9, 14.5f, 2, p);
+                    line(c, 14, 13, 18, 13);
+                    line(c, 14, 16, 18, 16);
+                    break;
+                case IC_SEARCH:
+                    c.drawCircle(11, 11, 6.5f, p);
+                    line(c, 16, 16, 20.5f, 20.5f);
+                    break;
+                case IC_MONITOR:
+                    rect(c, 3, 4, 21, 16, 2);
+                    line(c, 8, 20, 16, 20);
+                    line(c, 12, 16, 12, 20);
+                    break;
+                case IC_CURSOR:
+                    poly(c, true, 6, 3, 18, 12, 12.8f, 13.2f, 16, 20, 13, 21.2f, 9.8f, 14.4f,
+                            6, 18);
+                    break;
+                case IC_BARS:
+                    line(c, 5, 20, 5, 10);
+                    line(c, 12, 20, 12, 4);
+                    line(c, 19, 20, 19, 13);
+                    break;
+                case IC_SHIELD:
+                    path.reset();
+                    path.moveTo(12, 3);
+                    path.lineTo(20, 6);
+                    path.lineTo(20, 11);
+                    path.quadTo(20, 17, 12, 21);
+                    path.quadTo(4, 17, 4, 11);
+                    path.lineTo(4, 6);
+                    path.close();
+                    c.drawPath(path, p);
+                    poly(c, false, 9, 12, 11, 14, 15, 10);
+                    break;
+                case IC_DOWN:
+                    line(c, 12, 4, 12, 15);
+                    poly(c, false, 7, 11, 12, 16, 17, 11);
+                    line(c, 5, 20, 19, 20);
+                    break;
+                default:
+                    break;
+            }
+            c.restore();
+        }
+    }
+
+    private int u(float units) {
+        return Math.round(units * U);
+    }
+
+    private void ts(TextView t, float units) {
+        t.setTextSize(TypedValue.COMPLEX_UNIT_PX, units * U);
+    }
+
+    private TextView text(String s, float sizeUnits, int color, Typeface tf, boolean oneLine) {
+        TextView t = new TextView(this);
+        t.setText(s);
+        t.setTextColor(color);
+        ts(t, sizeUnits);
+        t.setTypeface(tf);
+        if (oneLine) {
+            t.setSingleLine(true);
+            t.setEllipsize(TextUtils.TruncateAt.END);
+        }
+        return t;
+    }
+
+    private static int darker(int c, float f) {
+        int r = Math.round(((c >> 16) & 0xFF) * f);
+        int g = Math.round(((c >> 8) & 0xFF) * f);
+        int b = Math.round((c & 0xFF) * f);
+        return 0xFF000000 | (r << 16) | (g << 8) | b;
+    }
+
+    private GradientDrawable pageBg() {
+        return new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{C_BG_TOP, C_BG_BOTTOM});
+    }
+
+    private GradientDrawable panelBg(float radiusUnits) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(C_PANEL);
+        g.setCornerRadius(u(radiusUnits));
+        g.setStroke(Math.max(1, u(1)), C_PANEL_LINE);
+        return g;
+    }
+
+    // Фон със състояние: на фокус получава бяла рамка. normalStroke 0 = без рамка.
+    private StateListDrawable stateBg(int normalColor, int focusColor, int strokeColor,
+                                      int radiusPx, int normalStroke) {
+        GradientDrawable normal = new GradientDrawable();
+        normal.setColor(normalColor);
+        normal.setCornerRadius(radiusPx);
+        if (normalStroke != 0) normal.setStroke(Math.max(1, u(1)), normalStroke);
+        GradientDrawable focused = new GradientDrawable();
+        focused.setColor(focusColor);
+        focused.setCornerRadius(radiusPx);
+        focused.setStroke(u(3), strokeColor);
+        StateListDrawable sl = new StateListDrawable();
+        sl.addState(new int[]{android.R.attr.state_focused}, focused);
+        sl.addState(new int[]{}, normal);
+        return sl;
+    }
+
+    private StateListDrawable gradBg(int[] colors, float radiusUnits, float strokeUnits) {
+        GradientDrawable n = new GradientDrawable(GradientDrawable.Orientation.TL_BR, colors);
+        n.setCornerRadius(u(radiusUnits));
+        GradientDrawable f = new GradientDrawable(GradientDrawable.Orientation.TL_BR, colors);
+        f.setCornerRadius(u(radiusUnits));
+        f.setStroke(u(strokeUnits), Color.WHITE);
+        StateListDrawable sl = new StateListDrawable();
+        sl.addState(new int[]{android.R.attr.state_focused}, f);
+        sl.addState(new int[]{}, n);
+        return sl;
+    }
+
+    // Плочките и панелите се уголемяват на фокус и се показват над съседите си.
+    private final View.OnFocusChangeListener tileFocus = new View.OnFocusChangeListener() {
+        @Override
+        public void onFocusChange(View v, boolean has) {
+            float k = v.getTag(R_SCALE) instanceof Float ? (Float) v.getTag(R_SCALE) : 1.07f;
+            v.animate().scaleX(has ? k : 1f).scaleY(has ? k : 1f).setDuration(120).start();
+            v.setTranslationZ(has ? 12 * U : 0f);
+        }
+    };
+    private static final int R_SCALE = 0x7f0b0001; // ключ за таг (произволно число, не ресурс)
+
+    private View iconCircle(int kind, int bg, int fg, float sizeUnits) {
+        FrameLayout f = new FrameLayout(this);
+        GradientDrawable g = new GradientDrawable();
+        g.setShape(GradientDrawable.OVAL);
+        g.setColor(bg);
+        f.setBackground(g);
+        int s = u(sizeUnits * 0.56f);
+        f.addView(new IconView(this, kind, fg), new FrameLayout.LayoutParams(s, s, Gravity.CENTER));
+        return f;
+    }
+
+    private LinearLayout.LayoutParams lp(int w, int h) {
+        return new LinearLayout.LayoutParams(w, h);
+    }
+
+    // Поле за състояние: икона, надпис и стойност.
+    private LinearLayout capsule(int kind, int iconBg, int iconFg, String label, String value) {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.HORIZONTAL);
+        c.setGravity(Gravity.CENTER_VERTICAL);
+        c.setPadding(u(12), 0, u(18), 0);
+        c.setBackground(panelBg(32));
+        LinearLayout.LayoutParams ilp = lp(u(40), u(40));
+        ilp.rightMargin = u(12);
+        c.addView(iconCircle(kind, iconBg, iconFg, 40), ilp);
+        LinearLayout tx = new LinearLayout(this);
+        tx.setOrientation(LinearLayout.VERTICAL);
+        tx.addView(text(label, 14, C_MUTED, tfMedium, true));
+        TextView v = text(value, 18, Color.WHITE, Typeface.DEFAULT_BOLD, true);
+        tx.addView(v);
+        c.addView(tx);
+        c.setTag(v);
+        return c;
+    }
+
+    private String freeMemText() {
+        try {
+            ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+            ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
+            am.getMemoryInfo(mi);
+            return (mi.availMem / 1048576L) + " МБ";
+        } catch (Exception e) {
+            return "-";
+        }
+    }
+
+    private TextView capCache;
+    private boolean versionOk;
+    private View heroView;
+    private View firstTile;
+
     private View buildHeader() {
         LinearLayout h = new LinearLayout(this);
         h.setOrientation(LinearLayout.HORIZONTAL);
         h.setGravity(Gravity.CENTER_VERTICAL);
-        h.setPadding(dp(8), 0, dp(8), dp(18));
 
-        ImageView logo = new ImageView(this);
-        logo.setImageResource(R.drawable.app_icon);
-        logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        h.addView(logo, new LinearLayout.LayoutParams(dp(52), dp(52)));
+        FrameLayout logo = new FrameLayout(this);
+        GradientDrawable lg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{0xFF38BDF8, 0xFFFB7185});
+        lg.setCornerRadius(u(15));
+        logo.setBackground(lg);
+        int ls = u(26);
+        logo.addView(new IconView(this, IC_PLAY, 0xFF0A0E1A),
+                new FrameLayout.LayoutParams(ls, ls, Gravity.CENTER));
+        LinearLayout.LayoutParams llp = lp(u(52), u(52));
+        llp.rightMargin = u(14);
+        h.addView(logo, llp);
+        h.addView(text("ТВ Сайтове", 32, Color.WHITE, tfCondBold, true));
 
-        TextView title = new TextView(this);
-        title.setText("ТВ Сайтове");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(28);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setPadding(dp(16), 0, 0, 0);
-        h.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout caps = new LinearLayout(this);
+        caps.setOrientation(LinearLayout.HORIZONTAL);
+        caps.setGravity(Gravity.CENTER);
+        caps.setClipChildren(false);
+        LinearLayout.LayoutParams gap = lp(ViewGroup.LayoutParams.WRAP_CONTENT, u(64));
+        gap.leftMargin = u(12);
 
-        // Часът се обновява от системата веднъж в минута и само докато менюто се вижда.
+        caps.addView(capsule(IC_CHIP, C_ICON_BG, C_ICON_FG, "Свободна памет", freeMemText()),
+                lp(ViewGroup.LayoutParams.WRAP_CONTENT, u(64)));
+        LinearLayout cache = capsule(IC_DB, C_ICON_BG, C_ICON_FG, "Кеш",
+                cacheSizeText != null ? cacheSizeText : "...");
+        capCache = (TextView) cache.getTag();
+        caps.addView(cache, gap);
+        caps.addView(capsule(IC_MOON, sleepAt != 0 ? C_AMBER_BG : C_ICON_BG,
+                sleepAt != 0 ? C_AMBER_FG : C_ICON_FG, "Таймер",
+                sleepAt != 0 ? "Остават " + sleepLabel().toLowerCase(Locale.ROOT) : "Изключен"), gap);
+
+        LinearLayout ver;
+        if (updateAvail > installedCode()) {
+            final int uv = updateAvail;
+            final String uurl = updateUrl;
+            ver = capsule(IC_DOWN, C_AMBER_BG, C_AMBER_FG, "Има нова версия", "2." + uv + " · Обнови");
+            ver.setFocusable(true);
+            ver.setClickable(true);
+            ver.setBackground(stateBg(0xFF3B2A0A, 0xFF4A3512, Color.WHITE, u(32), C_AMBER_FG));
+            ver.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    askUpdate(uv, uurl);
+                }
+            });
+            ver.setOnFocusChangeListener(focusAnim);
+        } else {
+            ver = capsule(IC_CHECK, C_GREEN_BG, C_GREEN_FG, "Версия " + installedName(),
+                    versionOk ? "Актуална" : "Инсталирана");
+        }
+        caps.addView(ver, gap);
+        LinearLayout.LayoutParams caplp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        h.addView(caps, caplp);
+
         LinearLayout when = new LinearLayout(this);
         when.setOrientation(LinearLayout.VERTICAL);
         when.setGravity(Gravity.END);
@@ -940,17 +1320,23 @@ public class MainActivity extends Activity {
         clock.setFormat24Hour("HH:mm");
         clock.setFormat12Hour("HH:mm");
         clock.setTextColor(Color.WHITE);
-        clock.setTextSize(32);
+        ts(clock, 56);
+        clock.setTypeface(tfCond);
         clock.setGravity(Gravity.END);
-        TextView date = new TextView(this);
-        date.setText(dateLabel());
-        date.setTextColor(C_MUTED);
-        date.setTextSize(15);
-        date.setGravity(Gravity.END);
+        clock.setIncludeFontPadding(false);
         when.addView(clock);
+        TextView date = text(dateLabel(), 15, C_MUTED, tfMedium, true);
+        date.setGravity(Gravity.END);
         when.addView(date);
         h.addView(when);
         return h;
+    }
+
+    // Само заглавната лента се прави наново (например когато се намери нова версия).
+    private void refreshHeader() {
+        if (menu == null || menu.getChildCount() == 0) return;
+        menu.removeViewAt(0);
+        menu.addView(buildHeader(), 0, lp(ViewGroup.LayoutParams.MATCH_PARENT, u(80)));
     }
 
     private static String dateLabel() {
@@ -960,75 +1346,101 @@ public class MainActivity extends Activity {
                 + BG_MONTHS[c.get(java.util.Calendar.MONTH)];
     }
 
-    private View makeSectionLabel(String text, int count) {
-        LinearLayout l = new LinearLayout(this);
-        l.setOrientation(LinearLayout.HORIZONTAL);
-        l.setGravity(Gravity.BOTTOM);
-        l.setPadding(dp(10), dp(18), 0, dp(2));
-        TextView t = new TextView(this);
-        t.setText(text);
-        t.setTextColor(0xFFD5D9E1);
-        t.setTextSize(19);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
-        l.addView(t);
-        if (count > 0) {
-            TextView c = new TextView(this);
-            c.setText(String.valueOf(count));
-            c.setTextColor(0xFF7C8493);
-            c.setTextSize(15);
-            c.setPadding(dp(10), 0, 0, dp(2));
-            l.addView(c);
+    private static String timeAgo(long ts) {
+        if (ts <= 0) return "";
+        long m = (System.currentTimeMillis() - ts) / 60000L;
+        if (m < 1) return "току-що";
+        if (m < 60) return "преди " + m + " мин";
+        long h = m / 60;
+        if (h < 24) return h == 1 ? "преди 1 час" : "преди " + h + " часа";
+        long d = h / 24;
+        return d == 1 ? "вчера" : "преди " + d + " дни";
+    }
+
+    // ---------- Цветове и икони по вид сайтове ----------
+
+    private static int family(String group) {
+        String g = group.toLowerCase(Locale.forLanguageTag("bg"));
+        if (g.contains("телев") || g.equals("тв") || g.contains("tv")) return 0;
+        if (g.contains("филм") || g.contains("кино")) return 1;
+        if (g.contains("радио")) return 2;
+        return 3;
+    }
+
+    private static String groupOf(String[] s) {
+        return (s.length > 3 && !s[3].isEmpty()) ? s[3] : "Сайтове";
+    }
+
+    private static int famIcon(int fam) {
+        return fam == 0 ? IC_TV : fam == 1 ? IC_FILM : fam == 2 ? IC_RADIO : IC_PLAY;
+    }
+
+    private static int famBg(int fam) {
+        return fam == 0 ? 0xFF0C3550 : fam == 1 ? C_RED_BG : fam == 2 ? C_AMBER_BG : 0xFF2A2250;
+    }
+
+    private static int famFg(int fam) {
+        return fam == 0 ? 0xFF38BDF8 : fam == 1 ? 0xFFFB7185 : fam == 2 ? C_AMBER_FG : 0xFFA78BFA;
+    }
+
+    // Двата цвята на плочката на сайта: според вида и мястото му в групата.
+    private int[] siteColors(String[] site) {
+        String g = groupOf(site);
+        int fam = family(g);
+        int idx = 0;
+        for (String[] s : sites) {
+            if (s == site) break;
+            if (groupOf(s).equals(g)) idx++;
         }
-        return l;
+        int[][] pal = PALS[fam];
+        return pal[idx % pal.length];
     }
 
-    private StateListDrawable stateBg(int normalColor, int focusColor, int strokeColor,
-                                      int radiusDp) {
-        GradientDrawable normal = new GradientDrawable();
-        normal.setColor(normalColor);
-        normal.setCornerRadius(dp(radiusDp));
-        GradientDrawable focused = new GradientDrawable();
-        focused.setColor(focusColor);
-        focused.setCornerRadius(dp(radiusDp));
-        focused.setStroke(dp(3), strokeColor);
-        StateListDrawable sl = new StateListDrawable();
-        sl.addState(new int[]{android.R.attr.state_focused}, focused);
-        sl.addState(new int[]{}, normal);
-        return sl;
+    private int[] colorsByName(String name) {
+        for (String[] s : sites) {
+            if (s[0].equals(name)) return siteColors(s);
+        }
+        int[][] pal = PALS[3];
+        return pal[(name.hashCode() & 0x7fffffff) % pal.length];
     }
 
-    // Плочка с иконата на сайта; докато я няма, показва буква на цветен фон.
-    private View makeIconTile(String host, int color, String letter, int sizeDp) {
+    // ---------- Плочки, панели и бутони ----------
+
+    // Квадратче с иконата на сайта; докато я няма, показва буква.
+    private View makeIconTile(String host, int bgColor, int letterColor, String letter,
+                              int sizePx, int radiusPx) {
         final FrameLayout tile = new FrameLayout(this);
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(color);
-        bg.setCornerRadius(dp(14));
+        bg.setColor(bgColor);
+        bg.setCornerRadius(radiusPx);
         tile.setBackground(bg);
 
         final TextView t = new TextView(this);
         t.setText(letter);
-        t.setTextColor(Color.WHITE);
-        t.setTextSize(sizeDp / 3);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setTextColor(letterColor);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_PX, sizePx * 0.58f);
+        t.setTypeface(tfCondBold);
         t.setGravity(Gravity.CENTER);
+        t.setIncludeFontPadding(false);
         tile.addView(t, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         final ImageView iv = new ImageView(this);
         iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        iv.setPadding(dp(10), dp(10), dp(10), dp(10));
+        int pad = Math.round(sizePx * 0.14f);
+        iv.setPadding(pad, pad, pad, pad);
         iv.setVisibility(View.GONE);
         tile.addView(iv, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        if (host != null) loadIcon(host, tile, iv, t);
+        if (host != null) loadIcon(host, tile, iv, t, radiusPx);
         return tile;
     }
 
-    private void showIcon(FrameLayout tile, ImageView iv, TextView letter, Bitmap bmp) {
+    private void showIcon(FrameLayout tile, ImageView iv, TextView letter, Bitmap bmp, int radiusPx) {
         GradientDrawable white = new GradientDrawable();
-        white.setColor(0xFFF1F2F5);
-        white.setCornerRadius(dp(14));
+        white.setColor(0xFFF1F5FF);
+        white.setCornerRadius(radiusPx);
         tile.setBackground(white);
         iv.setImageBitmap(bmp);
         iv.setVisibility(View.VISIBLE);
@@ -1039,10 +1451,10 @@ public class MainActivity extends Activity {
     // Веднъж прочетена от диска, остава в паметта (няколко малки картинки), за да не се
     // чете наново при всяко отваряне на менюто.
     private void loadIcon(final String host, final FrameLayout tile, final ImageView iv,
-                          final TextView letter) {
+                          final TextView letter, final int radiusPx) {
         Bitmap hit = ICONS.get(host);
         if (hit != null) {
-            showIcon(tile, iv, letter, hit);
+            showIcon(tile, iv, letter, hit, radiusPx);
             return;
         }
         final File f = new File(new File(getFilesDir(), "icons"), host + ".png");
@@ -1050,7 +1462,7 @@ public class MainActivity extends Activity {
             Bitmap b = BitmapFactory.decodeFile(f.getAbsolutePath());
             if (b != null) {
                 ICONS.put(host, b);
-                showIcon(tile, iv, letter, b);
+                showIcon(tile, iv, letter, b, radiusPx);
                 return;
             }
         }
@@ -1092,7 +1504,7 @@ public class MainActivity extends Activity {
                         public void run() {
                             if (isFinishing()) return;
                             ICONS.put(host, result);
-                            showIcon(tile, iv, letter, result);
+                            showIcon(tile, iv, letter, result, radiusPx);
                         }
                     });
                 }
@@ -1100,120 +1512,288 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    private View makeCard(String title, String subtitle, int badgeColor, String badgeText,
-                          String host, final Runnable action) {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.HORIZONTAL);
-        card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setPadding(dp(18), dp(14), dp(18), dp(14));
-        card.setMinimumHeight(dp(92));
-        card.setFocusable(true);
-        card.setClickable(true);
-        card.setBackground(stateBg(C_CARD, C_CARD_FOCUS, Color.WHITE, 18));
+    // Голяма цветна плочка на сайт.
+    private View makeSiteTile(final String[] site, final Runnable action) {
+        int[] col = siteColors(site);
+        FrameLayout t = new FrameLayout(this);
+        t.setFocusable(true);
+        t.setClickable(true);
+        t.setBackground(gradBg(new int[]{col[0], col[1]}, 22, 4));
 
-        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(dp(60), dp(60));
-        blp.setMargins(0, 0, dp(16), 0);
-        card.addView(makeIconTile(host, badgeColor, badgeText, 60), blp);
+        TextView wm = text(initial(site[0]), 130, 0x29FFFFFF, tfCondBold, false);
+        wm.setIncludeFontPadding(false);
+        FrameLayout.LayoutParams wlp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP | Gravity.END);
+        wlp.topMargin = -u(22);
+        wlp.rightMargin = u(6);
+        t.addView(wm, wlp);
 
-        LinearLayout texts = new LinearLayout(this);
-        texts.setOrientation(LinearLayout.VERTICAL);
-        TextView tt = new TextView(this);
-        tt.setText(title);
-        tt.setTextColor(Color.WHITE);
-        tt.setTextSize(20);
-        tt.setTypeface(Typeface.DEFAULT_BOLD);
-        tt.setSingleLine(true);
-        tt.setEllipsize(TextUtils.TruncateAt.END);
-        TextView st = new TextView(this);
-        st.setText(subtitle);
-        st.setTextColor(C_MUTED);
-        st.setTextSize(14);
-        st.setSingleLine(true);
-        st.setEllipsize(TextUtils.TruncateAt.END);
-        texts.addView(tt);
-        texts.addView(st);
-        card.addView(texts, new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(u(36), u(36),
+                Gravity.TOP | Gravity.START);
+        clp.leftMargin = u(16);
+        clp.topMargin = u(14);
+        t.addView(makeIconTile(hostOf(site[1]), 0xFFF1F5FF, col[1], initial(site[0]),
+                u(36), u(10)), clp);
 
-        card.setOnClickListener(new View.OnClickListener() {
+        LinearLayout tx = new LinearLayout(this);
+        tx.setOrientation(LinearLayout.VERTICAL);
+        tx.addView(text(site[0], 20, Color.WHITE, Typeface.DEFAULT_BOLD, true));
+        tx.addView(text(hostOf(site[1]), 14, 0xDDFFFFFF, tfMedium, true));
+        FrameLayout.LayoutParams tlp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM | Gravity.START);
+        tlp.leftMargin = u(16);
+        tlp.rightMargin = u(12);
+        tlp.bottomMargin = u(12);
+        t.addView(tx, tlp);
+
+        t.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 action.run();
             }
         });
-        card.setOnFocusChangeListener(focusAnim);
-        return card;
+        t.setOnFocusChangeListener(tileFocus);
+        if (firstTile == null) firstTile = t;
+        return t;
     }
 
-    // Голямата карта най-горе: връща към последния отворен сайт.
-    private View makeHero(final String[] last) {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.HORIZONTAL);
-        card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setPadding(dp(26), dp(18), dp(26), dp(18));
-        card.setMinimumHeight(dp(116));
+    // Ред: икона на вида, име, брой сайтове и плочки (по TILES_PER_ROW на ред).
+    private View makeLane(String group, ArrayList<String[]> list) {
+        int fam = family(group);
+        LinearLayout lane = new LinearLayout(this);
+        lane.setOrientation(LinearLayout.HORIZONTAL);
+        lane.setClipChildren(false);
+
+        LinearLayout lab = new LinearLayout(this);
+        lab.setOrientation(LinearLayout.HORIZONTAL);
+        lab.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams ilp = lp(u(56), u(56));
+        ilp.rightMargin = u(14);
+        lab.addView(iconCircle(famIcon(fam), famBg(fam), famFg(fam), 56), ilp);
+        LinearLayout nt = new LinearLayout(this);
+        nt.setOrientation(LinearLayout.VERTICAL);
+        nt.addView(text(group, 27, Color.WHITE, tfCondBold, true));
+        int n = list.size();
+        nt.addView(text(n + (n == 1 ? " сайт" : " сайта"), 15, C_MUTED, tfMedium, true));
+        lab.addView(nt);
+        lane.addView(lab, lp(u(220), u(112)));
+
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setClipChildren(false);
+        for (int i = 0; i < list.size(); i += TILES_PER_ROW) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setClipChildren(false);
+            for (int k = 0; k < TILES_PER_ROW; k++) {
+                LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0, u(112), 1f);
+                tlp.leftMargin = u(16);
+                if (i + k < list.size()) {
+                    final String[] site = list.get(i + k);
+                    row.addView(makeSiteTile(site, new Runnable() {
+                        @Override
+                        public void run() {
+                            openSite(site);
+                        }
+                    }), tlp);
+                } else {
+                    row.addView(new View(this), tlp);
+                }
+            }
+            LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            if (i > 0) rlp.topMargin = u(14);
+            col.addView(row, rlp);
+        }
+        lane.addView(col, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        return lane;
+    }
+
+    // Голямата карта "Продължи гледане".
+    private View makeHero(final String[] site, String label, String sub) {
+        int[] col = siteColors(site);
+        FrameLayout card = new FrameLayout(this);
         card.setFocusable(true);
         card.setClickable(true);
-        card.setBackground(stateBg(C_CARD, C_CARD_FOCUS, Color.WHITE, 22));
+        card.setMinimumHeight(u(214));
+        card.setBackground(gradBg(new int[]{col[0], col[1], darker(col[1], 0.7f)}, 30, 4));
 
-        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(dp(76), dp(76));
-        blp.setMargins(0, 0, dp(22), 0);
-        card.addView(makeIconTile(hostOf(last[1]), badgeColor(last[0]), initial(last[0]), 76), blp);
+        TextView wm = text(initial(site[0]), 360, 0x1FFFFFFF, tfCondBold, false);
+        wm.setIncludeFontPadding(false);
+        FrameLayout.LayoutParams wlp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP | Gravity.END);
+        wlp.topMargin = -u(60);
+        wlp.rightMargin = u(10);
+        card.addView(wm, wlp);
 
-        LinearLayout texts = new LinearLayout(this);
-        texts.setOrientation(LinearLayout.VERTICAL);
-        TextView lab = new TextView(this);
-        lab.setText("ПРОДЪЛЖИ");
-        lab.setTextColor(C_ACCENT);
-        lab.setTextSize(13);
-        lab.setTypeface(Typeface.DEFAULT_BOLD);
-        lab.setLetterSpacing(0.12f);
-        TextView name = new TextView(this);
-        name.setText(last[0]);
-        name.setTextColor(Color.WHITE);
-        name.setTextSize(28);
-        name.setTypeface(Typeface.DEFAULT_BOLD);
-        name.setSingleLine(true);
-        name.setEllipsize(TextUtils.TruncateAt.END);
-        TextView sub = new TextView(this);
-        sub.setText("Последно отворен сайт  ·  " + hostOf(last[1]));
-        sub.setTextColor(C_MUTED);
-        sub.setTextSize(14);
-        sub.setSingleLine(true);
-        sub.setEllipsize(TextUtils.TruncateAt.END);
-        texts.addView(lab);
-        texts.addView(name);
-        texts.addView(sub);
-        card.addView(texts, new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setPadding(u(36), u(30), u(36), u(30));
 
-        TextView pill = new TextView(this);
-        pill.setText("Отвори");
-        pill.setTextColor(0xFF14110A);
-        pill.setTextSize(18);
-        pill.setTypeface(Typeface.DEFAULT_BOLD);
-        pill.setPadding(dp(30), dp(13), dp(30), dp(13));
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams chlp = lp(u(56), u(56));
+        chlp.rightMargin = u(14);
+        top.addView(makeIconTile(hostOf(site[1]), 0xFFF1F5FF, col[1], initial(site[0]),
+                u(56), u(16)), chlp);
+        top.addView(text(label, 18, 0xFFE6F2FB, tfMedium, true));
+        body.addView(top);
+
+        body.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1f));
+
+        LinearLayout bottom = new LinearLayout(this);
+        bottom.setOrientation(LinearLayout.HORIZONTAL);
+        bottom.setGravity(Gravity.BOTTOM);
+        LinearLayout tx = new LinearLayout(this);
+        tx.setOrientation(LinearLayout.VERTICAL);
+        tx.addView(text(site[0], 54, Color.WHITE, tfCondBold, true));
+        TextView st = text(sub, 19, 0xFFE6F2FB, tfMedium, true);
+        st.setPadding(0, u(6), 0, 0);
+        tx.addView(st);
+        bottom.addView(tx, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        LinearLayout pill = new LinearLayout(this);
+        pill.setOrientation(LinearLayout.HORIZONTAL);
+        pill.setGravity(Gravity.CENTER_VERTICAL);
+        pill.setPadding(u(24), 0, u(30), 0);
         GradientDrawable pb = new GradientDrawable();
-        pb.setColor(C_ACCENT);
-        pb.setCornerRadius(dp(30));
+        pb.setColor(Color.WHITE);
+        pb.setCornerRadius(u(30));
         pill.setBackground(pb);
-        card.addView(pill, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        int ink = darker(col[1], 0.55f);
+        LinearLayout.LayoutParams plp = lp(u(24), u(24));
+        plp.rightMargin = u(10);
+        pill.addView(new IconView(this, IC_PLAY, ink), plp);
+        pill.addView(text("Продължи", 21, ink, Typeface.DEFAULT_BOLD, true));
+        bottom.addView(pill, lp(ViewGroup.LayoutParams.WRAP_CONTENT, u(60)));
+        body.addView(bottom);
 
+        card.addView(body, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         card.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                openSite(last);
+                openSite(site);
             }
         });
-        card.setOnFocusChangeListener(focusAnim);
+        card.setTag(R_SCALE, 1.02f);
+        card.setOnFocusChangeListener(tileFocus);
         return card;
+    }
+
+    // Панел "Последни страници".
+    private View makeRecentPanel(ArrayList<String[]> recent) {
+        LinearLayout p = new LinearLayout(this);
+        p.setOrientation(LinearLayout.VERTICAL);
+        p.setPadding(u(20), u(16), u(20), u(10));
+        p.setBackground(panelBg(30));
+        p.setClipChildren(false);
+
+        LinearLayout title = new LinearLayout(this);
+        title.setOrientation(LinearLayout.HORIZONTAL);
+        title.setGravity(Gravity.CENTER_VERTICAL);
+        title.setPadding(u(8), 0, u(8), u(6));
+        LinearLayout.LayoutParams iclp = lp(u(22), u(22));
+        iclp.rightMargin = u(10);
+        title.addView(new IconView(this, IC_CLOCK, C_MUTED), iclp);
+        title.addView(text("Последни страници", 18, Color.WHITE, Typeface.DEFAULT_BOLD, true));
+        p.addView(title);
+
+        if (recent.isEmpty()) {
+            TextView e = text("Още няма страници. Тук ще се появят филмите и каналите, които гледаш.",
+                    16, C_MUTED, tfMedium, false);
+            e.setPadding(u(8), u(10), u(8), 0);
+            p.addView(e);
+            return p;
+        }
+        for (final String[] rec : recent) {
+            int[] col = colorsByName(rec[2]);
+            LinearLayout r = new LinearLayout(this);
+            r.setOrientation(LinearLayout.HORIZONTAL);
+            r.setGravity(Gravity.CENTER_VERTICAL);
+            r.setPadding(u(8), u(4), u(8), u(4));
+            r.setMinimumHeight(u(48));
+            r.setFocusable(true);
+            r.setClickable(true);
+            r.setBackground(stateBg(0, C_PANEL_FOCUS, Color.WHITE, u(16), 0));
+            LinearLayout.LayoutParams cl = lp(u(38), u(38));
+            cl.rightMargin = u(14);
+            r.addView(makeIconTile(hostOf(rec[1]), 0xFFF1F5FF, col[1], initial(rec[2]),
+                    u(38), u(11)), cl);
+            LinearLayout tx = new LinearLayout(this);
+            tx.setOrientation(LinearLayout.VERTICAL);
+            tx.addView(text(rec[0], 18, Color.WHITE, tfMedium, true));
+            String when = timeAgo(parseLong(rec[3]));
+            tx.addView(text(when.isEmpty() ? rec[2] : rec[2] + " · " + when, 14, C_MUTED,
+                    tfMedium, true));
+            r.addView(tx, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            r.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    openRecent(rec);
+                }
+            });
+            r.setOnFocusChangeListener(focusAnim);
+            p.addView(r);
+        }
+        return p;
+    }
+
+    private static long parseLong(String s) {
+        try {
+            return Long.parseLong(s);
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    // Голям бутон на дъното: икона, заглавие и поясняваща линия. Тагът пази TextView-то с линията.
+    private LinearLayout dockButton(int kind, boolean danger, String title, String sub,
+                                    final Runnable action) {
+        LinearLayout b = new LinearLayout(this);
+        b.setOrientation(LinearLayout.HORIZONTAL);
+        b.setGravity(Gravity.CENTER_VERTICAL);
+        b.setPadding(u(14), 0, u(18), 0);
+        b.setFocusable(true);
+        b.setClickable(true);
+        b.setBackground(danger
+                ? stateBg(0xFF2A1520, 0xFF3A1D2A, Color.WHITE, u(24), 0xFF5A2438)
+                : stateBg(C_PANEL, C_PANEL_FOCUS, Color.WHITE, u(24), C_PANEL_LINE));
+        LinearLayout.LayoutParams ilp = lp(u(44), u(44));
+        ilp.rightMargin = u(14);
+        b.addView(iconCircle(kind, danger ? C_RED_BG : C_ICON_BG, danger ? C_RED_FG : C_ICON_FG, 44),
+                ilp);
+        LinearLayout tx = new LinearLayout(this);
+        tx.setOrientation(LinearLayout.VERTICAL);
+        tx.addView(text(title, 19, danger ? 0xFFFECDD3 : Color.WHITE, Typeface.DEFAULT_BOLD, true));
+        TextView s = text(sub, 14, danger ? C_RED_FG : C_MUTED, tfMedium, true);
+        tx.addView(s);
+        b.addView(tx, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        b.setTag(s);
+        b.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                action.run();
+            }
+        });
+        b.setTag(R_SCALE, 1.04f);
+        b.setOnFocusChangeListener(tileFocus);
+        return b;
+    }
+
+    // Старият прост бутон остава за прозореца за въвеждане на текст.
+    private StateListDrawable stateBg(int normalColor, int focusColor, int strokeColor, int radiusDp) {
+        return stateBg(normalColor, focusColor, strokeColor, radiusDp, 0);
     }
 
     private View makeButton(String text, boolean danger, final Runnable action) {
         TextView b = new TextView(this);
         b.setText(text);
-        b.setTextColor(danger ? 0xFFFCA5A5 : 0xFFC3C9D4);
+        b.setTextColor(danger ? 0xFFFCA5A5 : 0xFFE3E8F8);
         b.setTextSize(17);
         b.setGravity(Gravity.CENTER);
         b.setSingleLine(true);
@@ -1222,8 +1802,8 @@ public class MainActivity extends Activity {
         b.setFocusable(true);
         b.setClickable(true);
         b.setBackground(danger
-                ? stateBg(0xFF24161B, 0xFF3A1D2A, C_DANGER, 26)
-                : stateBg(C_CARD, C_CARD_FOCUS, Color.WHITE, 26));
+                ? stateBg(0xFF24161B, 0xFF3A1D2A, C_DANGER, dp(26))
+                : stateBg(C_PANEL, C_PANEL_FOCUS, Color.WHITE, dp(26)));
         b.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -1234,92 +1814,62 @@ public class MainActivity extends Activity {
         return b;
     }
 
-    // Лента най-горе, когато при пускане е намерена по-нова версия.
-    private void addUpdateBanner(int index) {
-        final int ver = updateAvail;
-        final String url = updateUrl;
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(26), dp(16), dp(26), dp(16));
-        card.setFocusable(true);
-        card.setClickable(true);
-        card.setBackground(stateBg(C_ACCENT, 0xFFFFC04D, Color.WHITE, 18));
-        TextView t = new TextView(this);
-        t.setText("Има нова версия 2." + ver);
-        t.setTextColor(0xFF14110A);
-        t.setTextSize(21);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
-        TextView s = new TextView(this);
-        s.setText("Натисни OK, за да я свалиш и инсталираш");
-        s.setTextColor(0xFF3A2A06);
-        s.setTextSize(15);
-        card.addView(t);
-        card.addView(s);
-        card.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                askUpdate(ver, url);
-            }
-        });
-        card.setOnFocusChangeListener(focusAnim);
-        LinearLayout row = newRow();
-        row.addView(card, cellLp());
-        menu.addView(row, index, rowLp());
-        updateBanner = row;
-    }
+    private TextView cacheSub;
+    private TextView autoSub;
 
-    // Подрежда картите на редове по COLS; последният ред се допълва с празни клетки.
-    private void addCards(ArrayList<View> cards) {
-        LinearLayout row = null;
-        for (int i = 0; i < cards.size(); i++) {
-            if (i % COLS == 0) {
-                row = newRow();
-                menu.addView(row, rowLp());
-            }
-            row.addView(cards.get(i), cellLp());
-        }
-        int rem = cards.size() % COLS;
-        if (rem != 0 && row != null) {
-            for (int k = rem; k < COLS; k++) row.addView(new View(this), cellLp());
-        }
+    private String autoSubText() {
+        return autoCacheOn() ? "Включено, над 200 МБ" : "Изключено";
     }
 
     private void fillMenu() {
         menu.removeAllViews();
-        updateBanner = null;
-        menu.addView(buildHeader());
-        if (updateAvail > installedCode()) addUpdateBanner(menu.getChildCount());
+        capCache = null;
+        heroView = null;
+        firstTile = null;
+        menu.addView(buildHeader(), lp(ViewGroup.LayoutParams.MATCH_PARENT, u(80)));
 
-        // Продължи от последния сайт.
+        // Продължи + последни страници.
+        ArrayList<String[]> recent = loadRecent();
+        LinearLayout feat = new LinearLayout(this);
+        feat.setOrientation(LinearLayout.HORIZONTAL);
+        feat.setClipChildren(false);
         String lastUrl = prefs.getString("lastUrl", null);
         String lastName = prefs.getString("lastName", null);
+        String[] heroSite = null;
+        String heroLabel = "Продължи гледане";
         if (lastUrl != null && lastName != null) {
-            LinearLayout row = newRow();
-            row.addView(makeHero(findSite(lastUrl, lastName)), cellLp());
-            menu.addView(row, rowLp());
+            heroSite = findSite(lastUrl, lastName);
+        } else if (!sites.isEmpty()) {
+            heroSite = sites.get(0);
+            heroLabel = "Започни от тук";
         }
-
-        // Последни страници (филм или канал, на който си спрял).
-        ArrayList<String[]> recent = loadRecent();
-        if (!recent.isEmpty()) {
-            menu.addView(makeSectionLabel("Последни страници", 0));
-            ArrayList<View> cards = new ArrayList<>();
-            for (final String[] rec : recent) {
-                cards.add(makeCard(rec[0], rec[2], badgeColor(rec[2]), initial(rec[2]),
-                        hostOf(rec[1]), new Runnable() {
-                            @Override
-                            public void run() {
-                                openRecent(rec);
-                            }
-                        }));
+        if (heroSite != null) {
+            String sub = "Последно отворен сайт · " + hostOf(heroSite[1]);
+            for (String[] rec : recent) {
+                if (rec[2].equals(heroSite[0])) {
+                    String ago = timeAgo(parseLong(rec[3]));
+                    sub = ago.isEmpty() ? rec[0] : rec[0] + " · " + ago;
+                    break;
+                }
             }
-            addCards(cards);
+            if (lastUrl == null) sub = hostOf(heroSite[1]);
+            heroView = makeHero(heroSite, heroLabel, sub);
+            feat.addView(heroView, new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.MATCH_PARENT, 1.55f));
         }
+        LinearLayout.LayoutParams rplp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
+        if (heroSite != null) rplp.leftMargin = u(24);
+        feat.addView(makeRecentPanel(recent), rplp);
+        LinearLayout.LayoutParams flp = lp(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        flp.topMargin = u(24);
+        menu.addView(feat, flp);
 
         // Групи от сайтове.
         LinkedHashMap<String, ArrayList<String[]>> groups = new LinkedHashMap<>();
         for (String[] s : sites) {
-            String g = (s.length > 3 && !s[3].isEmpty()) ? s[3] : "Сайтове";
+            String g = groupOf(s);
             ArrayList<String[]> l = groups.get(g);
             if (l == null) {
                 l = new ArrayList<>();
@@ -1327,88 +1877,89 @@ public class MainActivity extends Activity {
             }
             l.add(s);
         }
+        boolean first = true;
         for (Map.Entry<String, ArrayList<String[]>> en : groups.entrySet()) {
-            ArrayList<String[]> list = en.getValue();
-            menu.addView(makeSectionLabel(en.getKey(), list.size()));
-            ArrayList<View> cards = new ArrayList<>();
-            for (final String[] site : list) {
-                cards.add(makeCard(site[0], hostOf(site[1]), badgeColor(site[0]),
-                        initial(site[0]), hostOf(site[1]), new Runnable() {
-                            @Override
-                            public void run() {
-                                openSite(site);
-                            }
-                        }));
-            }
-            addCards(cards);
+            LinearLayout.LayoutParams llp = lp(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            llp.topMargin = u(first ? 26 : 14);
+            first = false;
+            menu.addView(makeLane(en.getKey(), en.getValue()), llp);
         }
 
-        // Бутони най-долу, на един ред.
-        LinearLayout bottom = newRow();
-        bottom.addView(makeButton("Обнови", false, new Runnable() {
-            @Override
-            public void run() {
-                checkUpdate();
-            }
-        }), cellLp());
-        cacheBtn = (TextView) makeButton("Изчисти кеша"
-                + (cacheSizeText != null ? " (" + cacheSizeText + ")" : ""), false, new Runnable() {
-            @Override
-            public void run() {
-                clearCacheNow();
-            }
-        });
-        bottom.addView(cacheBtn, cellLp());
-        autoBtn = (TextView) makeButton(autoLabel(), false, new Runnable() {
+        // Бутони най-долу.
+        LinearLayout dock = new LinearLayout(this);
+        dock.setOrientation(LinearLayout.HORIZONTAL);
+        dock.setClipChildren(false);
+        LinearLayout b1 = dockButton(IC_REFRESH, false, "Провери за версия",
+                "Свали нова, ако има", new Runnable() {
+                    @Override
+                    public void run() {
+                        checkUpdate();
+                    }
+                });
+        LinearLayout b2 = dockButton(IC_TRASH, false, "Изчисти кеша",
+                cacheSizeText != null ? "Заема " + cacheSizeText : "Измерва се...", new Runnable() {
+                    @Override
+                    public void run() {
+                        clearCacheNow();
+                    }
+                });
+        cacheSub = (TextView) b2.getTag();
+        LinearLayout b3 = dockButton(IC_SPARK, false, "Авто чистене", autoSubText(), new Runnable() {
             @Override
             public void run() {
                 toggleAutoCache();
             }
         });
-        bottom.addView(autoBtn, cellLp());
-        bottom.addView(makeButton("Диагностика", false, new Runnable() {
+        autoSub = (TextView) b3.getTag();
+        LinearLayout b4 = dockButton(IC_PULSE, false, "Диагностика", "Ако нещо спре", new Runnable() {
             @Override
             public void run() {
                 showDiagnostics();
             }
-        }), cellLp());
-        bottom.addView(makeButton("Изход", true, new Runnable() {
+        });
+        LinearLayout b5 = dockButton(IC_POWER, true, "Изход", "Затваря приложението", new Runnable() {
             @Override
             public void run() {
                 exitApp();
             }
-        }), cellLp());
-        LinearLayout.LayoutParams blp = rowLp();
-        blp.topMargin = dp(18);
-        menu.addView(bottom, blp);
-
-        TextView ver = new TextView(this);
-        ver.setText("Версия " + installedName()
-                + "      •      OK — отваря      •      Назад — изход");
-        ver.setTextColor(0xFF7C8493);
-        ver.setTextSize(13);
-        ver.setGravity(Gravity.CENTER);
-        ver.setPadding(0, dp(14), 0, 0);
-        menu.addView(ver);
+        });
+        LinearLayout[] bs = {b1, b2, b3, b4, b5};
+        for (int i = 0; i < bs.length; i++) {
+            LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(0, u(72), 1f);
+            if (i > 0) blp.leftMargin = u(14);
+            dock.addView(bs[i], blp);
+        }
+        LinearLayout.LayoutParams dlp = lp(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        dlp.topMargin = u(26);
+        menu.addView(dock, dlp);
 
         menu.post(new Runnable() {
             @Override
             public void run() {
-                if (menuHolder.getVisibility() == View.VISIBLE) menu.requestFocus();
+                if (menuHolder.getVisibility() != View.VISIBLE) return;
+                View f = heroView != null ? heroView : firstTile;
+                if (f != null) f.requestFocus();
+                else menu.requestFocus();
             }
         });
     }
 
     // ---------- Последни страници ----------
 
-    // Всеки ред във файла с настройките: адрес, табулация, сайт, табулация, заглавие.
-    // Връща масиви {заглавие, адрес, сайт}, най-новата е първа.
+    // Всеки ред във файла с настройките: адрес, сайт, време, заглавие (разделени с табулация).
+    // Връща масиви {заглавие, адрес, сайт, време}, най-новата е първа.
     private ArrayList<String[]> loadRecent() {
         ArrayList<String[]> out = new ArrayList<>();
         String raw = prefs.getString("recent", "");
         for (String line : raw.split("\n")) {
-            String[] p = line.split("\t", 3);
-            if (p.length == 3 && p[0].startsWith("http")) out.add(new String[]{p[2], p[0], p[1]});
+            String[] p = line.split("\t", 4);
+            if (p.length == 4 && p[0].startsWith("http")) {
+                out.add(new String[]{p[3], p[0], p[1], p[2]});
+            } else if (p.length == 3 && p[0].startsWith("http")) {
+                out.add(new String[]{p[2], p[0], p[1], "0"});
+            }
         }
         return out;
     }
@@ -1450,18 +2001,20 @@ public class MainActivity extends Activity {
         if ((path == null || path.isEmpty() || path.equals("/")) && uri.getQuery() == null) return;
         String title = cleanTitle(w.getTitle(), uri);
         String site = curSiteName.isEmpty() ? hostOf(u) : curSiteName;
+        long now = System.currentTimeMillis();
 
         ArrayList<String[]> l = loadRecent();
-        if (!l.isEmpty() && l.get(0)[1].equals(u) && l.get(0)[0].equals(title)) return;
+        if (!l.isEmpty() && l.get(0)[1].equals(u) && l.get(0)[0].equals(title)
+                && now - parseLong(l.get(0)[3]) < 120000L) return;
         for (int i = l.size() - 1; i >= 0; i--) {
             if (l.get(i)[1].equals(u)) l.remove(i);
         }
-        l.add(0, new String[]{title, u, site});
+        l.add(0, new String[]{title, u, site, String.valueOf(now)});
         while (l.size() > RECENT_MAX) l.remove(l.size() - 1);
         StringBuilder sb = new StringBuilder();
         for (String[] e : l) {
             sb.append(e[1]).append('\t').append(oneLine(e[2])).append('\t')
-                    .append(oneLine(e[0])).append('\n');
+                    .append(e[3]).append('\t').append(oneLine(e[0])).append('\n');
         }
         prefs.edit().putString("recent", sb.toString()).apply();
     }
@@ -1536,7 +2089,8 @@ public class MainActivity extends Activity {
 
     private void showCacheSize(long size) {
         cacheSizeText = mb(size);
-        if (cacheBtn != null) cacheBtn.setText("Изчисти кеша (" + cacheSizeText + ")");
+        if (cacheSub != null) cacheSub.setText("Заема " + cacheSizeText);
+        if (capCache != null) capCache.setText(cacheSizeText);
         if (logShown()) refreshLog(Math.max(1, logList.getSelectedItemPosition()));
     }
 
@@ -1587,12 +2141,9 @@ public class MainActivity extends Activity {
         prefs.edit().putBoolean("autoCache", on).apply();
         Toast.makeText(this, on ? "Автоматичното чистене е включено (над 200 МБ)"
                 : "Автоматичното чистене е изключено", Toast.LENGTH_SHORT).show();
-        if (autoBtn != null) autoBtn.setText(autoLabel());
+        if (autoSub != null) autoSub.setText(autoSubText());
     }
 
-    private String autoLabel() {
-        return "Авто чистене: " + (autoCacheOn() ? "ДА" : "не");
-    }
 
     private void clearCacheNow() {
         clearCache(false);
@@ -2009,7 +2560,7 @@ public class MainActivity extends Activity {
 
     private void buildLoadingUi() {
         splash = new FrameLayout(this);
-        splash.setBackgroundColor(C_BG);
+        splash.setBackground(pageBg());
         splash.setVisibility(View.GONE);
         splashBox = new LinearLayout(this);
         splashBox.setOrientation(LinearLayout.VERTICAL);
@@ -2049,7 +2600,7 @@ public class MainActivity extends Activity {
     private void showSplash(String name, String host) {
         if (splash == null) return;
         splashBox.removeAllViews();
-        splashBox.addView(makeIconTile(host, badgeColor(name), initial(name), 96),
+        splashBox.addView(makeIconTile(host, 0xFFF1F5FF, badgeColor(name), initial(name), dp(96), dp(24)),
                 new LinearLayout.LayoutParams(dp(96), dp(96)));
         TextView t = new TextView(this);
         t.setText(name);
@@ -2277,32 +2828,48 @@ public class MainActivity extends Activity {
         }
     }
 
-    // ---------- Журнал на домейните ----------
+    // ---------- Опции (плочки) и списък на домейните ----------
+
+    private ScrollView optPage;
+    private LinearLayout optBox;
+    private LinearLayout domPage;
+    private String optKey = "#reload";
 
     private void buildLogPanel() {
         logPanel = new LinearLayout(this);
         logPanel.setOrientation(LinearLayout.VERTICAL);
-        logPanel.setBackgroundColor(C_BG);
-        logPanel.setPadding(dp(96), dp(36), dp(96), dp(28));
+        logPanel.setBackground(pageBg());
 
-        TextView t = new TextView(this);
-        t.setText("Опции");
-        t.setTextColor(Color.WHITE);
-        t.setTextSize(34);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
-        logPanel.addView(t);
+        // Страница 1: плочки с опции.
+        optPage = new ScrollView(this);
+        optPage.setFillViewport(true);
+        optPage.setVerticalScrollBarEnabled(false);
+        optPage.setClipChildren(false);
+        optPage.setClipToPadding(false);
+        optBox = new LinearLayout(this);
+        optBox.setOrientation(LinearLayout.VERTICAL);
+        optBox.setClipChildren(false);
+        optBox.setPadding(u(64), u(40), u(64), u(26));
+        optPage.addView(optBox, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        logPanel.addView(optPage, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        logSub = new TextView(this);
-        logSub.setTextColor(C_MUTED);
-        logSub.setTextSize(16);
-        logSub.setPadding(0, dp(2), 0, dp(14));
-        logPanel.addView(logSub);
+        // Страница 2: домейните, към които праща заявки страницата.
+        domPage = new LinearLayout(this);
+        domPage.setOrientation(LinearLayout.VERTICAL);
+        domPage.setPadding(u(64), u(40), u(64), u(26));
+        domPage.addView(text("Реклами и домейни", 44, Color.WHITE, tfCondBold, true));
+        TextView hint = text("Натисни домейн, за да го блокираш или разрешиш. После презареди страницата.",
+                17, C_MUTED, tfMedium, true);
+        hint.setPadding(0, u(6), 0, u(14));
+        domPage.addView(hint);
 
         logList = new ListView(this);
         GradientDrawable sel = new GradientDrawable();
         sel.setColor(0x22FFFFFF);
-        sel.setCornerRadius(dp(14));
-        sel.setStroke(dp(3), Color.WHITE);
+        sel.setCornerRadius(u(16));
+        sel.setStroke(u(3), Color.WHITE);
         logList.setSelector(sel);
         logList.setDividerHeight(0);
         logList.setVerticalScrollBarEnabled(false);
@@ -2330,8 +2897,7 @@ public class MainActivity extends Activity {
             @Override
             public boolean isEnabled(int pos) {
                 if (pos < 0 || pos >= logRows.size()) return false;
-                LogRow r = logRows.get(pos);
-                return r.kind == LogRow.ACTION || r.kind == LogRow.DOMAIN;
+                return logRows.get(pos).kind == LogRow.DOMAIN;
             }
 
             @Override
@@ -2346,16 +2912,16 @@ public class MainActivity extends Activity {
                 onLogItem(pos);
             }
         });
-        logPanel.addView(logList, new LinearLayout.LayoutParams(
+        domPage.addView(logList, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-
-        TextView foot = new TextView(this);
-        foot.setText("OK — избор      Назад — затвори      Червените домейни са блокирани");
-        foot.setTextColor(0xFF8C93C0);
-        foot.setTextSize(14);
+        TextView foot = text("OK — блокирай или разреши      Назад — към опциите", 15, 0xFF8E9ABD,
+                tfMedium, true);
         foot.setGravity(Gravity.CENTER);
-        foot.setPadding(0, dp(12), 0, 0);
-        logPanel.addView(foot);
+        foot.setPadding(0, u(12), 0, 0);
+        domPage.addView(foot);
+        domPage.setVisibility(View.GONE);
+        logPanel.addView(domPage, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         logPanel.setVisibility(View.GONE);
         root.addView(logPanel, new FrameLayout.LayoutParams(
@@ -2366,19 +2932,40 @@ public class MainActivity extends Activity {
         return logPanel != null && logPanel.getVisibility() == View.VISIBLE;
     }
 
+    private boolean domShown() {
+        return domPage != null && domPage.getVisibility() == View.VISIBLE;
+    }
+
     private void showLog() {
         if (web == null || logPanel == null) return;
-        refreshLog(0);
-        refreshCacheLabel();
+        optKey = "#reload";
+        domPage.setVisibility(View.GONE);
+        optPage.setVisibility(View.VISIBLE);
         logPanel.setVisibility(View.VISIBLE);
+        buildOptions();
+        refreshCacheLabel();
         updateState();
-        logList.requestFocus();
     }
 
     private void hideLog() {
         if (logPanel != null) logPanel.setVisibility(View.GONE);
         if (web != null) web.requestFocus();
         updateState();
+    }
+
+    private void showDomains() {
+        optPage.setVisibility(View.GONE);
+        domPage.setVisibility(View.VISIBLE);
+        refreshDomains(0);
+        logList.requestFocus();
+    }
+
+    // От списъка с домейни обратно към плочките.
+    private void backToOptions() {
+        domPage.setVisibility(View.GONE);
+        optPage.setVisibility(View.VISIBLE);
+        optKey = "#domains";
+        buildOptions();
     }
 
     private static String shortName(String url) {
@@ -2392,27 +2979,6 @@ public class MainActivity extends Activity {
     }
 
     private static final int C_ON = 0xFF34D399;
-
-    private void addHeader(String title) {
-        LogRow r = new LogRow();
-        r.kind = LogRow.HEADER;
-        r.title = title;
-        logRows.add(r);
-        logKeys.add("#hdr");
-    }
-
-    private void addAction(String key, String icon, String title, String sub,
-                           String state, int stateColor) {
-        LogRow r = new LogRow();
-        r.kind = LogRow.ACTION;
-        r.icon = icon;
-        r.title = title;
-        r.sub = sub;
-        r.state = state;
-        r.stateColor = stateColor;
-        logRows.add(r);
-        logKeys.add(key);
-    }
 
     private void addNote(String text) {
         LogRow r = new LogRow();
@@ -2433,47 +2999,194 @@ public class MainActivity extends Activity {
         logKeys.add(host);
     }
 
-    private static String onOff(boolean on) {
-        return on ? "ВКЛ" : "ИЗКЛ";
+    private String sleepState() {
+        return sleepAt == 0 ? "Изключен" : sleepLabel().toLowerCase(Locale.ROOT);
     }
 
-    private void refreshLog(int keepPos) {
-        logKeys.clear();
-        logRows.clear();
-        if (logSub != null) {
-            logSub.setText((allowedHost == null ? "" : stripWww(allowedHost) + "   •   ")
-                    + "Версия " + installedName());
+    private static String onOffWord(boolean on, String yes, String no) {
+        return on ? yes : no;
+    }
+
+    // Плочка с опция: икона, състояние (по желание), заглавие и кратко пояснение.
+    // style: 0 неутрално, 1 зелено, 2 кехлибарено.
+    private View optTile(String key, int icon, int bg, int fg, String title, String sub,
+                         String state, int style) {
+        LinearLayout t = new LinearLayout(this);
+        t.setOrientation(LinearLayout.VERTICAL);
+        t.setPadding(u(20), u(18), u(20), u(18));
+        t.setFocusable(true);
+        t.setClickable(true);
+        t.setTag(key);
+        t.setBackground(stateBg(C_PANEL, C_PANEL_FOCUS, Color.WHITE, u(26), C_PANEL_LINE));
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.addView(iconCircle(icon, bg, fg, 52), lp(u(52), u(52)));
+        top.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        if (state != null) {
+            int pbg = style == 1 ? C_GREEN_BG : style == 2 ? C_AMBER_FG : C_ICON_BG;
+            int pfg = style == 1 ? C_GREEN_FG : style == 2 ? 0xFF2B1B03 : 0xFFC7D2F5;
+            TextView pill = text(state, 15, pfg, Typeface.DEFAULT_BOLD, true);
+            pill.setGravity(Gravity.CENTER);
+            pill.setPadding(u(14), 0, u(14), 0);
+            GradientDrawable pg = new GradientDrawable();
+            pg.setColor(pbg);
+            pg.setCornerRadius(u(15));
+            pill.setBackground(pg);
+            top.addView(pill, lp(ViewGroup.LayoutParams.WRAP_CONTENT, u(30)));
+        }
+        t.addView(top);
+        t.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1f));
+        t.addView(text(title, 21, Color.WHITE, Typeface.DEFAULT_BOLD, true));
+        t.addView(text(sub, 15, C_MUTED, tfMedium, true));
+
+        final String k = key;
+        t.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                runOption(k);
+            }
+        });
+        t.setTag(R_SCALE, 1.04f);
+        t.setOnFocusChangeListener(tileFocus);
+        return t;
+    }
+
+    private View findByTag(View v, String key) {
+        if (key.equals(v.getTag())) return v;
+        if (v instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) {
+                View r = findByTag(g.getChildAt(i), key);
+                if (r != null) return r;
+            }
+        }
+        return null;
+    }
+
+    private void buildOptions() {
+        if (optBox == null) return;
+        View cur = optBox.findFocus();
+        if (cur != null && cur.getTag() instanceof String) optKey = (String) cur.getTag();
+        optBox.removeAllViews();
+
+        // Шапка: заглавие и полета за състояние.
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout tl = new LinearLayout(this);
+        tl.setOrientation(LinearLayout.VERTICAL);
+        tl.addView(text("Опции", 48, Color.WHITE, tfCondBold, true));
+        TextView sub = text((allowedHost == null ? "" : stripWww(allowedHost) + " · ")
+                + "Версия " + installedName(), 18, C_MUTED, tfMedium, true);
+        sub.setPadding(0, u(8), 0, 0);
+        tl.addView(sub);
+        head.addView(tl, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout.LayoutParams gap = lp(ViewGroup.LayoutParams.WRAP_CONTENT, u(64));
+        gap.leftMargin = u(12);
+        head.addView(capsule(IC_CHIP, C_ICON_BG, C_ICON_FG, "Свободна памет", freeMemText()),
+                lp(ViewGroup.LayoutParams.WRAP_CONTENT, u(64)));
+        head.addView(capsule(IC_DB, C_ICON_BG, C_ICON_FG, "Кеш",
+                cacheSizeText != null ? cacheSizeText : "..."), gap);
+        LinearLayout.LayoutParams gap2 = lp(ViewGroup.LayoutParams.WRAP_CONTENT, u(64));
+        gap2.leftMargin = u(12);
+        head.addView(capsule(IC_MOON, sleepAt != 0 ? C_AMBER_BG : C_ICON_BG,
+                sleepAt != 0 ? C_AMBER_FG : C_ICON_FG, "Таймер",
+                sleepAt != 0 ? "Остават " + sleepState() : "Изключен"), gap2);
+        optBox.addView(head, lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // Плочки 4 x 2.
+        String modeName = "mobile".equals(curMode) ? "Мобилна" : "desktop".equals(curMode)
+                ? "Десктоп" : "Нормална";
+        View[] tiles = {
+                optTile("#reload", IC_REFRESH, C_ICON_BG, C_ICON_FG, "Презареди",
+                        "Опитай страницата пак", null, 0),
+                optTile("#search", IC_SEARCH, C_ICON_BG, C_ICON_FG, "Търси на сайта",
+                        "Отваря клавиатура", null, 0),
+                optTile("#mode", IC_MONITOR, C_ICON_BG, C_ICON_FG, "Версия на сайта",
+                        "Мобилната е по-лека", modeName, 0),
+                optTile("#cursor", IC_CURSOR, cursorEnabled ? C_GREEN_BG : C_ICON_BG,
+                        cursorEnabled ? C_GREEN_FG : C_ICON_FG, "Курсор",
+                        cursorEnabled ? "Стрелките го движат" : "Стрелките движат фокуса",
+                        onOffWord(cursorEnabled, "Включен", "Изключен"), cursorEnabled ? 1 : 0),
+                optTile("#sleep", IC_MOON, sleepAt != 0 ? C_AMBER_BG : C_ICON_BG,
+                        sleepAt != 0 ? C_AMBER_FG : C_ICON_FG, "Таймер за заспиване",
+                        "Спира всичко след време", sleepState(), sleepAt != 0 ? 2 : 0),
+                optTile("#stats", IC_BARS, C_ICON_BG, C_ICON_FG, "Статистика",
+                        "Памет върху екрана", onOffWord(statsOn, "Включена", "Изключена"),
+                        statsOn ? 1 : 0),
+                optTile("#cache", IC_TRASH, C_ICON_BG, C_ICON_FG, "Изчисти кеша",
+                        "Освобождава място", cacheSizeText, 0),
+                optTile("#autocache", IC_SPARK, autoCacheOn() ? C_GREEN_BG : C_ICON_BG,
+                        autoCacheOn() ? C_GREEN_FG : C_ICON_FG, "Авто чистене",
+                        "Над 200 МБ кеш", onOffWord(autoCacheOn(), "Включено", "Изключено"),
+                        autoCacheOn() ? 1 : 0),
+        };
+        for (int r = 0; r < 2; r++) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setClipChildren(false);
+            for (int c = 0; c < 4; c++) {
+                LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0, u(150), 1f);
+                if (c > 0) tlp.leftMargin = u(16);
+                row.addView(tiles[r * 4 + c], tlp);
+            }
+            LinearLayout.LayoutParams rlp = lp(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            rlp.topMargin = u(r == 0 ? 28 : 16);
+            optBox.addView(row, rlp);
         }
 
-        addHeader("СТРАНИЦА");
-        addAction("#search", "⌕", "Търси на сайта", "Отваря клавиатура и търси във филмите",
-                null, 0);
-        addAction("#reload", "↻", "Презареди страницата", "Опитай пак или приложи промените",
-                null, 0);
-        addAction("#mode", "▤", "Версия на сайта",
-                "Смени, ако страницата е тежка или не работи добре",
-                "mobile".equals(curMode) ? "МОБИЛНА" : "desktop".equals(curMode) ? "ДЕСКТОП"
-                        : "НОРМАЛНА", C_MUTED);
-        addAction("#cursor", "⌖", "Курсор",
-                cursorEnabled ? "Стрелките местят курсора, OK кликва"
-                        : "Стрелките местят фокуса по страницата",
-                onOff(cursorEnabled), cursorEnabled ? C_ON : C_MUTED);
-        addAction("#sleep", "☾", "Таймер за заспиване",
-                "Спира гледането и затваря приложението след избраното време",
-                sleepLabel(), sleepAt != 0 ? C_ON : C_MUTED);
+        // Видео на страницата и реклами.
+        LinearLayout panels = new LinearLayout(this);
+        panels.setOrientation(LinearLayout.HORIZONTAL);
+        panels.setClipChildren(false);
+        panels.addView(buildVideoPanel(), new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT, 1.3f));
+        LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
+        alp.leftMargin = u(16);
+        panels.addView(buildAdsPanel(), alp);
+        LinearLayout.LayoutParams plp = lp(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        plp.topMargin = u(24);
+        optBox.addView(panels, plp);
 
-        addHeader("ПРИЛОЖЕНИЕ");
-        addAction("#update", "⬇", "Провери за актуализации", "Версия " + installedName(),
-                null, 0);
-        addAction("#cache", "♻", "Изчисти кеша", "Освобождава място на приставката",
-                cacheSizeText, C_MUTED);
-        addAction("#autocache", "⟳", "Автоматично чистене на кеша",
-                "Чисти сам, когато кешът надхвърли 200 МБ", onOff(autoCacheOn()),
-                autoCacheOn() ? C_ON : C_MUTED);
-        addAction("#stats", "▣", "Статистика на екрана", "Памет и брой заявки",
-                onOff(statsOn), statsOn ? C_ON : C_MUTED);
+        TextView foot = text("OK — избор      Назад — затвори", 15, 0xFF8E9ABD, tfMedium, true);
+        foot.setGravity(Gravity.CENTER);
+        foot.setPadding(0, u(18), 0, 0);
+        optBox.addView(foot);
 
-        // Намерени видео потоци (най-новите най-отгоре).
+        optBox.post(new Runnable() {
+            @Override
+            public void run() {
+                View f = findByTag(optBox, optKey);
+                if (f == null) f = findByTag(optBox, "#reload");
+                if (f != null) f.requestFocus();
+            }
+        });
+    }
+
+    private View buildVideoPanel() {
+        LinearLayout p = new LinearLayout(this);
+        p.setOrientation(LinearLayout.VERTICAL);
+        p.setPadding(u(22), u(20), u(22), u(20));
+        p.setMinimumHeight(u(218));
+        p.setBackground(panelBg(26));
+        p.setClipChildren(false);
+
+        LinearLayout title = new LinearLayout(this);
+        title.setOrientation(LinearLayout.HORIZONTAL);
+        title.setGravity(Gravity.CENTER_VERTICAL);
+        title.setPadding(0, 0, 0, u(10));
+        LinearLayout.LayoutParams iclp = lp(u(24), u(24));
+        iclp.rightMargin = u(10);
+        title.addView(new IconView(this, IC_PLAY, C_ICON_FG), iclp);
+        title.addView(text("Видео на страницата", 20, Color.WHITE, Typeface.DEFAULT_BOLD, true));
+        p.addView(title);
+
+        // Намерени видео потоци (най-новите най-отгоре), най-много 3.
         ArrayList<String> pl = new ArrayList<>();
         ArrayList<String> fl = new ArrayList<>();
         synchronized (mediaPlaylists) {
@@ -2482,21 +3195,144 @@ public class MainActivity extends Activity {
         synchronized (mediaFiles) {
             fl.addAll(mediaFiles.keySet());
         }
-        addHeader("ВИДЕО НА СТРАНИЦАТА");
         int shown = 0;
-        for (int i = pl.size() - 1; i >= 0 && shown < 6; i--, shown++) {
-            addAction("#media:" + pl.get(i), "▶", "Пусни в родния плейър", shortName(pl.get(i)),
-                    null, 0);
+        for (int i = pl.size() - 1; i >= 0 && shown < 3; i--, shown++) {
+            p.addView(mediaRow(pl.get(i), "Пусни в родния плейър"));
         }
-        for (int i = fl.size() - 1, k = 0; i >= 0 && k < 4; i--, k++, shown++) {
-            addAction("#media:" + fl.get(i), "▶", "Пусни файла в родния плейър",
-                    shortName(fl.get(i)), null, 0);
+        for (int i = fl.size() - 1; i >= 0 && shown < 3; i--, shown++) {
+            p.addView(mediaRow(fl.get(i), "Пусни файла в родния плейър"));
         }
         if (shown == 0) {
-            addNote("Още няма намерено видео. Пусни канала или филма и отвори Опции пак.");
+            p.addView(text("Още няма намерено видео. Пусни канала или филма и отвори Опции пак.",
+                    17, C_MUTED, tfMedium, false));
         }
+        return p;
+    }
 
-        // Домейни, към които страницата праща заявки.
+    private View mediaRow(final String url, String label) {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setPadding(u(16), 0, u(16), 0);
+        r.setMinimumHeight(u(62));
+        r.setFocusable(true);
+        r.setClickable(true);
+        r.setTag("#media:" + url);
+        r.setBackground(stateBg(0xFF1A2342, C_PANEL_FOCUS, Color.WHITE, u(18), 0));
+        LinearLayout tx = new LinearLayout(this);
+        tx.setOrientation(LinearLayout.VERTICAL);
+        tx.addView(text(label, 18, Color.WHITE, tfMedium, true));
+        tx.addView(text(shortName(url), 14, C_MUTED, tfMedium, true));
+        r.addView(tx, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView go = text("Пусни", 16, 0xFF06263A, Typeface.DEFAULT_BOLD, true);
+        go.setGravity(Gravity.CENTER);
+        go.setPadding(u(16), 0, u(16), 0);
+        GradientDrawable gb = new GradientDrawable();
+        gb.setColor(0xFF38BDF8);
+        gb.setCornerRadius(u(17));
+        go.setBackground(gb);
+        r.addView(go, lp(ViewGroup.LayoutParams.WRAP_CONTENT, u(34)));
+        LinearLayout.LayoutParams rlp = lp(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        rlp.topMargin = u(8);
+        r.setLayoutParams(rlp);
+        r.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                runOption("#media:" + url);
+            }
+        });
+        r.setOnFocusChangeListener(focusAnim);
+        return r;
+    }
+
+    private View buildAdsPanel() {
+        LinearLayout p = new LinearLayout(this);
+        p.setOrientation(LinearLayout.VERTICAL);
+        p.setPadding(u(22), u(20), u(22), u(20));
+        p.setMinimumHeight(u(218));
+        p.setFocusable(true);
+        p.setClickable(true);
+        p.setTag("#domains");
+        p.setBackground(stateBg(C_PANEL, C_PANEL_FOCUS, Color.WHITE, u(26), C_PANEL_LINE));
+
+        LinearLayout title = new LinearLayout(this);
+        title.setOrientation(LinearLayout.HORIZONTAL);
+        title.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams iclp = lp(u(24), u(24));
+        iclp.rightMargin = u(10);
+        title.addView(new IconView(this, IC_SHIELD, 0xFFFB7185), iclp);
+        title.addView(text("Реклами и домейни", 20, Color.WHITE, Typeface.DEFAULT_BOLD, true));
+        p.addView(title);
+
+        int domains;
+        synchronized (hostCounts) {
+            domains = hostCounts.size();
+        }
+        TextView info = text(reqBlocked.get() + " блокирани заявки от " + domains
+                + " домейна. Натисни, за да блокираш или разрешиш домейн.", 17, C_MUTED,
+                tfMedium, false);
+        info.setPadding(0, u(12), 0, 0);
+        p.addView(info);
+        p.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1f));
+
+        TextView go = text("Виж домейните", 18, 0xFFC7D2F5, Typeface.DEFAULT_BOLD, true);
+        go.setGravity(Gravity.CENTER);
+        GradientDrawable gb = new GradientDrawable();
+        gb.setColor(C_ICON_BG);
+        gb.setCornerRadius(u(22));
+        go.setBackground(gb);
+        p.addView(go, lp(ViewGroup.LayoutParams.MATCH_PARENT, u(44)));
+
+        p.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                runOption("#domains");
+            }
+        });
+        p.setOnFocusChangeListener(focusAnim);
+        return p;
+    }
+
+    private void runOption(String key) {
+        optKey = key;
+        if (key.equals("#search")) {
+            startSiteSearch();
+        } else if (key.equals("#reload")) {
+            hideLog();
+            if (web != null) web.reload();
+        } else if (key.equals("#cursor")) {
+            toggleCursor();
+            refreshLog(0);
+        } else if (key.equals("#sleep")) {
+            chooseSleep();
+        } else if (key.equals("#mode")) {
+            toggleSiteMode();
+        } else if (key.equals("#cache")) {
+            clearCacheNow();
+        } else if (key.equals("#autocache")) {
+            toggleAutoCache();
+            refreshLog(0);
+        } else if (key.equals("#stats")) {
+            toggleStats();
+            refreshLog(0);
+        } else if (key.equals("#domains")) {
+            showDomains();
+        } else if (key.startsWith("#media:")) {
+            hideLog();
+            playNative(key.substring(7));
+        }
+    }
+
+    // Обновява това, което е на екрана: плочките или списъка с домейни.
+    private void refreshLog(int keepPos) {
+        if (domShown()) refreshDomains(keepPos);
+        else buildOptions();
+    }
+
+    private void refreshDomains(int keepPos) {
+        logKeys.clear();
+        logRows.clear();
         ArrayList<Map.Entry<String, Integer>> list = new ArrayList<>();
         synchronized (hostCounts) {
             for (Map.Entry<String, Integer> en : hostCounts.entrySet()) {
@@ -2504,8 +3340,9 @@ public class MainActivity extends Activity {
             }
         }
         Collections.sort(list, (a, b) -> b.getValue() - a.getValue());
-        addHeader("РЕКЛАМИ И ДОМЕЙНИ");
-        addNote("Натисни домейн, за да го блокираш или разрешиш. После презареди страницата.");
+        if (list.isEmpty()) {
+            addNote("Още няма заявки. Отвори страница и опитай пак.");
+        }
         int n = 0;
         for (Map.Entry<String, Integer> en : list) {
             if (n++ >= 80) break;
@@ -2518,11 +3355,8 @@ public class MainActivity extends Activity {
                 addDomain(h, en.getValue() + " заявки", "РАЗРЕШЕН", C_ON);
             }
         }
-
         logAdapter.notifyDataSetChanged();
-        // Курсорът започва от първата опция, не от заглавието.
         int pos = Math.max(0, Math.min(keepPos, logRows.size() - 1));
-        if (keepPos <= 0) pos = 1;
         logList.setSelection(pos);
     }
 
@@ -2543,22 +3377,12 @@ public class MainActivity extends Activity {
     }
 
     private View buildLogRowView(LogRow r) {
-        if (r.kind == LogRow.HEADER) {
-            TextView h = new TextView(this);
-            h.setText(r.title);
-            h.setTextColor(C_AMBER);
-            h.setTextSize(13);
-            h.setTypeface(Typeface.DEFAULT_BOLD);
-            h.setLetterSpacing(0.15f);
-            h.setPadding(dp(16), dp(20), 0, dp(6));
-            return h;
-        }
         if (r.kind == LogRow.NOTE) {
             TextView h = new TextView(this);
             h.setText(r.title);
-            h.setTextColor(0xFF8C93C0);
-            h.setTextSize(14);
-            h.setPadding(dp(16), dp(6), dp(16), dp(6));
+            h.setTextColor(C_MUTED);
+            h.setTextSize(16);
+            h.setPadding(dp(16), dp(10), dp(16), dp(10));
             return h;
         }
         LinearLayout row = new LinearLayout(this);
@@ -2566,29 +3390,12 @@ public class MainActivity extends Activity {
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(16), dp(11), dp(16), dp(11));
 
-        if (r.kind == LogRow.ACTION) {
-            TextView ic = new TextView(this);
-            ic.setText(r.icon);
-            ic.setTextColor(Color.WHITE);
-            ic.setTextSize(20);
-            ic.setGravity(Gravity.CENTER);
-            GradientDrawable ibg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                    new int[]{0xFF6D5BFF, 0xFFB5179E});
-            ibg.setCornerRadius(dp(12));
-            ic.setBackground(ibg);
-            LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(dp(44), dp(44));
-            ilp.setMargins(0, 0, dp(16), 0);
-            row.addView(ic, ilp);
-        }
-
         LinearLayout texts = new LinearLayout(this);
         texts.setOrientation(LinearLayout.VERTICAL);
         TextView tt = new TextView(this);
         tt.setText(r.title);
-        tt.setTextColor(r.kind == LogRow.DOMAIN && r.stateColor == C_DANGER ? C_DANGER
-                : Color.WHITE);
-        tt.setTextSize(r.kind == LogRow.ACTION ? 19 : 17);
-        tt.setTypeface(r.kind == LogRow.ACTION ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+        tt.setTextColor(r.stateColor == C_DANGER ? C_DANGER : Color.WHITE);
+        tt.setTextSize(17);
         tt.setSingleLine(true);
         tt.setEllipsize(TextUtils.TruncateAt.END);
         texts.addView(tt);
@@ -2609,62 +3416,17 @@ public class MainActivity extends Activity {
         return row;
     }
 
+    // Избор от списъка с домейни.
     private void onLogItem(int pos) {
         if (pos < 0 || pos >= logKeys.size()) return;
         String key = logKeys.get(pos);
-        if (key.equals("#hdr")) return;
-        if (key.equals("#search")) {
-            startSiteSearch();
-            return;
-        }
-        if (key.equals("#reload")) {
-            hideLog();
-            web.reload();
-            return;
-        }
-        if (key.equals("#cursor")) {
-            toggleCursor();
-            refreshLog(pos);
-            return;
-        }
-        if (key.equals("#sleep")) {
-            chooseSleep();
-            return;
-        }
-        if (key.equals("#update")) {
-            checkUpdate();
-            return;
-        }
-        if (key.equals("#mode")) {
-            toggleSiteMode();
-            return;
-        }
-        if (key.equals("#cache")) {
-            clearCacheNow();
-            return;
-        }
-        if (key.equals("#autocache")) {
-            toggleAutoCache();
-            refreshLog(pos);
-            return;
-        }
-        if (key.equals("#stats")) {
-            toggleStats();
-            refreshLog(pos);
-            return;
-        }
         if (key.equals("#none")) return;
-        if (key.startsWith("#media:")) {
-            hideLog();
-            playNative(key.substring(7));
-            return;
-        }
         if (isOwnHost(key)) {
             Toast.makeText(this, "Това е самият сайт - не се блокира", Toast.LENGTH_SHORT).show();
             return;
         }
         toggleBlock(key);
-        refreshLog(pos);
+        refreshDomains(pos);
     }
 
     // ---------- Таймер за заспиване (само ръчно, по желание) ----------
@@ -2811,7 +3573,18 @@ public class MainActivity extends Activity {
                     logEvent("Проверка за версия при пускане: " + r.err);
                     return;
                 }
-                if (r.code <= installedCode()) return;
+                if (r.code <= installedCode()) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            versionOk = true;
+                            if (!isFinishing() && menuHolder.getVisibility() == View.VISIBLE) {
+                                refreshHeader();
+                            }
+                        }
+                    });
+                    return;
+                }
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
@@ -2820,10 +3593,8 @@ public class MainActivity extends Activity {
                         updateUrl = r.apkUrl;
                         logEvent("Има нова версия 2." + r.code);
                         Toast.makeText(MainActivity.this, "Има нова версия 2." + r.code
-                                + " - натисни лентата най-горе в менюто", Toast.LENGTH_LONG).show();
-                        if (menuHolder.getVisibility() == View.VISIBLE && updateBanner == null) {
-                            addUpdateBanner(1);
-                        }
+                                + " - виж жълтото поле най-горе в менюто", Toast.LENGTH_LONG).show();
+                        if (menuHolder.getVisibility() == View.VISIBLE) refreshHeader();
                     }
                 });
             }
@@ -3347,7 +4118,7 @@ public class MainActivity extends Activity {
         et.setSelection(et.getText().length());
         et.setHint(hint.isEmpty() ? (isSearch ? "Какво търсиш?" : "") : hint);
         et.setTextColor(Color.WHITE);
-        et.setHintTextColor(0xFF8C93C0);
+        et.setHintTextColor(0xFF9AA0AB);
         et.setTextSize(24);
         et.setPadding(dp(18), dp(14), dp(18), dp(14));
         et.setBackground(fieldBg());
@@ -3544,7 +4315,8 @@ public class MainActivity extends Activity {
                 return true;
             }
             if (logShown()) {
-                hideLog();
+                if (domShown()) backToOptions();
+                else hideLog();
                 return true;
             }
             if (customView != null) {
