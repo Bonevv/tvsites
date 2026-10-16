@@ -125,12 +125,12 @@ public class MainActivity extends Activity {
     // Може и без редактиране на кода: бутон "Източници" в каталога.
     private static final String[] FILM_SOURCES = {
             "https://vidcore.org/embed/movie/{tmdb}",   // основен за филми
-            "",   // резервен 1
+            "https://seapi.link/?type=tmdb&id={tmdb}&max_results=1",   // резервен 1
             ""    // резервен 2
     };
     private static final String[] TV_SOURCES = {
             "https://vidcore.org/embed/tv/{tmdb}/{season}/{episode}",   // основен за сериали
-            "",   // резервен 1
+            "https://seapi.link/?type=tmdb&id={tmdb}&season={season}&episode={episode}&max_results=1",   // резервен 1
             ""    // резервен 2
     };
     // Ключ за TMDB: по-добре го въведи на кутията (репото е публично).
