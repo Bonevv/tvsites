@@ -127,15 +127,13 @@ public class MainActivity extends Activity {
     "https://vidcore.org/embed/movie/{tmdb}",
     "https://embedwave.cc/embed/movie/{tmdb}",
     "https://vidsrc.sh/embed/movie/{tmdb}",
-    "https://vidspark.to/movie/{tmdb}",
-    "https://multiembed.mov/?video_id={tmdb}&tmdb=1"
+    "https://vidspark.to/movie/{tmdb}"
     };
     private static final String[] TV_SOURCES = {
     "https://vidcore.org/embed/tv/{tmdb}/{season}/{episode}",
     "https://embedwave.cc/embed/tv/{tmdb}/{season}/{episode}",
     "https://vidsrc.sh/embed/tv/{tmdb}/{season}/{episode}",
-    "https://vidspark.to/tv/{tmdb}/{season}/{episode}",
-    "https://multiembed.mov/?video_id={tmdb}&tmdb=1&s={season}&e={episode}"
+    "https://vidspark.to/tv/{tmdb}/{season}/{episode}"
     };
     // Ключ за TMDB: по-добре го въведи на кутията (репото е публично).
     private static final String TMDB_KEY = "d2c1e02ec9baf771e1ce6b4511a5aea8";
