@@ -498,8 +498,7 @@ public class MainActivity extends Activity {
             for (int i = Math.max(0, ls.length - 10); i < ls.length; i++) sb.append(ls[i]).append('\n');
             txt = sb.toString();
         }
-        showInfo("Диагностика", "Последни събития (най-новите са най-долу). "
-                + "Ако нещо спре, снимай този екран.\n\n" + txt);
+        showInfo("Диагностика", "Последни събития (най-новите са най-долу).\n\n" + txt);
     }
 
     @Override
@@ -549,7 +548,7 @@ public class MainActivity extends Activity {
         if (txt.isEmpty() || isFinishing()) return;
         if (txt.length() > 1100) txt = txt.substring(0, 1100);
         showInfo("Приложението се затвори неочаквано",
-                "Ако това се повтаря, снимай този екран и го прати за поправка.\n\n" + txt);
+                "Приложението спря неочаквано. Причина:\n\n" + txt);
     }
 
     // ---------- Настройки от текстов файл ----------
@@ -2918,7 +2917,91 @@ public class MainActivity extends Activity {
                     } else if (!okLongHandled) {
                         okLongHandled = true;
                         showLog();
-                    }
+                    }package com.example.tvsites;
+            android.os.Debug.MemoryInfo[] pm =
+                    am.getProcessMemoryInfo(new int[]{android.os.Process.myPid()});
+            if (pm != null && pm.length > 0) appMb = pm[0].getTotalPss() / 1024L;
+        } catch (Exception ignored) {
+        }
+        return "RAM своб. " + (mi.availMem / 1048576L) + "/" + (mi.totalMem / 1048576L)
+                + " МБ, прил. " + appMb + " МБ" + (mi.lowMemory ? ", МАЛКО ПАМЕТ" : "");
+    }
+
+    private void showDiagnostics() {
+        String txt = "";
+        try {
+            File f = new File(getFilesDir(), "events.txt");
+            if (f.exists()) txt = readAll(new java.io.FileInputStream(f));
+        } catch (Exception ignored) {
+        }
+        if (txt.isEmpty()) {
+            txt = "Още няма записани събития.";
+        } else {
+            String[] ls = txt.trim().split("\n");
+            StringBuilder sb = new StringBuilder();
+            for (int i = Math.max(0, ls.length - 10); i < ls.length; i++) sb.append(ls[i]).append('\n');
+            txt = sb.toString();
+        }
+        showInfo("Диагностика", "Последни събития (най-новите са най-долу). "
+                + "Ако нещо спре, снимай този екран.\n\n" + txt);
+    }
+
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (level >= TRIM_MEMORY_RUNNING_LOW && web != null) {
+            logEvent("Системата сигнализира малко памет (ниво " + level + ") - " + memLine());
+        }
+    }
+
+    // ---------- Запис на неочаквано затваряне ----------
+
+    // При неочаквано затваряне записва причината, за да я покажем следващия път.
+    private void installCrashLogger() {
+        final Thread.UncaughtExceptionHandler prev = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+            @Override
+            public void uncaughtException(Thread t, Throwable e) {
+                try {
+                    logEvent("ГРЕШКА: " + e);
+                } catch (Throwable ignored) {
+                }
+                try {
+                    java.io.StringWriter sw = new java.io.StringWriter();
+                    e.printStackTrace(new java.io.PrintWriter(sw));
+                    String txt = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+                            .format(new java.util.Date()) + "  v" + installedName() + "\n" + sw;
+                    FileOutputStream fo = new FileOutputStream(new File(getFilesDir(), "crash.txt"));
+                    fo.write(txt.getBytes("UTF-8"));
+                    fo.close();
+                } catch (Throwable ignored) {
+                }
+                if (prev != null) prev.uncaughtException(t, e);
+            }
+        });
+    }
+
+    private void showLastCrash() {
+        File f = new File(getFilesDir(), "crash.txt");
+        if (!f.exists()) return;
+        String txt = "";
+        try {
+            txt = readAll(new java.io.FileInputStream(f));
+        } catch (Exception ignored) {
+        }
+        f.delete();
+        if (txt.isEmpty() || isFinishing()) return;
+        if (txt.length() > 1100) txt = txt.substring(0, 1100);
+        showInfo("Приложението се затвори неочаквано",
+                "Ако това се повтаря, снимай този екран и го прати за поправка.\n\n" + txt);
+    }
+
+    // ---------- Настройки от текстов файл ----------
+
+    private void useDefaultSites() {
+        sites.clear();
+        for (String[] s : DEFAULT_SITES) sites.add(s);
+
                 } else {
                     if (!okLongHandled && !e.isCanceled()) {
                         if (!cursorEnabled) {
