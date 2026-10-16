@@ -91,6 +91,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ExecutorService;
@@ -2456,6 +2457,8 @@ public class MainActivity extends Activity {
                 root.addView(view, new FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
                 web.setVisibility(View.GONE);
+                if (cursor != null) cursor.bringToFront(); // курсорът е над видеото
+                cursorIdle = true; // OK пуска/спира, докато не мръднеш със стрелка
                 updateState();
             }
 
@@ -2599,7 +2602,8 @@ public class MainActivity extends Activity {
 
     private void updateState() {
         if (cursor != null) {
-            cursor.setVisibility(webActive() && cursorEnabled && !cursorIdle
+            boolean can = webActive() || (customView != null && !logShown() && !nativeActive());
+            cursor.setVisibility(can && cursorEnabled && !cursorIdle
                     ? View.VISIBLE : View.GONE);
         }
         // Докато гледаш, екранът не заспива.
@@ -4307,9 +4311,25 @@ public class MainActivity extends Activity {
         }
 
         // Видеото на страницата е на цял екран: OK пуска или спира.
+        // Със стрелките се движи курсорът (за лентата с времето, субтитрите и т.н.).
+        // OK: ако курсорът се вижда, натиска къде е той; иначе пуска/спира.
         if (customView != null) {
+            if (cursorEnabled && (code == KeyEvent.KEYCODE_DPAD_UP
+                    || code == KeyEvent.KEYCODE_DPAD_DOWN
+                    || code == KeyEvent.KEYCODE_DPAD_LEFT
+                    || code == KeyEvent.KEYCODE_DPAD_RIGHT)) {
+                if (down) moveCursor(code, e.getRepeatCount());
+                return true;
+            }
             if ((okKey || playKey) && !e.isCanceled()) {
-                if (down && e.getRepeatCount() == 0) togglePlayback();
+                if (down && e.getRepeatCount() == 0) {
+                    if (okKey && cursorEnabled && !cursorIdle) {
+                        tapAt(customView, cx, cy);
+                        pokeCursor();
+                    } else {
+                        togglePlayback();
+                    }
+                }
                 return true;
             }
             return super.dispatchKeyEvent(e);
@@ -5049,53 +5069,92 @@ public class MainActivity extends Activity {
         return l;
     }
 
-    private void addCatRow(String title, String path, final boolean tv, final int gen) {
+    // Когато фокусът е близо до края на вече заредените корици, се зарежда следващата страница.
+    private void watchEnd(View cell, CTitle t, final int idx, final int[] count, final int ahead,
+                          final Runnable more) {
+        View card = cell.findViewWithTag("t" + t.id + (t.tv ? "t" : "m"));
+        if (card == null) return;
+        card.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override
+            public void onFocusChange(View v, boolean has) {
+                tileFocus.onFocusChange(v, has);
+                if (has && idx >= count[0] - ahead) more.run();
+            }
+        });
+    }
+
+    // Ред от началния екран: като се стигне до края, се дозареждат още (до 10 страници по 20).
+    private void addCatRow(String title, final String path, final boolean tv, final int gen) {
         final LinearLayout strip = addRowShell(title);
         final TextView wait = text("Зареждане...", 17, C_MUTED, tfMedium, false);
         wait.setPadding(u(8), u(90), 0, u(90));
         strip.addView(wait);
-        tmdbFetch(path + "?language=bg-BG&page=1", new Done() {
+        final int[] page = {0};
+        final int[] count = {0};
+        final boolean[] busy = {false};
+        final boolean[] done = {false};
+        final Runnable[] more = new Runnable[1];
+        more[0] = new Runnable() {
             @Override
-            public void run(String json, String err) {
-                if (gen != catGen) return;
-                strip.removeAllViews();
-                ArrayList<CTitle> list = json == null ? null : parseList(json, tv);
-                if (list == null || list.isEmpty()) {
-                    TextView e = text(err != null ? err : "Няма резултати.", 17, C_RED_FG,
-                            tfMedium, false);
-                    e.setPadding(u(8), u(80), 0, u(80));
-                    strip.addView(e);
-                } else {
-                    for (final CTitle t : list) {
-                        strip.addView(posterCell(t, new Runnable() {
-                            @Override
-                            public void run() {
-                                catDetail(t);
+            public void run() {
+                if (busy[0] || done[0] || gen != catGen) return;
+                busy[0] = true;
+                final int p = ++page[0];
+                tmdbFetch(path + "?language=bg-BG&page=" + p, new Done() {
+                    @Override
+                    public void run(String json, String err) {
+                        busy[0] = false;
+                        if (gen != catGen) return;
+                        ArrayList<CTitle> list = json == null ? null : parseList(json, tv, 20);
+                        if (p == 1) strip.removeAllViews();
+                        if (list == null || list.isEmpty()) {
+                            if (p == 1 || err == null) done[0] = true;
+                            else page[0]--;
+                            if (p == 1) {
+                                TextView e = text(err != null ? err : "Няма резултати.", 17,
+                                        C_RED_FG, tfMedium, false);
+                                e.setPadding(u(8), u(80), 0, u(80));
+                                strip.addView(e);
                             }
-                        }), cellLp2());
-                    }
-                    if (catFocusKey != null) {
-                        View want = findByTag(strip, catFocusKey);
-                        if (want != null) {
-                            want.requestFocus();
+                        } else {
+                            if (p >= 10) done[0] = true;
+                            int base = count[0];
+                            for (int i = 0; i < list.size(); i++) {
+                                final CTitle t = list.get(i);
+                                View cell = posterCell(t, new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        catDetail(t);
+                                    }
+                                });
+                                strip.addView(cell, cellLp2());
+                                watchEnd(cell, t, base + i, count, 6, more[0]);
+                            }
+                            count[0] += list.size();
+                            if (p == 1 && catFocusKey != null) {
+                                View want = findByTag(strip, catFocusKey);
+                                if (want != null) {
+                                    want.requestFocus();
+                                    catFocusKey = null;
+                                }
+                            }
+                        }
+                        if (p == 1 && --catRowsLeft <= 0 && catScroll.findFocus() == null) {
                             catFocusKey = null;
+                            ArrayList<View> fs = new ArrayList<>();
+                            catBox.addFocusables(fs, View.FOCUS_DOWN);
+                            for (View fv : fs) {
+                                if (fv != null) {
+                                    fv.requestFocus();
+                                    break;
+                                }
+                            }
                         }
                     }
-                }
-                // Когато всички редове са готови, ако нищо няма фокус, избираме първата корица.
-                if (--catRowsLeft <= 0 && catScroll.findFocus() == null) {
-                    catFocusKey = null;
-                    ArrayList<View> fs = new ArrayList<>();
-                    catBox.addFocusables(fs, View.FOCUS_DOWN);
-                    for (View f : fs) {
-                        if (f != null) {
-                            f.requestFocus();
-                            break;
-                        }
-                    }
-                }
+                });
             }
-        });
+        };
+        more[0].run();
     }
 
     // Начало: редове с корици (или примерни карти, докато няма ключ).
@@ -5110,7 +5169,7 @@ public class MainActivity extends Activity {
         catParent = null;
         catBox.removeAllViews();
         catMain = null;
-        catBox.addView(catHeader("Наши филми", "Филми и сериали с корици от TMDB", true));
+        catBox.addView(catHeader("Наши филми", "Филми и сериали", true));
         if (tmdbKey().isEmpty()) {
             catBox.addView(catNoKey(), lpTop(u(24)));
             LinearLayout strip = addRowShell("Пример (отворени филми на Blender)");
@@ -5140,7 +5199,6 @@ public class MainActivity extends Activity {
             addCatRow("Най-добре оценени сериали", "/tv/top_rated", true, gen);
             if (catFocusKey == null && catMain != null) catMain.requestFocus();
         }
-        catBox.addView(catFooter(), lpTop(u(30)));
         if (catFocusKey == null) catScroll.scrollTo(0, 0);
         catBox.post(new Runnable() {
             @Override
@@ -5461,15 +5519,28 @@ public class MainActivity extends Activity {
                         catGenres();
                     }
                 });
+        LinearLayout d = dockButton(IC_SPARK, false, "Предложи ми", "Хвърли зара", new Runnable() {
+            @Override
+            public void run() {
+                catGenres(true);
+            }
+        });
         row.addView(s, lp(u(330), u(72)));
         LinearLayout.LayoutParams clp = lp(u(330), u(72));
         clp.leftMargin = u(14);
         row.addView(c, clp);
+        LinearLayout.LayoutParams dlp = lp(u(330), u(72));
+        dlp.leftMargin = u(14);
+        row.addView(d, dlp);
         catBox.addView(row, lpTop(u(22)));
         catMain = s;
     }
 
     private void catGenres() {
+        catGenres(false);
+    }
+
+    private void catGenres(final boolean suggest) {
         final int gen = ++catGen;
         catUp = new Runnable() {
             @Override
@@ -5480,12 +5551,22 @@ public class MainActivity extends Activity {
         catParent = null;
         catBox.removeAllViews();
         catMain = null;
-        catBox.addView(catHeader("Категории", "Избери жанр", false));
+        catBox.addView(catHeader(suggest ? "Предложи ми" : "Категории",
+                suggest ? "Избери жанр и ще хвърля зара" : "Избери жанр", false));
         View first = null;
         for (int kind = 0; kind < 2; kind++) {
             final boolean tv = kind == 1;
             int[] ids = tv ? TV_GENRE_ID : MOVIE_GENRE_ID;
             String[] names = tv ? TV_GENRE_NAME : MOVIE_GENRE_NAME;
+            if (suggest) {
+                int[] ids2 = new int[ids.length + 1];
+                String[] names2 = new String[names.length + 1];
+                names2[0] = "Всякакви";
+                System.arraycopy(ids, 0, ids2, 1, ids.length);
+                System.arraycopy(names, 0, names2, 1, names.length);
+                ids = ids2;
+                names = names2;
+            }
             TextView h = text(tv ? "Сериали" : "Филми", 24, Color.WHITE, tfCondBold, true);
             h.setPadding(u(6), 0, 0, u(4));
             catBox.addView(h, lpTop(u(24)));
@@ -5503,7 +5584,8 @@ public class MainActivity extends Activity {
                     @Override
                     public void run() {
                         catFocusKey = null;
-                        catGenre(tv, gid, gname);
+                        if (suggest) catSuggest(tv, gid, gname, true);
+                        else catGenre(tv, gid, gname);
                     }
                 });
                 if (first == null) first = b;
@@ -5516,9 +5598,100 @@ public class MainActivity extends Activity {
         if (first != null) first.requestFocus();
     }
 
+    private ArrayList<CTitle> catPicks;
+
+    // Предложения: 5 случайни заглавия от избрания жанр; "Хвърли пак" дава други 5.
+    private void catSuggest(final boolean tv, final int gid, final String gname,
+                            final boolean roll) {
+        final int gen = ++catGen;
+        catUp = new Runnable() {
+            @Override
+            public void run() {
+                catHome();
+            }
+        };
+        catParent = new Runnable() {
+            @Override
+            public void run() {
+                catSuggest(tv, gid, gname, false);
+            }
+        };
+        catBox.removeAllViews();
+        catMain = null;
+        catBox.addView(catHeader("Предложи ми", (tv ? "Сериали" : "Филми") + ": " + gname, false));
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setClipChildren(false);
+        LinearLayout dice = dockButton(IC_SPARK, false, "Хвърли пак", "Други 5 предложения",
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        catFocusKey = null;
+                        catSuggest(tv, gid, gname, true);
+                    }
+                });
+        LinearLayout other = dockButton(IC_SLIDERS, false, "Друг жанр", "Смени избора",
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        catGenres(true);
+                    }
+                });
+        row.addView(dice, lp(u(330), u(72)));
+        LinearLayout.LayoutParams olp = lp(u(330), u(72));
+        olp.leftMargin = u(14);
+        row.addView(other, olp);
+        catBox.addView(row, lpTop(u(22)));
+        catMain = dice;
+        final LinearLayout strip = addRowShell("");
+        final TextView wait = text("Зареждане...", 17, C_MUTED, tfMedium, false);
+        wait.setPadding(u(8), u(90), 0, u(90));
+        strip.addView(wait);
+        catScroll.scrollTo(0, 0);
+        dice.requestFocus();
+        if (!roll && catPicks != null) {
+            showPicks(strip, catPicks);
+            return;
+        }
+        String path = "/discover/" + (tv ? "tv" : "movie") + "?language=bg-BG"
+                + "&sort_by=popularity.desc&vote_count.gte=200&page=" + (1 + new Random().nextInt(10))
+                + (gid > 0 ? "&with_genres=" + gid : "");
+        tmdbFetch(path, new Done() {
+            @Override
+            public void run(String json, String err) {
+                if (gen != catGen) return;
+                ArrayList<CTitle> list = json == null ? null : parseList(json, tv, 20);
+                strip.removeAllViews();
+                if (list == null || list.isEmpty()) {
+                    TextView e = text(err != null ? err : "Няма предложения.", 17, C_RED_FG,
+                            tfMedium, false);
+                    e.setPadding(u(8), u(80), 0, u(80));
+                    strip.addView(e);
+                    return;
+                }
+                Collections.shuffle(list);
+                catPicks = new ArrayList<>(list.subList(0, Math.min(5, list.size())));
+                showPicks(strip, catPicks);
+                if (catMain != null) catMain.requestFocus();
+            }
+        });
+    }
+
+    private void showPicks(LinearLayout strip, ArrayList<CTitle> picks) {
+        strip.removeAllViews();
+        for (final CTitle t : picks) {
+            strip.addView(posterCell(t, new Runnable() {
+                @Override
+                public void run() {
+                    catDetail(t);
+                }
+            }), cellLp2());
+        }
+    }
+
     private void catGenre(final boolean tv, int genreId, final String genreName) {
         String path = "/discover/" + (tv ? "tv" : "movie") + "?language=bg-BG&sort_by=popularity.desc"
-                + "&vote_count.gte=50&with_genres=" + genreId + "&page=1";
+                + "&vote_count.gte=50&with_genres=" + genreId;
         catGrid(genreName, tv ? "Сериали" : "Филми", path, tv, new Runnable() {
             @Override
             public void run() {
@@ -5527,7 +5700,7 @@ public class MainActivity extends Activity {
         });
     }
 
-    // Екран с мрежа от корици (резултат от търсене или жанр).
+    // Екран с мрежа от корици (резултат от търсене или жанр). Дозарежда се при скрол надолу.
     private void catGrid(final String title, final String sub, final String path,
                          final boolean tv, final Runnable up) {
         final int gen = ++catGen;
@@ -5546,41 +5719,68 @@ public class MainActivity extends Activity {
         wait.setPadding(u(6), u(40), 0, 0);
         catBox.addView(wait);
         catScroll.scrollTo(0, 0);
-        tmdbFetch(path, new Done() {
+        final int[] page = {0};
+        final int[] count = {0};
+        final boolean[] busy = {false};
+        final boolean[] done = {false};
+        final LinearLayout[] strip = {null};
+        final Runnable[] more = new Runnable[1];
+        more[0] = new Runnable() {
             @Override
-            public void run(String json, String err) {
-                if (gen != catGen) return;
-                catBox.removeView(wait);
-                ArrayList<CTitle> list = json == null ? null
-                        : (path.startsWith("/search") ? parseMixed(json) : parseList(json, tv, 28));
-                if (list == null || list.isEmpty()) {
-                    TextView e = text(err != null ? err : "Няма резултати.", 18,
-                            err != null ? C_RED_FG : C_MUTED, tfMedium, false);
-                    e.setPadding(u(6), u(40), 0, 0);
-                    catBox.addView(e);
-                    return;
-                }
-                LinearLayout strip = null;
-                View focus = null;
-                for (int i = 0; i < list.size(); i++) {
-                    if (i % 7 == 0) strip = addRowShell("");
-                    final CTitle t = list.get(i);
-                    View cell = posterCell(t, new Runnable() {
-                        @Override
-                        public void run() {
-                            catDetail(t);
+            public void run() {
+                if (busy[0] || done[0] || gen != catGen) return;
+                busy[0] = true;
+                final int p = ++page[0];
+                tmdbFetch(path + "&page=" + p, new Done() {
+                    @Override
+                    public void run(String json, String err) {
+                        busy[0] = false;
+                        if (gen != catGen) return;
+                        if (p == 1) catBox.removeView(wait);
+                        ArrayList<CTitle> list = json == null ? null
+                                : (path.startsWith("/search") ? parseMixed(json)
+                                : parseList(json, tv, 20));
+                        if (list == null || list.isEmpty()) {
+                            if (p == 1 || err == null) done[0] = true;
+                            else page[0]--;
+                            if (p == 1) {
+                                TextView e = text(err != null ? err : "Няма резултати.", 18,
+                                        err != null ? C_RED_FG : C_MUTED, tfMedium, false);
+                                e.setPadding(u(6), u(40), 0, 0);
+                                catBox.addView(e);
+                            }
+                            return;
                         }
-                    });
-                    strip.addView(cell, cellLp2());
-                    if (focus == null) focus = cell.findViewWithTag("t" + t.id + (t.tv ? "t" : "m"));
-                    if (catFocusKey != null && catFocusKey.equals("t" + t.id + (t.tv ? "t" : "m"))) {
-                        focus = cell.findViewWithTag(catFocusKey);
+                        if (p >= 15) done[0] = true;
+                        View focus = null;
+                        int base = count[0];
+                        for (int i = 0; i < list.size(); i++) {
+                            if ((base + i) % 7 == 0) strip[0] = addRowShell("");
+                            final CTitle t = list.get(i);
+                            View cell = posterCell(t, new Runnable() {
+                                @Override
+                                public void run() {
+                                    catDetail(t);
+                                }
+                            });
+                            strip[0].addView(cell, cellLp2());
+                            watchEnd(cell, t, base + i, count, 14, more[0]);
+                            String key = "t" + t.id + (t.tv ? "t" : "m");
+                            if (p == 1) {
+                                if (focus == null) focus = cell.findViewWithTag(key);
+                                if (key.equals(catFocusKey)) focus = cell.findViewWithTag(key);
+                            }
+                        }
+                        count[0] += list.size();
+                        if (p == 1) {
+                            catFocusKey = null;
+                            if (focus != null) focus.requestFocus();
+                        }
                     }
-                }
-                catFocusKey = null;
-                if (focus != null) focus.requestFocus();
+                });
             }
-        });
+        };
+        more[0].run();
     }
 
     private void showSearchDialog() {
@@ -5905,7 +6105,7 @@ public class MainActivity extends Activity {
         LinearLayout tx = new LinearLayout(this);
         tx.setOrientation(LinearLayout.VERTICAL);
         tx.addView(text("Филми и сериали", 20, Color.WHITE, Typeface.DEFAULT_BOLD, true));
-        tx.addView(text("корици от TMDB", 14, 0xDDFFFFFF, tfMedium, true));
+        tx.addView(text("търси и предложения", 14, 0xDDFFFFFF, tfMedium, true));
         FrameLayout.LayoutParams tlp2 = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.BOTTOM | Gravity.END);
