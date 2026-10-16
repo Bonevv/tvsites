@@ -3,6 +3,7 @@ package com.example.tvsites;
 import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
@@ -15,9 +16,11 @@ import android.graphics.ColorFilter;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
+import android.graphics.PorterDuff;
 import android.graphics.RadialGradient;
 import android.graphics.Shader;
 import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
@@ -26,6 +29,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.provider.Settings;
+import android.text.InputType;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.InputDevice;
@@ -34,19 +38,25 @@ import android.view.MotionEvent;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
 import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.widget.ArrayAdapter;
+import android.widget.BaseAdapter;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -133,6 +143,57 @@ public class MainActivity extends Activity {
             "(function(){var v=document.querySelector('video');"
                     + "if(v){if(v.paused){v.play();}else{v.pause();}return 'ok';}"
                     + "return 'none';})()";
+
+    // JavaScript за полетата за въвеждане. tvInfo връща JSON за полето или празен текст.
+    private static final String JS_INFO_FN =
+            "function tvInfo(a){var tag=a.tagName,type=(a.getAttribute('type')||'text').toLowerCase();"
+                    + "var ce=!!a.isContentEditable;"
+                    + "var ok=(tag==='TEXTAREA')||ce||(tag==='INPUT'&&['text','search','email','url','tel',"
+                    + "'number','password',''].indexOf(type)>=0);"
+                    + "if(!ok||a.readOnly||a.disabled)return '';"
+                    + "var hint=a.getAttribute('placeholder')||a.getAttribute('aria-label')||a.getAttribute('title')||'';"
+                    + "var key=(a.name||'')+' '+(a.id||'')+' '+hint+' '+(typeof a.className==='string'?a.className:'');"
+                    + "var s=(type==='search')||/search|query|keyword|търс|намери|(^|\\s)(q|s)(\\s|$)/i.test(key);"
+                    + "return JSON.stringify({t:type,v:ce?(a.textContent||''):(a.value||''),h:hint,s:s,m:(tag==='TEXTAREA')});}";
+
+    private static final String JS_ACTIVE_INFO =
+            "(function(){" + JS_INFO_FN + "var a=document.activeElement;"
+                    + "try{while(a&&a.tagName==='IFRAME'&&a.contentDocument&&a.contentDocument.activeElement)"
+                    + "{a=a.contentDocument.activeElement;}}catch(e){}"
+                    + "return a?tvInfo(a):'';})()";
+
+    // Търси поле за търсене в страницата, фокусира го и връща информация за него.
+    private static final String JS_FIND_SEARCH =
+            "(function(){" + JS_INFO_FN
+                    + "var l=document.querySelectorAll('input[type=search],input[name=s],input[name=q],"
+                    + "input[name=search],input[name=query],input[name=keyword],input[id*=search i],"
+                    + "input[class*=search i],input[placeholder*=search i],input[placeholder*=търс i]');"
+                    + "for(var i=0;i<l.length;i++){var e=l[i];"
+                    + "if(e.disabled||e.readOnly||e.type==='hidden')continue;"
+                    + "if(!(e.offsetWidth||e.offsetHeight||e.getClientRects().length))continue;"
+                    + "try{e.focus();e.scrollIntoView({block:'center'});}catch(x){}"
+                    + "var r=tvInfo(e);if(r)return r;}"
+                    + "return '';})()";
+
+    // Записва текста в полето и (при търсене) го изпраща.
+    private static String jsApplyText(String text, boolean submit) {
+        return "(function(v,sub){var a=document.activeElement;"
+                + "try{while(a&&a.tagName==='IFRAME'&&a.contentDocument&&a.contentDocument.activeElement)"
+                + "{a=a.contentDocument.activeElement;}}catch(e){}"
+                + "if(!a)return;"
+                + "if(a.isContentEditable){a.textContent=v;}else{"
+                + "var p=(a.tagName==='TEXTAREA')?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;"
+                + "var d=Object.getOwnPropertyDescriptor(p,'value');"
+                + "if(d&&d.set){d.set.call(a,v);}else{a.value=v;}}"
+                + "a.dispatchEvent(new Event('input',{bubbles:true}));"
+                + "a.dispatchEvent(new Event('change',{bubbles:true}));"
+                + "if(sub){var f=a.form;"
+                + "if(f){if(f.requestSubmit){f.requestSubmit();}else{f.submit();}}"
+                + "else{['keydown','keypress','keyup'].forEach(function(t){"
+                + "a.dispatchEvent(new KeyboardEvent(t,{key:'Enter',code:'Enter',keyCode:13,which:13,"
+                + "bubbles:true,cancelable:true}));});}}"
+                + "})(" + JSONObject.quote(text) + "," + (submit ? "true" : "false") + ")";
+    }
 
     // Цветове
     private static final int C_CARD = 0xFF1B2142;
@@ -238,7 +299,50 @@ public class MainActivity extends Activity {
     private final LinkedHashMap<String, HashMap<String, String>> mediaFiles = new LinkedHashMap<>();
     private LinearLayout logPanel;
     private ListView logList;
-    private ArrayAdapter<String> logAdapter;
+    private BaseAdapter logAdapter;
+    private final ArrayList<LogRow> logRows = new ArrayList<>();
+    private TextView logSub;
+    private String cacheSizeText;
+
+    // ---- зареждане, подсказки, въвеждане на текст ----
+    private View loadBar;
+    private FrameLayout splash;
+    private LinearLayout splashBox;
+    private TextView hintChip;
+    private Dialog textDialog;
+    private final Runnable splashTimeout = new Runnable() {
+        @Override
+        public void run() {
+            hideSplash();
+        }
+    };
+    private final Runnable hideHint = new Runnable() {
+        @Override
+        public void run() {
+            if (hintChip != null) {
+                hintChip.animate().alpha(0f).setDuration(300).withEndAction(new Runnable() {
+                    @Override
+                    public void run() {
+                        hintChip.setVisibility(View.GONE);
+                    }
+                }).start();
+            }
+        }
+    };
+    private final Runnable editableCheck = new Runnable() {
+        @Override
+        public void run() {
+            if (webActive()) probeEditable(JS_ACTIVE_INFO, false);
+        }
+    };
+
+    // Ред от панела с опции.
+    private static class LogRow {
+        static final int HEADER = 0, ACTION = 1, DOMAIN = 2, NOTE = 3;
+        int kind;
+        String icon, title, sub, state;
+        int stateColor;
+    }
     private final ArrayList<String> logKeys = new ArrayList<>();
     private TextView statsView;
     private boolean statsOn;
@@ -295,6 +399,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        installCrashLogger();
         prefs = getSharedPreferences("tvsites", MODE_PRIVATE);
         loadLists();
 
@@ -330,6 +435,50 @@ public class MainActivity extends Activity {
         fetchConfig();
         hideSystemBars();
         maybeAskClearCache();
+        menu.post(new Runnable() {
+            @Override
+            public void run() {
+                showLastCrash();
+            }
+        });
+    }
+
+    // ---------- Запис на неочаквано затваряне ----------
+
+    // При неочаквано затваряне записва причината, за да я покажем следващия път.
+    private void installCrashLogger() {
+        final Thread.UncaughtExceptionHandler prev = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+            @Override
+            public void uncaughtException(Thread t, Throwable e) {
+                try {
+                    java.io.StringWriter sw = new java.io.StringWriter();
+                    e.printStackTrace(new java.io.PrintWriter(sw));
+                    String txt = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+                            .format(new java.util.Date()) + "  v" + installedName() + "\n" + sw;
+                    FileOutputStream fo = new FileOutputStream(new File(getFilesDir(), "crash.txt"));
+                    fo.write(txt.getBytes("UTF-8"));
+                    fo.close();
+                } catch (Throwable ignored) {
+                }
+                if (prev != null) prev.uncaughtException(t, e);
+            }
+        });
+    }
+
+    private void showLastCrash() {
+        File f = new File(getFilesDir(), "crash.txt");
+        if (!f.exists()) return;
+        String txt = "";
+        try {
+            txt = readAll(new java.io.FileInputStream(f));
+        } catch (Exception ignored) {
+        }
+        f.delete();
+        if (txt.isEmpty() || isFinishing()) return;
+        if (txt.length() > 1100) txt = txt.substring(0, 1100);
+        showInfo("Приложението се затвори неочаквано",
+                "Ако това се повтаря, снимай този екран и го прати за поправка.\n\n" + txt);
     }
 
     // ---------- Настройки от текстов файл ----------
@@ -821,7 +970,8 @@ public class MainActivity extends Activity {
         menu.addView(bottom2, rowLp());
 
         TextView ver = new TextView(this);
-        ver.setText("Версия " + installedName());
+        ver.setText("Версия " + installedName()
+                + "      •      OK — отваря      •      Назад — изход");
         ver.setTextColor(0xFF5B6490);
         ver.setTextSize(13);
         ver.setGravity(Gravity.CENTER);
@@ -872,7 +1022,9 @@ public class MainActivity extends Activity {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
+                        cacheSizeText = mb(size);
                         if (btn != null) btn.setText("♻  Изчисти кеша (" + mb(size) + ")");
+                        if (logShown()) refreshLog(Math.max(1, logList.getSelectedItemPosition()));
                     }
                 });
             }
@@ -1060,6 +1212,7 @@ public class MainActivity extends Activity {
         updateCursor();
         pokeCursor();
 
+        showSplash(site[0], hostOf(site[1]));
         web.loadUrl(url);
         web.requestFocus();
     }
@@ -1101,6 +1254,16 @@ public class MainActivity extends Activity {
 
             @Override
             public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
+                // Вътрешна връзка от страницата за грешка: "Към менюто".
+                if ("tvsites".equals(r.getUrl().getScheme())) {
+                    root.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            backToMenu();
+                        }
+                    });
+                    return true;
+                }
                 // Блокира пренасочвания на главната страница към други домейни (реклами).
                 String host = r.getUrl().getHost();
                 return r.isForMainFrame() && host != null && allowedHost != null
@@ -1128,6 +1291,31 @@ public class MainActivity extends Activity {
                     v.clearHistory();
                     clearHistoryPending = false;
                 }
+                if (u != null && u.startsWith("http")) hideSplash();
+            }
+
+            @Override
+            public void onReceivedError(WebView v, WebResourceRequest r, WebResourceError err) {
+                if (r == null || !r.isForMainFrame()) return;
+                String u = r.getUrl().toString();
+                if (!u.startsWith("http")) return;
+                String desc = err == null ? "" : String.valueOf(err.getDescription());
+                if (desc.contains("ERR_ABORTED")) return;
+                showErrorPage(v, u, desc);
+            }
+
+            // Системата е спряла процеса на страницата (най-често от липса на памет).
+            // Без това приложението се затваря изцяло.
+            @Override
+            public boolean onRenderProcessGone(WebView v, android.webkit.RenderProcessGoneDetail d) {
+                final boolean crashed = d != null && d.didCrash();
+                root.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        recoverFromRendererLoss(crashed);
+                    }
+                });
+                return true;
             }
         });
 
@@ -1157,18 +1345,60 @@ public class MainActivity extends Activity {
             public boolean onCreateWindow(WebView v, boolean d, boolean g, android.os.Message m) {
                 return false; // без изскачащи прозорци
             }
+
+            @Override
+            public void onProgressChanged(WebView v, int p) {
+                if (loadBar == null) return;
+                String u = v.getUrl();
+                boolean real = u != null && u.startsWith("http");
+                if (real && p < 100) {
+                    loadBar.setVisibility(View.VISIBLE);
+                    loadBar.setScaleX(p / 100f);
+                } else {
+                    loadBar.setVisibility(View.GONE);
+                }
+                if (real && p >= 60) hideSplash();
+            }
         };
         web.setWebChromeClient(chromeClient);
 
-        root.addView(web, new FrameLayout.LayoutParams(
+        // WebView е винаги веднага над менюто, под курсора и панелите.
+        root.addView(web, 1, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        cursor = new CursorView(this);
-        root.addView(cursor, new FrameLayout.LayoutParams(CURSOR_SIZE, CURSOR_SIZE));
+        // Останалите слоеве се правят само веднъж (WebView може да се създава наново след срив).
+        if (cursor == null) {
+            cursor = new CursorView(this);
+            root.addView(cursor, new FrameLayout.LayoutParams(CURSOR_SIZE, CURSOR_SIZE));
 
-        buildLogPanel();
-        buildNativeLayer();
-        buildStatsView();
+            buildLoadingUi();
+            buildLogPanel();
+            buildNativeLayer();
+            buildStatsView();
+        }
+    }
+
+    // Страницата е спряна от системата: връщаме се в менюто със съобщение вместо да се затваря всичко.
+    private void recoverFromRendererLoss(boolean crashed) {
+        root.removeCallbacks(cacheWatch);
+        if (customView != null) {
+            root.removeView(customView);
+            customView = null;
+            customCallback = null;
+        }
+        if (web != null) {
+            root.removeView(web);
+            try {
+                web.destroy();
+            } catch (Exception ignored) {
+            }
+            web = null;
+        }
+        backToMenu();
+        showInfo("Страницата беше спряна",
+                (crashed ? "Страницата се срина." : "Системата спря страницата, защото приставката остана без памет.")
+                        + "\n\nОтвори сайта отново. Ако се повтаря, в Опции (задръж OK) смени "
+                        + "\"Версия на сайта\" на мобилна - тя е по-лека.");
     }
 
     private static String stripWww(String host) {
@@ -1187,6 +1417,7 @@ public class MainActivity extends Activity {
             web.setVisibility(View.GONE);
         }
         menuHolder.setVisibility(View.VISIBLE);
+        resetOverlays();
         updateState();
         fillMenu();
         maybeAskClearCache();
@@ -1226,6 +1457,154 @@ public class MainActivity extends Activity {
         } else {
             getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         }
+    }
+
+    // ---------- Зареждане, грешки и подсказки ----------
+
+    private void buildLoadingUi() {
+        splash = new FrameLayout(this);
+        splash.setBackground(new GlowDrawable());
+        splash.setVisibility(View.GONE);
+        splashBox = new LinearLayout(this);
+        splashBox.setOrientation(LinearLayout.VERTICAL);
+        splashBox.setGravity(Gravity.CENTER_HORIZONTAL);
+        splash.addView(splashBox, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER));
+        root.addView(splash, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        loadBar = new View(this);
+        loadBar.setBackgroundColor(C_AMBER);
+        loadBar.setPivotX(0f);
+        loadBar.setScaleX(0f);
+        loadBar.setVisibility(View.GONE);
+        root.addView(loadBar, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(4)));
+
+        hintChip = new TextView(this);
+        hintChip.setTextColor(Color.WHITE);
+        hintChip.setTextSize(17);
+        hintChip.setPadding(dp(26), dp(13), dp(26), dp(13));
+        GradientDrawable hb = new GradientDrawable();
+        hb.setColor(0xDD0B1020);
+        hb.setCornerRadius(dp(30));
+        hb.setStroke(dp(1), 0x55FFFFFF);
+        hintChip.setBackground(hb);
+        hintChip.setVisibility(View.GONE);
+        FrameLayout.LayoutParams hlp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        hlp.bottomMargin = dp(44);
+        root.addView(hintChip, hlp);
+    }
+
+    // Екран "Зареждане" с иконата на сайта, докато страницата се появи.
+    private void showSplash(String name, String host) {
+        if (splash == null) return;
+        splashBox.removeAllViews();
+        splashBox.addView(makeIconTile(host, badgeColor(name), initial(name), 96),
+                new LinearLayout.LayoutParams(dp(96), dp(96)));
+        TextView t = new TextView(this);
+        t.setText(name);
+        t.setTextColor(Color.WHITE);
+        t.setTextSize(32);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setPadding(0, dp(22), 0, dp(2));
+        splashBox.addView(t);
+        TextView s = new TextView(this);
+        s.setText("Зареждане...");
+        s.setTextColor(C_MUTED);
+        s.setTextSize(17);
+        splashBox.addView(s);
+        ProgressBar pb = new ProgressBar(this);
+        pb.setIndeterminate(true);
+        pb.getIndeterminateDrawable().setColorFilter(C_AMBER, PorterDuff.Mode.SRC_IN);
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(dp(44), dp(44));
+        plp.topMargin = dp(26);
+        splashBox.addView(pb, plp);
+
+        splash.animate().cancel();
+        splash.setAlpha(1f);
+        splash.setVisibility(View.VISIBLE);
+        root.removeCallbacks(splashTimeout);
+        root.postDelayed(splashTimeout, 15000);
+    }
+
+    private void hideSplash() {
+        root.removeCallbacks(splashTimeout);
+        if (splash == null || splash.getVisibility() != View.VISIBLE) return;
+        if (splash.getAlpha() < 0.99f) return; // вече се скрива
+        splash.animate().alpha(0f).setDuration(220).withEndAction(new Runnable() {
+            @Override
+            public void run() {
+                splash.setVisibility(View.GONE);
+                maybeShowHint();
+            }
+        }).start();
+    }
+
+    // Скрива всички временни слоеве (при връщане към менюто).
+    private void resetOverlays() {
+        root.removeCallbacks(splashTimeout);
+        root.removeCallbacks(hideHint);
+        if (splash != null) {
+            splash.animate().cancel();
+            splash.setVisibility(View.GONE);
+        }
+        if (hintChip != null) {
+            hintChip.animate().cancel();
+            hintChip.setVisibility(View.GONE);
+        }
+        if (loadBar != null) loadBar.setVisibility(View.GONE);
+    }
+
+    // Първите няколко пъти показва кратка подсказка как се управлява сайтът.
+    private void maybeShowHint() {
+        if (hintChip == null || web == null || web.getVisibility() != View.VISIBLE) return;
+        if (menuHolder.getVisibility() == View.VISIBLE) return;
+        int n = prefs.getInt("hintCount", 0);
+        if (n >= 5) return;
+        prefs.edit().putInt("hintCount", n + 1).apply();
+        hintChip.setText("Назад — към менюто        •        Задръж OK — опции и търсене");
+        hintChip.animate().cancel();
+        hintChip.setAlpha(0f);
+        hintChip.setVisibility(View.VISIBLE);
+        hintChip.animate().alpha(1f).setDuration(250).start();
+        root.removeCallbacks(hideHint);
+        root.postDelayed(hideHint, 7000);
+    }
+
+    // Приятелска страница вместо грозната грешка на браузъра.
+    private void showErrorPage(WebView v, String url, String desc) {
+        hideSplash();
+        if (loadBar != null) loadBar.setVisibility(View.GONE);
+        String u = TextUtils.htmlEncode(url);
+        String html = "<!doctype html><html><head><meta charset='utf-8'>"
+                + "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+                + "<style>"
+                + "body{margin:0;min-height:100vh;display:flex;align-items:center;"
+                + "justify-content:center;background:linear-gradient(135deg,#140c3a,#241261 55%,#0e1a55);"
+                + "font-family:sans-serif;color:#fff;text-align:center}"
+                + ".c{max-width:780px;padding:40px}"
+                + ".i{font-size:80px;line-height:1;margin-bottom:16px}"
+                + "h1{font-size:46px;margin:0 0 16px}"
+                + "p{font-size:25px;color:#c9c3f5;line-height:1.45;margin:0 0 40px}"
+                + "a{display:inline-block;margin:8px 12px;padding:22px 48px;border-radius:18px;"
+                + "font-size:28px;font-weight:700;text-decoration:none;color:#fff;background:#3b3680;"
+                + "border:4px solid transparent}"
+                + "a.p{background:linear-gradient(90deg,#7c3aed,#d62bb8)}"
+                + "a:focus{border-color:#ffb020;outline:none}"
+                + "small{display:block;margin-top:44px;color:#7f87b8;font-size:17px}"
+                + "</style></head><body><div class='c'><div class='i'>&#9888;</div>"
+                + "<h1>Страницата не се зареди</h1>"
+                + "<p>Провери дали приставката е свързана с интернет и опитай пак. "
+                + "Ако проблемът остане, сайтът може да е временно недостъпен.</p>"
+                + "<a class='p' href='" + u + "' autofocus>Опитай пак</a>"
+                + "<a href='tvsites://menu'>Към менюто</a>"
+                + "<small>" + TextUtils.htmlEncode(desc == null ? "" : desc) + "</small>"
+                + "</div></body></html>";
+        v.loadDataWithBaseURL(url, html, "text/html", "utf-8", url);
     }
 
     // ---------- Блокиране на домейни ----------
@@ -1341,48 +1720,61 @@ public class MainActivity extends Activity {
     private void buildLogPanel() {
         logPanel = new LinearLayout(this);
         logPanel.setOrientation(LinearLayout.VERTICAL);
-        logPanel.setBackgroundColor(0xF20B1020);
-        logPanel.setPadding(dp(64), dp(32), dp(64), dp(32));
+        logPanel.setBackground(new GlowDrawable());
+        logPanel.setPadding(dp(96), dp(36), dp(96), dp(28));
 
         TextView t = new TextView(this);
-        t.setText("Меню на страницата");
+        t.setText("Опции");
         t.setTextColor(Color.WHITE);
-        t.setTextSize(28);
+        t.setTextSize(34);
         t.setTypeface(Typeface.DEFAULT_BOLD);
         logPanel.addView(t);
 
-        TextView hint = new TextView(this);
-        hint.setText("OK = избери   Назад = затвори.   Червените домейни са блокирани."
-                + " След промяна избери \"Презареди страницата\".");
-        hint.setTextColor(C_MUTED);
-        hint.setTextSize(15);
-        hint.setPadding(0, dp(6), 0, dp(14));
-        logPanel.addView(hint);
+        logSub = new TextView(this);
+        logSub.setTextColor(C_MUTED);
+        logSub.setTextSize(16);
+        logSub.setPadding(0, dp(2), 0, dp(14));
+        logPanel.addView(logSub);
 
         logList = new ListView(this);
         GradientDrawable sel = new GradientDrawable();
-        sel.setColor(0x558B7CFF);
-        sel.setCornerRadius(dp(10));
+        sel.setColor(0x40FFFFFF);
+        sel.setCornerRadius(dp(14));
+        sel.setStroke(dp(3), C_AMBER);
         logList.setSelector(sel);
         logList.setDividerHeight(0);
-        logAdapter = new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1,
-                new ArrayList<String>()) {
+        logList.setVerticalScrollBarEnabled(false);
+        logAdapter = new BaseAdapter() {
+            @Override
+            public int getCount() {
+                return logRows.size();
+            }
+
+            @Override
+            public Object getItem(int pos) {
+                return logRows.get(pos);
+            }
+
+            @Override
+            public long getItemId(int pos) {
+                return pos;
+            }
+
+            @Override
+            public boolean areAllItemsEnabled() {
+                return false;
+            }
+
+            @Override
+            public boolean isEnabled(int pos) {
+                if (pos < 0 || pos >= logRows.size()) return false;
+                LogRow r = logRows.get(pos);
+                return r.kind == LogRow.ACTION || r.kind == LogRow.DOMAIN;
+            }
+
             @Override
             public View getView(int pos, View convertView, ViewGroup parent) {
-                TextView tv = (TextView) super.getView(pos, convertView, parent);
-                tv.setTextSize(19);
-                tv.setPadding(dp(16), dp(12), dp(16), dp(12));
-                String key = pos < logKeys.size() ? logKeys.get(pos) : "";
-                if (key.equals("#none")) {
-                    tv.setTextColor(0xFF6B7280);
-                } else if (key.startsWith("#")) {
-                    tv.setTextColor(0xFF93C5FD);
-                } else if (isBlocked(key)) {
-                    tv.setTextColor(C_DANGER);
-                } else {
-                    tv.setTextColor(Color.WHITE);
-                }
-                return tv;
+                return buildLogRowView(logRows.get(pos));
             }
         };
         logList.setAdapter(logAdapter);
@@ -1394,6 +1786,14 @@ public class MainActivity extends Activity {
         });
         logPanel.addView(logList, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        TextView foot = new TextView(this);
+        foot.setText("OK — избор      Назад — затвори      Червените домейни са блокирани");
+        foot.setTextColor(0xFF8C93C0);
+        foot.setTextSize(14);
+        foot.setGravity(Gravity.CENTER);
+        foot.setPadding(0, dp(12), 0, 0);
+        logPanel.addView(foot);
 
         logPanel.setVisibility(View.GONE);
         root.addView(logPanel, new FrameLayout.LayoutParams(
@@ -1407,6 +1807,7 @@ public class MainActivity extends Activity {
     private void showLog() {
         if (web == null || logPanel == null) return;
         refreshLog(0);
+        refreshCacheLabel();
         logPanel.setVisibility(View.VISIBLE);
         updateState();
         logList.requestFocus();
@@ -1428,28 +1829,84 @@ public class MainActivity extends Activity {
         return s.length() > 70 ? s.substring(0, 67) + "..." : s;
     }
 
+    private static final int C_ON = 0xFF34D399;
+
+    private void addHeader(String title) {
+        LogRow r = new LogRow();
+        r.kind = LogRow.HEADER;
+        r.title = title;
+        logRows.add(r);
+        logKeys.add("#hdr");
+    }
+
+    private void addAction(String key, String icon, String title, String sub,
+                           String state, int stateColor) {
+        LogRow r = new LogRow();
+        r.kind = LogRow.ACTION;
+        r.icon = icon;
+        r.title = title;
+        r.sub = sub;
+        r.state = state;
+        r.stateColor = stateColor;
+        logRows.add(r);
+        logKeys.add(key);
+    }
+
+    private void addNote(String text) {
+        LogRow r = new LogRow();
+        r.kind = LogRow.NOTE;
+        r.title = text;
+        logRows.add(r);
+        logKeys.add("#none");
+    }
+
+    private void addDomain(String host, String sub, String state, int stateColor) {
+        LogRow r = new LogRow();
+        r.kind = LogRow.DOMAIN;
+        r.title = host;
+        r.sub = sub;
+        r.state = state;
+        r.stateColor = stateColor;
+        logRows.add(r);
+        logKeys.add(host);
+    }
+
+    private static String onOff(boolean on) {
+        return on ? "ВКЛ" : "ИЗКЛ";
+    }
+
     private void refreshLog(int keepPos) {
         logKeys.clear();
-        ArrayList<String> rows = new ArrayList<>();
+        logRows.clear();
+        if (logSub != null) {
+            logSub.setText((allowedHost == null ? "" : stripWww(allowedHost) + "   •   ")
+                    + "Версия " + installedName());
+        }
 
-        logKeys.add("#reload");
-        rows.add("↻  Презареди страницата");
-        logKeys.add("#cursor");
-        rows.add("⌖  Курсор: " + (cursorEnabled
-                ? "ВКЛЮЧЕН (стрелките го местят)"
-                : "изключен (стрелките местят фокуса по страницата)"));
-        logKeys.add("#update");
-        rows.add("⬇  Провери за актуализации");
-        logKeys.add("#mode");
-        rows.add("▤  Версия на сайта: " + ("mobile".equals(curMode) ? "МОБИЛНА"
-                : "desktop".equals(curMode) ? "ДЕСКТОП" : "нормална")
-                + "  (натисни за смяна)");
-        logKeys.add("#cache");
-        rows.add("♻  Изчисти кеша");
-        logKeys.add("#autocache");
-        rows.add("⟳  Авто чистене на кеша: " + (autoCacheOn() ? "ВКЛЮЧЕНО (над 200 МБ)" : "изключено"));
-        logKeys.add("#stats");
-        rows.add("▣  Статистика на екрана: " + (statsOn ? "ВКЛЮЧЕНА" : "изключена"));
+        addHeader("СТРАНИЦА");
+        addAction("#search", "⌕", "Търси на сайта", "Отваря клавиатура и търси във филмите",
+                null, 0);
+        addAction("#reload", "↻", "Презареди страницата", "Опитай пак или приложи промените",
+                null, 0);
+        addAction("#mode", "▤", "Версия на сайта",
+                "Смени, ако страницата е тежка или не работи добре",
+                "mobile".equals(curMode) ? "МОБИЛНА" : "desktop".equals(curMode) ? "ДЕСКТОП"
+                        : "НОРМАЛНА", C_MUTED);
+        addAction("#cursor", "⌖", "Курсор",
+                cursorEnabled ? "Стрелките местят курсора, OK кликва"
+                        : "Стрелките местят фокуса по страницата",
+                onOff(cursorEnabled), cursorEnabled ? C_ON : C_MUTED);
+
+        addHeader("ПРИЛОЖЕНИЕ");
+        addAction("#update", "⬇", "Провери за актуализации", "Версия " + installedName(),
+                null, 0);
+        addAction("#cache", "♻", "Изчисти кеша", "Освобождава място на приставката",
+                cacheSizeText, C_MUTED);
+        addAction("#autocache", "⟳", "Автоматично чистене на кеша",
+                "Чисти сам, когато кешът надхвърли 200 МБ", onOff(autoCacheOn()),
+                autoCacheOn() ? C_ON : C_MUTED);
+        addAction("#stats", "▣", "Статистика на екрана", "Памет и брой заявки",
+                onOff(statsOn), statsOn ? C_ON : C_MUTED);
 
         // Намерени видео потоци (най-новите най-отгоре).
         ArrayList<String> pl = new ArrayList<>();
@@ -1460,18 +1917,18 @@ public class MainActivity extends Activity {
         synchronized (mediaFiles) {
             fl.addAll(mediaFiles.keySet());
         }
+        addHeader("ВИДЕО НА СТРАНИЦАТА");
         int shown = 0;
         for (int i = pl.size() - 1; i >= 0 && shown < 6; i--, shown++) {
-            logKeys.add("#media:" + pl.get(i));
-            rows.add("▶  Родно пускане: " + shortName(pl.get(i)));
+            addAction("#media:" + pl.get(i), "▶", "Пусни в родния плейър", shortName(pl.get(i)),
+                    null, 0);
         }
         for (int i = fl.size() - 1, k = 0; i >= 0 && k < 4; i--, k++, shown++) {
-            logKeys.add("#media:" + fl.get(i));
-            rows.add("▶  Родно пускане (файл): " + shortName(fl.get(i)));
+            addAction("#media:" + fl.get(i), "▶", "Пусни файла в родния плейър",
+                    shortName(fl.get(i)), null, 0);
         }
         if (shown == 0) {
-            logKeys.add("#none");
-            rows.add("(още няма намерени видео потоци - пусни канала и отвори менюто пак)");
+            addNote("Още няма намерено видео. Пусни канала или филма и отвори Опции пак.");
         }
 
         // Домейни, към които страницата праща заявки.
@@ -1482,23 +1939,119 @@ public class MainActivity extends Activity {
             }
         }
         Collections.sort(list, (a, b) -> b.getValue() - a.getValue());
+        addHeader("РЕКЛАМИ И ДОМЕЙНИ");
+        addNote("Натисни домейн, за да го блокираш или разрешиш. После презареди страницата.");
         int n = 0;
         for (Map.Entry<String, Integer> en : list) {
             if (n++ >= 80) break;
             String h = en.getKey();
-            String tag = isOwnHost(h) ? "   [сайтът]" : (isBlocked(h) ? "   [БЛОКИРАН]" : "");
-            logKeys.add(h);
-            rows.add(h + "   x" + en.getValue() + tag);
+            if (isOwnHost(h)) {
+                addDomain(h, en.getValue() + " заявки", "САЙТЪТ", 0xFF93C5FD);
+            } else if (isBlocked(h)) {
+                addDomain(h, en.getValue() + " заявки", "БЛОКИРАН", C_DANGER);
+            } else {
+                addDomain(h, en.getValue() + " заявки", "РАЗРЕШЕН", C_ON);
+            }
         }
 
-        logAdapter.clear();
-        logAdapter.addAll(rows);
-        logList.setSelection(Math.max(0, Math.min(keepPos, rows.size() - 1)));
+        logAdapter.notifyDataSetChanged();
+        // Курсорът започва от първата опция, не от заглавието.
+        int pos = Math.max(0, Math.min(keepPos, logRows.size() - 1));
+        if (keepPos <= 0) pos = 1;
+        logList.setSelection(pos);
+    }
+
+    private TextView pill(String text, int color) {
+        TextView p = new TextView(this);
+        p.setText(text);
+        p.setTextColor(color);
+        p.setTextSize(13);
+        p.setTypeface(Typeface.DEFAULT_BOLD);
+        p.setLetterSpacing(0.08f);
+        p.setPadding(dp(12), dp(5), dp(12), dp(5));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0x26FFFFFF);
+        bg.setCornerRadius(dp(20));
+        bg.setStroke(dp(1), (color & 0x00FFFFFF) | 0x66000000);
+        p.setBackground(bg);
+        return p;
+    }
+
+    private View buildLogRowView(LogRow r) {
+        if (r.kind == LogRow.HEADER) {
+            TextView h = new TextView(this);
+            h.setText(r.title);
+            h.setTextColor(C_AMBER);
+            h.setTextSize(13);
+            h.setTypeface(Typeface.DEFAULT_BOLD);
+            h.setLetterSpacing(0.15f);
+            h.setPadding(dp(16), dp(20), 0, dp(6));
+            return h;
+        }
+        if (r.kind == LogRow.NOTE) {
+            TextView h = new TextView(this);
+            h.setText(r.title);
+            h.setTextColor(0xFF8C93C0);
+            h.setTextSize(14);
+            h.setPadding(dp(16), dp(6), dp(16), dp(6));
+            return h;
+        }
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(16), dp(11), dp(16), dp(11));
+
+        if (r.kind == LogRow.ACTION) {
+            TextView ic = new TextView(this);
+            ic.setText(r.icon);
+            ic.setTextColor(Color.WHITE);
+            ic.setTextSize(20);
+            ic.setGravity(Gravity.CENTER);
+            GradientDrawable ibg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                    new int[]{0xFF6D5BFF, 0xFFB5179E});
+            ibg.setCornerRadius(dp(12));
+            ic.setBackground(ibg);
+            LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(dp(44), dp(44));
+            ilp.setMargins(0, 0, dp(16), 0);
+            row.addView(ic, ilp);
+        }
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        TextView tt = new TextView(this);
+        tt.setText(r.title);
+        tt.setTextColor(r.kind == LogRow.DOMAIN && r.stateColor == C_DANGER ? C_DANGER
+                : Color.WHITE);
+        tt.setTextSize(r.kind == LogRow.ACTION ? 19 : 17);
+        tt.setTypeface(r.kind == LogRow.ACTION ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+        tt.setSingleLine(true);
+        tt.setEllipsize(TextUtils.TruncateAt.END);
+        texts.addView(tt);
+        if (r.sub != null && !r.sub.isEmpty()) {
+            TextView st = new TextView(this);
+            st.setText(r.sub);
+            st.setTextColor(C_MUTED);
+            st.setTextSize(13);
+            st.setSingleLine(true);
+            st.setEllipsize(TextUtils.TruncateAt.END);
+            texts.addView(st);
+        }
+        row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        if (r.state != null && !r.state.isEmpty()) {
+            row.addView(pill(r.state, r.stateColor));
+        }
+        return row;
     }
 
     private void onLogItem(int pos) {
         if (pos < 0 || pos >= logKeys.size()) return;
         String key = logKeys.get(pos);
+        if (key.equals("#hdr")) return;
+        if (key.equals("#search")) {
+            startSiteSearch();
+            return;
+        }
         if (key.equals("#reload")) {
             hideLog();
             web.reload();
@@ -1996,6 +2549,198 @@ public class MainActivity extends Activity {
         });
     }
 
+    // ---------- Въвеждане на текст (търсачки и полета) ----------
+
+    // След клик проверява дали е фокусирано поле за текст и отваря собствено поле за въвеждане.
+    private void checkEditableSoon() {
+        root.removeCallbacks(editableCheck);
+        root.postDelayed(editableCheck, 450);
+    }
+
+    private void probeEditable(String js, final boolean fromSearchButton) {
+        if (web == null) return;
+        web.evaluateJavascript(js, new android.webkit.ValueCallback<String>() {
+            @Override
+            public void onReceiveValue(String value) {
+                handleEditableResult(value, fromSearchButton);
+            }
+        });
+    }
+
+    private void handleEditableResult(String value, boolean fromSearchButton) {
+        String inner = "";
+        try {
+            if (value != null && !value.equals("null")) {
+                inner = new JSONArray("[" + value + "]").getString(0);
+            }
+        } catch (Exception ignored) {
+        }
+        if (inner.isEmpty()) {
+            if (fromSearchButton) {
+                Toast.makeText(this, "Не намерих поле за търсене. Натисни лупата или полето с курсора.",
+                        Toast.LENGTH_LONG).show();
+            }
+            return;
+        }
+        try {
+            JSONObject o = new JSONObject(inner);
+            showTextDialog(o.optString("t", "text"), o.optString("v", ""), o.optString("h", ""),
+                    o.optBoolean("s", false), o.optBoolean("m", false));
+        } catch (Exception ignored) {
+        }
+    }
+
+    // Бутон "Търси на сайта" от опциите.
+    private void startSiteSearch() {
+        hideLog();
+        probeEditable(JS_FIND_SEARCH, true);
+    }
+
+    private StateListDrawable fieldBg() {
+        GradientDrawable normal = new GradientDrawable();
+        normal.setColor(0x26FFFFFF);
+        normal.setCornerRadius(dp(14));
+        normal.setStroke(dp(2), 0x55FFFFFF);
+        GradientDrawable focused = new GradientDrawable();
+        focused.setColor(0x33FFFFFF);
+        focused.setCornerRadius(dp(14));
+        focused.setStroke(dp(3), C_AMBER);
+        StateListDrawable sl = new StateListDrawable();
+        sl.addState(new int[]{android.R.attr.state_focused}, focused);
+        sl.addState(new int[]{}, normal);
+        return sl;
+    }
+
+    // Собствено поле за въвеждане: работи надеждно на телевизор и показва клавиатурата.
+    private void showTextDialog(String type, String current, String hint,
+                                final boolean isSearch, boolean multi) {
+        if (isFinishing()) return;
+        if (textDialog != null && textDialog.isShowing()) return;
+        final InputMethodManager imm =
+                (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null && web != null) imm.hideSoftInputFromWindow(web.getWindowToken(), 0);
+
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(30), dp(26), dp(30), dp(26));
+        GradientDrawable pbg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{0xFF2A1B6B, 0xFF171C3F});
+        pbg.setCornerRadius(dp(24));
+        pbg.setStroke(dp(1), 0x44FFFFFF);
+        panel.setBackground(pbg);
+
+        TextView title = new TextView(this);
+        title.setText(isSearch ? "Търсене" : "Въведи текст");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(26);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        panel.addView(title);
+
+        TextView sub = new TextView(this);
+        sub.setText("Напиши с клавиатурата. Ако не се показва, натисни OK върху полето.");
+        sub.setTextColor(C_MUTED);
+        sub.setTextSize(14);
+        sub.setPadding(0, dp(4), 0, dp(16));
+        panel.addView(sub);
+
+        final EditText et = new EditText(this);
+        et.setText(current);
+        et.setSelection(et.getText().length());
+        et.setHint(hint.isEmpty() ? (isSearch ? "Какво търсиш?" : "") : hint);
+        et.setTextColor(Color.WHITE);
+        et.setHintTextColor(0xFF8C93C0);
+        et.setTextSize(24);
+        et.setPadding(dp(18), dp(14), dp(18), dp(14));
+        et.setBackground(fieldBg());
+        int it = InputType.TYPE_CLASS_TEXT;
+        if ("email".equals(type)) it |= InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS;
+        else if ("url".equals(type)) it |= InputType.TYPE_TEXT_VARIATION_URI;
+        else if ("password".equals(type)) it |= InputType.TYPE_TEXT_VARIATION_PASSWORD;
+        else if ("number".equals(type) || "tel".equals(type)) it = InputType.TYPE_CLASS_NUMBER;
+        if (multi) it |= InputType.TYPE_TEXT_FLAG_MULTI_LINE;
+        et.setInputType(it);
+        et.setImeOptions(isSearch ? EditorInfo.IME_ACTION_SEARCH : EditorInfo.IME_ACTION_DONE);
+        panel.addView(et, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        final Dialog dlg = new Dialog(this);
+        final Runnable confirm = new Runnable() {
+            @Override
+            public void run() {
+                String text = et.getText().toString();
+                dlg.dismiss();
+                applyText(text, isSearch);
+            }
+        };
+        et.setOnEditorActionListener(new TextView.OnEditorActionListener() {
+            @Override
+            public boolean onEditorAction(TextView v, int actionId, KeyEvent ev) {
+                boolean enter = ev != null && ev.getKeyCode() == KeyEvent.KEYCODE_ENTER
+                        && ev.getAction() == KeyEvent.ACTION_DOWN;
+                if (actionId == EditorInfo.IME_ACTION_SEARCH
+                        || actionId == EditorInfo.IME_ACTION_DONE
+                        || actionId == EditorInfo.IME_ACTION_GO || enter) {
+                    confirm.run();
+                    return true;
+                }
+                return false;
+            }
+        });
+
+        LinearLayout btns = new LinearLayout(this);
+        btns.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams l1 = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        l1.setMargins(dp(6), dp(18), dp(6), 0);
+        LinearLayout.LayoutParams l2 = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        l2.setMargins(dp(6), dp(18), dp(6), 0);
+        btns.addView(makeButton(isSearch ? "Търси" : "Готово", false, confirm), l1);
+        btns.addView(makeButton("Отказ", false, new Runnable() {
+            @Override
+            public void run() {
+                dlg.dismiss();
+            }
+        }), l2);
+        panel.addView(btns);
+
+        dlg.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dlg.setContentView(panel);
+        Window w = dlg.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            w.setLayout(dp(760), ViewGroup.LayoutParams.WRAP_CONTENT);
+            w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
+                    | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
+        }
+        dlg.setOnDismissListener(new DialogInterface.OnDismissListener() {
+            @Override
+            public void onDismiss(DialogInterface d) {
+                textDialog = null;
+                hideSystemBars();
+                if (web != null) web.requestFocus();
+            }
+        });
+        textDialog = dlg;
+        dlg.show();
+        et.requestFocus();
+        et.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (imm != null && dlg.isShowing()) {
+                    imm.showSoftInput(et, InputMethodManager.SHOW_IMPLICIT);
+                }
+            }
+        }, 250);
+    }
+
+    private void applyText(String text, boolean submit) {
+        if (web == null) return;
+        web.evaluateJavascript(jsApplyText(text, submit), null);
+        web.requestFocus();
+        pokeCursor();
+    }
+
     // ---------- Управление с дистанционно ----------
 
     @Override
@@ -2070,12 +2815,14 @@ public class MainActivity extends Activity {
                     if (!okLongHandled && !e.isCanceled()) {
                         if (!cursorEnabled) {
                             sendOkToWeb();
+                            checkEditableSoon();
                         } else if (cursorIdle) {
                             // Ако курсорът е скрит, първото натискане само го показва.
                             pokeCursor();
                         } else {
                             tapAt(web, cx, cy);
                             pokeCursor();
+                            checkEditableSoon();
                         }
                     }
                     okLongHandled = false;
