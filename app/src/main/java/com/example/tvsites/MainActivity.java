@@ -107,6 +107,8 @@ public class MainActivity extends Activity {
             {"Filmi9", "https://filmi9.com/", "", "Филми"},
             {"ZenoPlay", "https://zenoplay.to/movies/", "", "Филми"},
             {"Всички филми", "https://vsichkifilmi.net/", "", "Филми"},
+            {"FilmiZT", "https://filmizt.com/", "", "Филми"},
+            {"FilmiFen", "https://filmifen.com/", "", "Филми"},
             {"BG Radio", "https://bg-radio.org/", "", "Радио"},
             {"RadiosBG", "https://www.radiosbg.com/", "", "Радио"},
     };
@@ -964,6 +966,20 @@ public class MainActivity extends Activity {
                         }
                     }), cellLp());
             menu.addView(row, rowLp());
+        }
+
+        // Търсене на филм във всички филмови сайтове.
+        if (!searchableSites().isEmpty()) {
+            LinearLayout srow = newRow();
+            srow.addView(makeCard("Търси филм", "Напиши заглавие и избери сайт",
+                    0xFF2E7D32, "🔍", true, "", new Runnable() {
+                        @Override
+                        public void run() {
+                            menuSearch = true;
+                            showTextDialog("text", "", "Име на филм", true, false);
+                        }
+                    }), cellLp());
+            menu.addView(srow, rowLp());
         }
 
         // Групи от сайтове.
@@ -2775,8 +2791,13 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 String text = et.getText().toString();
+                boolean ms = menuSearch;
                 dlg.dismiss();
-                applyText(text, isSearch);
+                if (ms) {
+                    chooseSearchSite(text.trim());
+                } else {
+                    applyText(text, isSearch);
+                }
             }
         };
         et.setOnEditorActionListener(new TextView.OnEditorActionListener() {
@@ -2824,6 +2845,7 @@ public class MainActivity extends Activity {
             @Override
             public void onDismiss(DialogInterface d) {
                 textDialog = null;
+                menuSearch = false;
                 hideSystemBars();
                 if (web != null) web.requestFocus();
             }
@@ -2839,6 +2861,60 @@ public class MainActivity extends Activity {
                 }
             }
         }, 250);
+    }
+
+    // ---------- Търсене на филм ----------
+
+    private boolean menuSearch = false;
+
+    // Шаблон за търсене по домейн; %s се заменя със заглавието (процентно кодирано).
+    private static String searchTemplate(String host) {
+        if (host == null) return null;
+        if (host.startsWith("www.")) host = host.substring(4);
+        switch (host) {
+            case "filmizip.com": return "https://filmizip.com/search/%s/";
+            case "filmi9.com": return "https://filmi9.com/search?term=%s";
+            case "zenoplay.to": return "https://zenoplay.to/?s=%s";
+            case "vsichkifilmi.net": return "https://vsichkifilmi.net/search?term=%s";
+            case "filmizt.com": return "https://filmizt.com/search/?q=%s";
+            case "filmifen.com":
+                return "https://filmifen.com/index.php?do=search&subaction=search&story=%s";
+            default: return null;
+        }
+    }
+
+    private ArrayList<String[]> searchableSites() {
+        ArrayList<String[]> r = new ArrayList<>();
+        for (String[] s : sites) {
+            if (searchTemplate(hostOf(s[1])) != null) r.add(s);
+        }
+        return r;
+    }
+
+    private void chooseSearchSite(final String query) {
+        if (query.isEmpty() || isFinishing()) return;
+        final ArrayList<String[]> list = searchableSites();
+        String[] names = new String[list.size()];
+        for (int i = 0; i < names.length; i++) names[i] = list.get(i)[0];
+        new AlertDialog.Builder(this)
+                .setTitle("Къде да търся „" + query + "“?")
+                .setItems(names, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int which) {
+                        String[] s = list.get(which);
+                        String enc;
+                        try {
+                            enc = java.net.URLEncoder.encode(query, "UTF-8").replace("+", "%20");
+                        } catch (Exception e) {
+                            enc = Uri.encode(query);
+                        }
+                        String url = searchTemplate(hostOf(s[1])).replace("%s", enc);
+                        openSite(new String[]{s[0], url, s.length > 2 ? s[2] : "",
+                                s.length > 3 ? s[3] : ""});
+                    }
+                })
+                .setNegativeButton("Отказ", null)
+                .show();
     }
 
     private void applyText(String text, boolean submit) {
