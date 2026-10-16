@@ -123,12 +123,12 @@ public class MainActivity extends Activity {
     //   "https://example.com/embed/tv/{tmdb}/{season}/{episode}"
     // Може и без редактиране на кода: бутон "Източници" в каталога.
     private static final String[] FILM_SOURCES = {
-            "",   https://vidcore.org/embed/movie/{tmdb}
+            "https://vidcore.org/embed/movie/{tmdb}",  //Основен 
             "",   // резервен 1
             ""    // резервен 2
     };
     private static final String[] TV_SOURCES = {
-            "",   https://vidcore.org/embed/tv/{tmdb}/{season}/{episode}
+            "https://vidcore.org/embed/tv/{tmdb}/{season}/{episode}",   //основен сер
             "",   // резервен 1
             ""    // резервен 2
     };
