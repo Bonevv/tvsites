@@ -2280,7 +2280,6 @@ public class MainActivity extends Activity {
         srcQueue = null;
         srcIdx = 0;
         catReturn = null;
-        wheelMode = false;
         curSiteName = site[0];
         // Личният избор на потребителя (от журнала) е по-важен от настройката по подразбиране.
         String chosen = prefs.getString("mode:" + allowedHost, null);
@@ -2468,7 +2467,6 @@ public class MainActivity extends Activity {
                 if (customView == null) return;
                 root.removeView(customView);
                 customView = null;
-                fsScroll = false;
                 web.setVisibility(View.VISIBLE);
                 if (customCallback != null) customCallback.onCustomViewHidden();
                 updateState();
@@ -3175,13 +3173,10 @@ public class MainActivity extends Activity {
                         "Отваря клавиатура", null, 0),
                 optTile("#mode", IC_MONITOR, C_ICON_BG, C_ICON_FG, "Версия на сайта",
                         "Мобилната е по-лека", modeName, 0),
-                optTile("#cursor", IC_CURSOR,
-                        wheelMode ? C_AMBER_BG : cursorEnabled ? C_GREEN_BG : C_ICON_BG,
-                        wheelMode ? C_AMBER_FG : cursorEnabled ? C_GREEN_FG : C_ICON_FG, "Курсор",
-                        wheelMode ? "Нагоре и надолу въртят списък"
-                                : cursorEnabled ? "Стрелките го движат" : "Стрелките движат фокуса",
-                        wheelMode ? "Превъртане" : onOffWord(cursorEnabled, "Включен", "Изключен"),
-                        wheelMode ? 2 : cursorEnabled ? 1 : 0),
+                optTile("#cursor", IC_CURSOR, cursorEnabled ? C_GREEN_BG : C_ICON_BG,
+                        cursorEnabled ? C_GREEN_FG : C_ICON_FG, "Курсор",
+                        cursorEnabled ? "Стрелките го движат" : "Стрелките движат фокуса",
+                        onOffWord(cursorEnabled, "Включен", "Изключен"), cursorEnabled ? 1 : 0),
                 optTile("#sleep", IC_MOON, sleepAt != 0 ? C_AMBER_BG : C_ICON_BG,
                         sleepAt != 0 ? C_AMBER_FG : C_ICON_FG, "Таймер за заспиване",
                         "Спира всичко след време", sleepState(), sleepAt != 0 ? 2 : 0),
@@ -3374,20 +3369,8 @@ public class MainActivity extends Activity {
             hideLog();
             if (web != null) web.reload();
         } else if (key.equals("#cursor")) {
-            // Три състояния: курсор -> превъртане на списък (субтитри) -> без курсор -> курсор.
-            if (cursorEnabled && !wheelMode) {
-                wheelMode = true;
-                Toast.makeText(this, "Превъртане: сложи курсора върху списъка и натискай нагоре и надолу",
-                        Toast.LENGTH_LONG).show();
-                hideLog();
-            } else if (wheelMode) {
-                wheelMode = false;
-                toggleCursor();
-                refreshLog(0);
-            } else {
-                toggleCursor();
-                refreshLog(0);
-            }
+            toggleCursor();
+            refreshLog(0);
         } else if (key.equals("#sleep")) {
             chooseSleep();
         } else if (key.equals("#mode")) {
@@ -4039,6 +4022,8 @@ public class MainActivity extends Activity {
         if (w <= 0 || h <= 0) return;
         // Колкото по-дълго държиш бутона, толкова по-бързо се движи.
         float step = 24 + Math.min(repeat, 15) * 8;
+        if (repeat == 0 && (keyCode == KeyEvent.KEYCODE_DPAD_UP
+                || keyCode == KeyEvent.KEYCODE_DPAD_DOWN)) step = 56;
         float nx = cx;
         float ny = cy;
         switch (keyCode) {
@@ -4096,8 +4081,17 @@ public class MainActivity extends Activity {
         ev.recycle();
     }
 
-    private boolean wheelMode; // стрелките нагоре/надолу въртят списъка под курсора
-    private boolean fsScroll; // в цял екран: стрелките нагоре/надолу превъртат списъка под курсора
+    // Стрелка при курсор: кратко натискане мести курсора; задържане нагоре/надолу върти
+    // списъка под него (субтитри, качество), като колелце на мишка.
+    private void cursorArrow(View target, int code, int rep) {
+        boolean vert = code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN;
+        if (vert && rep >= 1) {
+            wheelAt(target, cx, cy, code == KeyEvent.KEYCODE_DPAD_UP ? 1f : -1f);
+            pokeCursor();
+            return;
+        }
+        moveCursor(code, rep);
+    }
 
     private void tapCenter() {
         View target = customView != null ? customView : web;
@@ -4352,49 +4346,17 @@ public class MainActivity extends Activity {
         // Със стрелките се движи курсорът (за лентата с времето, субтитрите и т.н.).
         // OK: ако курсорът се вижда, натиска къде е той; иначе пуска/спира.
         if (customView != null) {
-            // Menu: превключва превъртането на списък (субтитри, качество) под курсора.
-            if (code == KeyEvent.KEYCODE_MENU) {
-                if (down && e.getRepeatCount() == 0) {
-                    fsScroll = !fsScroll;
-                    cursorIdle = false;
-                    pokeCursor();
-                    Toast.makeText(this, fsScroll
-                            ? "Превъртане на списък: нагоре и надолу. Menu го спира."
-                            : "Превъртането е изключено", Toast.LENGTH_SHORT).show();
-                }
-                return true;
-            }
-            if ((fsScroll || wheelMode) && cursorEnabled && (code == KeyEvent.KEYCODE_DPAD_UP
-                    || code == KeyEvent.KEYCODE_DPAD_DOWN)) {
-                if (down) {
-                    wheelAt(customView, cx, cy, code == KeyEvent.KEYCODE_DPAD_UP ? 1f : -1f);
-                    pokeCursor();
-                }
-                return true;
-            }
             if (cursorEnabled && (code == KeyEvent.KEYCODE_DPAD_UP
                     || code == KeyEvent.KEYCODE_DPAD_DOWN
                     || code == KeyEvent.KEYCODE_DPAD_LEFT
                     || code == KeyEvent.KEYCODE_DPAD_RIGHT)) {
-                if (down) moveCursor(code, e.getRepeatCount());
+                if (down) cursorArrow(customView, code, e.getRepeatCount());
                 return true;
             }
             if (okKey) {
-                // Кратко OK: натиска (или пуска/спира). Дълго задържане: включва и
-                // изключва превъртането на списък (субтитри, качество).
+                // OK: натиска на мястото на курсора, а при скрит курсор пуска/спира.
                 if (down) {
                     if (e.getRepeatCount() == 0) {
-                        okLongHandled = false;
-                    } else if (!okLongHandled) {
-                        okLongHandled = true;
-                        fsScroll = !fsScroll;
-                        pokeCursor();
-                        Toast.makeText(this, fsScroll
-                                ? "Превъртане на списък: нагоре и надолу. Задръж OK, за да спре."
-                                : "Превъртането е изключено", Toast.LENGTH_SHORT).show();
-                    }
-                } else {
-                    if (!okLongHandled && !e.isCanceled()) {
                         if (cursorEnabled && !cursorIdle) {
                             tapAt(customView, cx, cy);
                             pokeCursor();
@@ -4402,7 +4364,6 @@ public class MainActivity extends Activity {
                             togglePlayback();
                         }
                     }
-                    okLongHandled = false;
                 }
                 return true;
             }
@@ -4421,21 +4382,13 @@ public class MainActivity extends Activity {
                 if (down && e.getRepeatCount() == 0) showLog();
                 return true;
             }
-            if (cursorEnabled && wheelMode
-                    && (code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN)) {
-                if (down) {
-                    wheelAt(web, cx, cy, code == KeyEvent.KEYCODE_DPAD_UP ? 1f : -1f);
-                    pokeCursor();
-                }
-                return true;
-            }
             if (cursorEnabled) {
                 switch (code) {
                     case KeyEvent.KEYCODE_DPAD_UP:
                     case KeyEvent.KEYCODE_DPAD_DOWN:
                     case KeyEvent.KEYCODE_DPAD_LEFT:
                     case KeyEvent.KEYCODE_DPAD_RIGHT:
-                        if (down) moveCursor(code, e.getRepeatCount());
+                        if (down) cursorArrow(web, code, e.getRepeatCount());
                         return true;
                     default:
                         break;
