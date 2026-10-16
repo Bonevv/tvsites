@@ -123,13 +123,13 @@ public class MainActivity extends Activity {
     //   "https://example.com/embed/movie/{tmdb}"
     //   "https://example.com/embed/tv/{tmdb}/{season}/{episode}"
     // Може и без редактиране на кода: бутон "Източници" в каталога.
-    private static final String[] FILM_SOURCES = {
-            "https://vidcore.org/embed/movie/{tmdb}",   // основен за филми
+ private static final String[] FILM_SOURCES = {
+            "https://vidcore.org/embed/movie/{tmdb}",  //Основен
             "https://seapi.link/?type=tmdb&id={tmdb}&max_results=1",   // резервен 1
             ""    // резервен 2
     };
-    private static final String[] TV_SOURCES = {
-            "https://vidcore.org/embed/tv/{tmdb}/{season}/{episode}",   // основен за сериали
+   private static final String[] TV_SOURCES = {
+            "https://vidcore.org/embed/tv/{tmdb}/{season}/{episode}",   //основен сер
             "https://seapi.link/?type=tmdb&id={tmdb}&season={season}&episode={episode}&max_results=1",   // резервен 1
             ""    // резервен 2
     };
@@ -2467,6 +2467,7 @@ public class MainActivity extends Activity {
                 if (customView == null) return;
                 root.removeView(customView);
                 customView = null;
+                fsScroll = false;
                 web.setVisibility(View.VISIBLE);
                 if (customCallback != null) customCallback.onCustomViewHidden();
                 updateState();
@@ -4061,6 +4062,26 @@ public class MainActivity extends Activity {
         }, 60);
     }
 
+    // Колелце на мишка на мястото на курсора: превърта списъци (например субтитри).
+    private void wheelAt(View target, float x, float y, float dir) {
+        if (target == null) return;
+        long t = SystemClock.uptimeMillis();
+        MotionEvent.PointerProperties pp = new MotionEvent.PointerProperties();
+        pp.id = 0;
+        pp.toolType = MotionEvent.TOOL_TYPE_MOUSE;
+        MotionEvent.PointerCoords pc = new MotionEvent.PointerCoords();
+        pc.x = x;
+        pc.y = y;
+        pc.setAxisValue(MotionEvent.AXIS_VSCROLL, dir);
+        MotionEvent ev = MotionEvent.obtain(t, t, MotionEvent.ACTION_SCROLL, 1,
+                new MotionEvent.PointerProperties[]{pp}, new MotionEvent.PointerCoords[]{pc},
+                0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_MOUSE, 0);
+        target.dispatchGenericMotionEvent(ev);
+        ev.recycle();
+    }
+
+    private boolean fsScroll; // в цял екран: стрелките нагоре/надолу превъртат списъка под курсора
+
     private void tapCenter() {
         View target = customView != null ? customView : web;
         if (target == null) return;
@@ -4314,6 +4335,26 @@ public class MainActivity extends Activity {
         // Със стрелките се движи курсорът (за лентата с времето, субтитрите и т.н.).
         // OK: ако курсорът се вижда, натиска къде е той; иначе пуска/спира.
         if (customView != null) {
+            // Menu: превключва превъртането на списък (субтитри, качество) под курсора.
+            if (code == KeyEvent.KEYCODE_MENU) {
+                if (down && e.getRepeatCount() == 0) {
+                    fsScroll = !fsScroll;
+                    cursorIdle = false;
+                    pokeCursor();
+                    Toast.makeText(this, fsScroll
+                            ? "Превъртане на списък: нагоре и надолу. Menu го спира."
+                            : "Превъртането е изключено", Toast.LENGTH_SHORT).show();
+                }
+                return true;
+            }
+            if (fsScroll && cursorEnabled && (code == KeyEvent.KEYCODE_DPAD_UP
+                    || code == KeyEvent.KEYCODE_DPAD_DOWN)) {
+                if (down) {
+                    wheelAt(customView, cx, cy, code == KeyEvent.KEYCODE_DPAD_UP ? 1f : -1f);
+                    pokeCursor();
+                }
+                return true;
+            }
             if (cursorEnabled && (code == KeyEvent.KEYCODE_DPAD_UP
                     || code == KeyEvent.KEYCODE_DPAD_DOWN
                     || code == KeyEvent.KEYCODE_DPAD_LEFT
@@ -4321,15 +4362,35 @@ public class MainActivity extends Activity {
                 if (down) moveCursor(code, e.getRepeatCount());
                 return true;
             }
-            if ((okKey || playKey) && !e.isCanceled()) {
-                if (down && e.getRepeatCount() == 0) {
-                    if (okKey && cursorEnabled && !cursorIdle) {
-                        tapAt(customView, cx, cy);
+            if (okKey) {
+                // Кратко OK: натиска (или пуска/спира). Дълго задържане: включва и
+                // изключва превъртането на списък (субтитри, качество).
+                if (down) {
+                    if (e.getRepeatCount() == 0) {
+                        okLongHandled = false;
+                    } else if (!okLongHandled) {
+                        okLongHandled = true;
+                        fsScroll = !fsScroll;
                         pokeCursor();
-                    } else {
-                        togglePlayback();
+                        Toast.makeText(this, fsScroll
+                                ? "Превъртане на списък: нагоре и надолу. Задръж OK, за да спре."
+                                : "Превъртането е изключено", Toast.LENGTH_SHORT).show();
                     }
+                } else {
+                    if (!okLongHandled && !e.isCanceled()) {
+                        if (cursorEnabled && !cursorIdle) {
+                            tapAt(customView, cx, cy);
+                            pokeCursor();
+                        } else {
+                            togglePlayback();
+                        }
+                    }
+                    okLongHandled = false;
                 }
+                return true;
+            }
+            if (playKey && !e.isCanceled()) {
+                if (down && e.getRepeatCount() == 0) togglePlayback();
                 return true;
             }
             return super.dispatchKeyEvent(e);
@@ -4564,6 +4625,60 @@ public class MainActivity extends Activity {
         return s;
     }
 
+    private int srcPref(boolean tv) {
+        int p = prefs.getInt(tv ? "tvSrcPref" : "mvSrcPref", 0);
+        if (p < 0 || p > 2 || sourceTpl(tv, p).isEmpty()) {
+            for (int i = 0; i < 3; i++) {
+                if (!sourceTpl(tv, i).isEmpty()) return i;
+            }
+            return 0;
+        }
+        return p;
+    }
+
+    private String srcPrefText(boolean tv) {
+        int p = srcPref(tv);
+        String tpl = sourceTpl(tv, p).replace("{", "").replace("}", "");
+        String host = hostOf(tpl);
+        return (p == 0 ? "основен" : "резервен " + p) + (host == null || host.isEmpty() ? "" : ": " + host);
+    }
+
+    // Бутон за избор кой източник да се ползва първи (при повече от един).
+    private View srcPickButton(final boolean tv) {
+        final LinearLayout b = dockButton(IC_SLIDERS, false, "Източник", srcPrefText(tv),
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        int p = srcPref(tv);
+                        for (int k = 1; k <= 3; k++) {
+                            int n = (p + k) % 3;
+                            if (!sourceTpl(tv, n).isEmpty()) {
+                                p = n;
+                                break;
+                            }
+                        }
+                        prefs.edit().putInt(tv ? "tvSrcPref" : "mvSrcPref", p).apply();
+                    }
+                });
+        final TextView sub = (TextView) b.getTag();
+        b.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                int p = srcPref(tv);
+                for (int k = 1; k <= 3; k++) {
+                    int n = (p + k) % 3;
+                    if (!sourceTpl(tv, n).isEmpty()) {
+                        p = n;
+                        break;
+                    }
+                }
+                prefs.edit().putInt(tv ? "tvSrcPref" : "mvSrcPref", p).apply();
+                sub.setText(srcPrefText(tv));
+            }
+        });
+        return b;
+    }
+
     private int sourceCount(boolean tv) {
         int n = 0;
         for (int i = 0; i < 3; i++) {
@@ -4575,7 +4690,9 @@ public class MainActivity extends Activity {
     // Готовите адреси (основен, после резервните) за филм или епизод.
     private ArrayList<String> sourceUrls(CTitle t, int season, int episode) {
         ArrayList<String> out = new ArrayList<>();
-        for (int i = 0; i < 3; i++) {
+        int pref = srcPref(t.tv);
+        for (int k = 0; k < 3; k++) {
+            int i = (pref + k) % 3; // избраният източник е пръв, другите са резервни
             String s = sourceTpl(t.tv, i);
             if (s.isEmpty()) continue;
             if (s.contains("{imdb}") && t.imdb.isEmpty()) continue; // няма IMDb номер
@@ -4926,6 +5043,12 @@ public class MainActivity extends Activity {
         r.setTag(R_SCALE, 1.02f);
         r.setOnFocusChangeListener(tileFocus);
         return r;
+    }
+
+    private LinearLayout.LayoutParams lpTopW(int w, int h, int topPx) {
+        LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(w, h);
+        l.topMargin = topPx;
+        return l;
     }
 
     private LinearLayout.LayoutParams lpTop(int topPx) {
@@ -5360,6 +5483,9 @@ public class MainActivity extends Activity {
                 row.addView(sb, slp);
             }
         }
+        if (sourceCount(t.tv) > 1) {
+            right.addView(srcPickButton(t.tv), lpTopW(u(340), u(72), u(12)));
+        }
         TextView note = text(srcNote(t), 15, sourceCount(t.tv) == 0 ? C_AMBER_FG : C_MUTED,
                 tfMedium, true);
         note.setPadding(u(4), u(14), 0, 0);
@@ -5383,6 +5509,9 @@ public class MainActivity extends Activity {
         catBox.removeAllViews();
         catMain = null;
         catBox.addView(catHeader(t.name, "Сезон " + season, false));
+        if (sourceCount(true) > 1) {
+            catBox.addView(srcPickButton(true), lpTopW(u(340), u(72), u(16)));
+        }
         final TextView wait = text("Зареждане...", 18, C_MUTED, tfMedium, false);
         wait.setPadding(u(6), u(40), 0, 0);
         catBox.addView(wait);
