@@ -124,14 +124,18 @@ public class MainActivity extends Activity {
     //   "https://example.com/embed/tv/{tmdb}/{season}/{episode}"
     // Може и без редактиране на кода: бутон "Източници" в каталога.
     private static final String[] FILM_SOURCES = {
-            "https://vidcore.org/embed/movie/{tmdb}",  //Основен
-            "https://seapi.link/?type=tmdb&id={tmdb}&max_results=1",   // резервен 1
-            ""    // резервен 2
+    "https://vidcore.org/embed/movie/{tmdb}",
+    "https://embedwave.cc/embed/movie/{tmdb}",
+    "https://vidsrc.sh/embed/movie/{tmdb}",
+    "https://vidspark.to/movie/{tmdb}",
+    "https://multiembed.mov/?video_id={tmdb}&tmdb=1"
     };
     private static final String[] TV_SOURCES = {
-            "https://vidcore.org/embed/tv/{tmdb}/{season}/{episode}",   //основен сер
-            "https://seapi.link/?type=tmdb&id={tmdb}&season={season}&episode={episode}&max_results=1",   // резервен 1
-            ""    // резервен 2
+    "https://vidcore.org/embed/tv/{tmdb}/{season}/{episode}",
+    "https://embedwave.cc/embed/tv/{tmdb}/{season}/{episode}",
+    "https://vidsrc.sh/embed/tv/{tmdb}/{season}/{episode}",
+    "https://vidspark.to/tv/{tmdb}/{season}/{episode}",
+    "https://multiembed.mov/?video_id={tmdb}&tmdb=1&s={season}&e={episode}"
     };
     // Ключ за TMDB: по-добре го въведи на кутията (репото е публично).
     private static final String TMDB_KEY = "d2c1e02ec9baf771e1ce6b4511a5aea8";
@@ -2419,6 +2423,15 @@ public class MainActivity extends Activity {
                     clearHistoryPending = false;
                 }
                 if (u != null && u.startsWith("http")) hideSplash();
+                if (u != null && u.startsWith("http")) srcDone();
+            }
+
+            // Страница с код 404 или 5xx (няма такъв филм там): минава на следващия източник.
+            @Override
+            public void onReceivedHttpError(WebView v, WebResourceRequest r,
+                                            WebResourceResponse resp) {
+                if (r == null || resp == null || !r.isForMainFrame()) return;
+                if (resp.getStatusCode() >= 400 && srcQueue != null) tryNextSource();
             }
 
             @Override
@@ -2572,6 +2585,7 @@ public class MainActivity extends Activity {
         Runnable back = catReturn;
         catReturn = null;
         srcQueue = null;
+        srcDone();
         if (back != null) back.run();
     }
 
@@ -4603,10 +4617,12 @@ public class MainActivity extends Activity {
         return s;
     }
 
+    private static final int SRC_SLOTS = 5; // основен + 4 резервни
+
     private int srcPref(boolean tv) {
         int p = prefs.getInt(tv ? "tvSrcPref" : "mvSrcPref", 0);
-        if (p < 0 || p > 2 || sourceTpl(tv, p).isEmpty()) {
-            for (int i = 0; i < 3; i++) {
+        if (p < 0 || p >= SRC_SLOTS || sourceTpl(tv, p).isEmpty()) {
+            for (int i = 0; i < SRC_SLOTS; i++) {
                 if (!sourceTpl(tv, i).isEmpty()) return i;
             }
             return 0;
@@ -4628,8 +4644,8 @@ public class MainActivity extends Activity {
                     @Override
                     public void run() {
                         int p = srcPref(tv);
-                        for (int k = 1; k <= 3; k++) {
-                            int n = (p + k) % 3;
+                        for (int k = 1; k <= SRC_SLOTS; k++) {
+                            int n = (p + k) % SRC_SLOTS;
                             if (!sourceTpl(tv, n).isEmpty()) {
                                 p = n;
                                 break;
@@ -4643,8 +4659,8 @@ public class MainActivity extends Activity {
             @Override
             public void onClick(View v) {
                 int p = srcPref(tv);
-                for (int k = 1; k <= 3; k++) {
-                    int n = (p + k) % 3;
+                for (int k = 1; k <= SRC_SLOTS; k++) {
+                    int n = (p + k) % SRC_SLOTS;
                     if (!sourceTpl(tv, n).isEmpty()) {
                         p = n;
                         break;
@@ -4659,7 +4675,7 @@ public class MainActivity extends Activity {
 
     private int sourceCount(boolean tv) {
         int n = 0;
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < SRC_SLOTS; i++) {
             if (!sourceTpl(tv, i).isEmpty()) n++;
         }
         return n;
@@ -4669,8 +4685,8 @@ public class MainActivity extends Activity {
     private ArrayList<String> sourceUrls(CTitle t, int season, int episode) {
         ArrayList<String> out = new ArrayList<>();
         int pref = srcPref(t.tv);
-        for (int k = 0; k < 3; k++) {
-            int i = (pref + k) % 3; // избраният източник е пръв, другите са резервни
+        for (int k = 0; k < SRC_SLOTS; k++) {
+            int i = (pref + k) % SRC_SLOTS; // избраният източник е пръв, другите са резервни
             String s = sourceTpl(t.tv, i);
             if (s.isEmpty()) continue;
             if (s.contains("{imdb}") && t.imdb.isEmpty()) continue; // няма IMDb номер
@@ -5549,10 +5565,28 @@ public class MainActivity extends Activity {
         srcQueue = urls;
         srcIdx = 0;
         catReturn = back;
+        srcArm();
     }
 
     // Грешка при зареждане: опитва следващия източник, ако има такъв.
+    private final Runnable srcTimeout = new Runnable() {
+        @Override
+        public void run() {
+            tryNextSource(); // източникът не се е отворил навреме
+        }
+    };
+
+    private void srcArm() {
+        ui.removeCallbacks(srcTimeout);
+        if (srcQueue != null && srcIdx + 1 < srcQueue.size()) ui.postDelayed(srcTimeout, 25000);
+    }
+
+    private void srcDone() {
+        ui.removeCallbacks(srcTimeout);
+    }
+
     private boolean tryNextSource() {
+        ui.removeCallbacks(srcTimeout);
         if (srcQueue == null || web == null || srcIdx + 1 >= srcQueue.size()) return false;
         srcIdx++;
         String next = srcQueue.get(srcIdx);
@@ -5561,6 +5595,7 @@ public class MainActivity extends Activity {
         Toast.makeText(this, "Опитвам резервен източник " + (srcIdx + 1), Toast.LENGTH_SHORT).show();
         logEvent("Резервен източник " + (srcIdx + 1) + ": " + hostOf(next));
         web.loadUrl(next);
+        srcArm();
         return true;
     }
 
@@ -6041,14 +6076,14 @@ public class MainActivity extends Activity {
         final EditText key = srcField("Ключ за TMDB (остава само на тази кутия)",
                 prefs.getString("tmdbKey", ""), false);
         addLabeled(col, "Ключ за TMDB", key);
-        final EditText[] ff = new EditText[3];
-        final EditText[] tf = new EditText[3];
-        String[] names = {"основен", "резервен 1", "резервен 2"};
-        for (int i = 0; i < 3; i++) {
+        final EditText[] ff = new EditText[SRC_SLOTS];
+        final EditText[] tf = new EditText[SRC_SLOTS];
+        String[] names = {"основен", "резервен 1", "резервен 2", "резервен 3", "резервен 4"};
+        for (int i = 0; i < SRC_SLOTS; i++) {
             ff[i] = srcField("https://.../movie/{tmdb}", prefs.getString("fsrc" + i, ""), true);
             addLabeled(col, "Филми: " + names[i], ff[i]);
         }
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < SRC_SLOTS; i++) {
             tf[i] = srcField("https://.../tv/{tmdb}/{season}/{episode}",
                     prefs.getString("tsrc" + i, ""), true);
             addLabeled(col, "Сериали: " + names[i], tf[i]);
@@ -6064,7 +6099,7 @@ public class MainActivity extends Activity {
             public void run() {
                 SharedPreferences.Editor ed = prefs.edit();
                 ed.putString("tmdbKey", key.getText().toString().trim());
-                for (int i = 0; i < 3; i++) {
+                for (int i = 0; i < SRC_SLOTS; i++) {
                     ed.putString("fsrc" + i, ff[i].getText().toString().trim());
                     ed.putString("tsrc" + i, tf[i].getText().toString().trim());
                 }
