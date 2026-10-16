@@ -133,7 +133,7 @@ public class MainActivity extends Activity {
             ""    // резервен 2
     };
     // Ключ за TMDB: по-добре го въведи на кутията (репото е публично).
-    private static final String TMDB_KEY = "";
+    private static final String TMDB_KEY = "d2c1e02ec9baf771e1ce6b4511a5aea8";
 
     // Сайтове по подразбиране: {етикет, адрес, режим, група}. Режим: "" | "mobile" | "desktop"
     private static final String[][] DEFAULT_SITES = {
