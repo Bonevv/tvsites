@@ -12,22 +12,17 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.ColorFilter;
-import android.graphics.LinearGradient;
 import android.graphics.Paint;
-import android.graphics.PixelFormat;
 import android.graphics.PorterDuff;
-import android.graphics.RadialGradient;
-import android.graphics.Rect;
-import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
-import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.Settings;
 import android.text.InputType;
@@ -59,6 +54,7 @@ import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
+import android.widget.TextClock;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -226,16 +222,22 @@ public class MainActivity extends Activity {
     }
 
     // Цветове
-    private static final int C_CARD = 0xFF1B2142;
-    private static final int C_CARD_FOCUS = 0xFF2E3578;
-    private static final int C_ACCENT = 0xFF8B7CFF;
-    private static final int C_MUTED = 0xFF9AA4D0;
+    // Спокойна тъмна основа с един акцент (кехлибарен); фокусът е бяла рамка.
+    private static final int C_BG = 0xFF0C0D10;
+    private static final int C_CARD = 0xFF15181E;
+    private static final int C_CARD_FOCUS = 0xFF222731;
+    private static final int C_ACCENT = 0xFFF5A524;
+    private static final int C_MUTED = 0xFF9AA0AB;
     private static final int C_DANGER = 0xFFF87171;
     private static final int[] BADGES = {
-            0xFF6366F1, 0xFFEC4899, 0xFF10B981, 0xFFF59E0B,
-            0xFF06B6D4, 0xFFEF4444, 0xFF8B5CF6,
+            0xFF3F6FB5, 0xFF2F8F83, 0xFF6B5BB8, 0xFFB5566B,
+            0xFFB7822F, 0xFF4C8F4E, 0xFF5B7DB1,
     };
-    private static final int C_AMBER = 0xFFFFB020;
+    private static final int C_AMBER = C_ACCENT;
+    private static final String[] BG_DAYS = {"неделя", "понеделник", "вторник", "сряда",
+            "четвъртък", "петък", "събота"};
+    private static final String[] BG_MONTHS = {"януари", "февруари", "март", "април", "май",
+            "юни", "юли", "август", "септември", "октомври", "ноември", "декември"};
     private static final int COLS = 3;
 
     // Над този размер на кеша приложението пита дали да го изчисти.
@@ -328,6 +330,58 @@ public class MainActivity extends Activity {
     }
     private TextView cacheBtn;
     private TextView autoBtn;
+    private final Handler ui = new Handler(Looper.getMainLooper());
+    // Икони на сайтовете, вече прочетени от диска (само от главната нишка).
+    private static final HashMap<String, Bitmap> ICONS = new HashMap<>();
+
+    // ---- нова версия, намерена при пускане ----
+    private int updateAvail; // номер на по-нова версия (0 = няма)
+    private String updateUrl;
+    private View updateBanner;
+
+    // ---- последни страници ----
+    private static final int RECENT_MAX = 6;
+    private String curSiteName = "";
+    private final Runnable rememberTick = new Runnable() {
+        @Override
+        public void run() {
+            rememberPage();
+        }
+    };
+
+    // ---- таймер за заспиване (ръчен) ----
+    private static final int[] SLEEP_MIN = {0, 15, 30, 45, 60, 90, 120};
+    private long sleepAt; // кога спира (uptimeMillis); 0 = изключен
+    private AlertDialog sleepDialog;
+    private final Runnable sleepWarn = new Runnable() {
+        @Override
+        public void run() {
+            if (isFinishing() || sleepAt == 0) return;
+            sleepDialog = new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("Таймер за заспиване")
+                    .setMessage("След 1 минута приложението ще спре.")
+                    .setPositiveButton("Остани още 30 мин", new DialogInterface.OnClickListener() {
+                        @Override
+                        public void onClick(DialogInterface d, int w) {
+                            setSleep(30);
+                        }
+                    })
+                    .setNegativeButton("Добре", null)
+                    .show();
+        }
+    };
+    private final Runnable sleepFire = new Runnable() {
+        @Override
+        public void run() {
+            sleepAt = 0;
+            try {
+                if (sleepDialog != null) sleepDialog.dismiss();
+            } catch (Exception ignored) {
+            }
+            logEvent("Таймерът за заспиване спря приложението");
+            if (!isFinishing()) exitApp();
+        }
+    };
     // Версия на отворения сайт: "" (както е по подразбиране на устройството), "mobile" или "desktop".
     private String curMode = "";
     private final HashSet<String> iconBusy = new HashSet<>();
@@ -500,7 +554,7 @@ public class MainActivity extends Activity {
         menuHolder.setClipChildren(false);
         menuHolder.setClipToPadding(false);
         menuHolder.setVerticalScrollBarEnabled(false);
-        menuHolder.setBackground(new GlowDrawable());
+        menuHolder.setBackgroundColor(C_BG);
         menu = new LinearLayout(this);
         menu.setOrientation(LinearLayout.VERTICAL);
         menu.setGravity(Gravity.CENTER_VERTICAL);
@@ -529,6 +583,13 @@ public class MainActivity extends Activity {
                 showLastCrash();
             }
         });
+        // Една тиха проверка за нова версия при всяко пускане (след като менюто се е показало).
+        ui.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (!isFinishing()) checkUpdateQuiet();
+            }
+        }, 3000);
     }
 
     // ---------- Дневник на събитията (за диагностика) ----------
@@ -856,82 +917,80 @@ public class MainActivity extends Activity {
         LinearLayout h = new LinearLayout(this);
         h.setOrientation(LinearLayout.HORIZONTAL);
         h.setGravity(Gravity.CENTER_VERTICAL);
-        h.setPadding(dp(8), 0, 0, dp(20));
+        h.setPadding(dp(8), 0, dp(8), dp(18));
 
         ImageView logo = new ImageView(this);
         logo.setImageResource(R.drawable.app_icon);
         logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        h.addView(logo, new LinearLayout.LayoutParams(dp(76), dp(76)));
+        h.addView(logo, new LinearLayout.LayoutParams(dp(52), dp(52)));
 
-        LinearLayout t = new LinearLayout(this);
-        t.setOrientation(LinearLayout.VERTICAL);
-        t.setPadding(dp(20), 0, 0, 0);
         TextView title = new TextView(this);
         title.setText("ТВ Сайтове");
         title.setTextColor(Color.WHITE);
-        title.setTextSize(38);
+        title.setTextSize(28);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.getPaint().setShader(new LinearGradient(0, 0, dp(300), 0,
-                new int[]{0xFFFFFFFF, 0xFFFFD27A}, null, Shader.TileMode.CLAMP));
-        TextView sub = new TextView(this);
-        sub.setText("Телевизия и филми на големия екран");
-        sub.setTextColor(0xFFC9C3F5);
-        sub.setTextSize(16);
-        t.addView(title);
-        t.addView(sub);
-        h.addView(t);
+        title.setPadding(dp(16), 0, 0, 0);
+        h.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        // Часът се обновява от системата веднъж в минута и само докато менюто се вижда.
+        LinearLayout when = new LinearLayout(this);
+        when.setOrientation(LinearLayout.VERTICAL);
+        when.setGravity(Gravity.END);
+        TextClock clock = new TextClock(this);
+        clock.setFormat24Hour("HH:mm");
+        clock.setFormat12Hour("HH:mm");
+        clock.setTextColor(Color.WHITE);
+        clock.setTextSize(32);
+        clock.setGravity(Gravity.END);
+        TextView date = new TextView(this);
+        date.setText(dateLabel());
+        date.setTextColor(C_MUTED);
+        date.setTextSize(15);
+        date.setGravity(Gravity.END);
+        when.addView(clock);
+        when.addView(date);
+        h.addView(when);
         return h;
     }
 
-    private View makeSectionLabel(String text) {
-        TextView t = new TextView(this);
-        t.setText(text.toUpperCase(Locale.forLanguageTag("bg")));
-        t.setTextColor(C_MUTED);
-        t.setTextSize(14);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
-        t.setLetterSpacing(0.15f);
-        t.setPadding(dp(10), dp(20), 0, dp(4));
-        return t;
+    private static String dateLabel() {
+        java.util.Calendar c = java.util.Calendar.getInstance();
+        return BG_DAYS[c.get(java.util.Calendar.DAY_OF_WEEK) - 1] + ", "
+                + c.get(java.util.Calendar.DAY_OF_MONTH) + " "
+                + BG_MONTHS[c.get(java.util.Calendar.MONTH)];
     }
 
-    private StateListDrawable stateBg(int normalColor, int focusColor, int strokeColor) {
+    private View makeSectionLabel(String text, int count) {
+        LinearLayout l = new LinearLayout(this);
+        l.setOrientation(LinearLayout.HORIZONTAL);
+        l.setGravity(Gravity.BOTTOM);
+        l.setPadding(dp(10), dp(18), 0, dp(2));
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextColor(0xFFD5D9E1);
+        t.setTextSize(19);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        l.addView(t);
+        if (count > 0) {
+            TextView c = new TextView(this);
+            c.setText(String.valueOf(count));
+            c.setTextColor(0xFF7C8493);
+            c.setTextSize(15);
+            c.setPadding(dp(10), 0, 0, dp(2));
+            l.addView(c);
+        }
+        return l;
+    }
+
+    private StateListDrawable stateBg(int normalColor, int focusColor, int strokeColor,
+                                      int radiusDp) {
         GradientDrawable normal = new GradientDrawable();
         normal.setColor(normalColor);
-        normal.setCornerRadius(dp(16));
+        normal.setCornerRadius(dp(radiusDp));
         GradientDrawable focused = new GradientDrawable();
         focused.setColor(focusColor);
-        focused.setCornerRadius(dp(16));
+        focused.setCornerRadius(dp(radiusDp));
         focused.setStroke(dp(3), strokeColor);
-        StateListDrawable sl = new StateListDrawable();
-        sl.addState(new int[]{android.R.attr.state_focused}, focused);
-        sl.addState(new int[]{}, normal);
-        return sl;
-    }
-
-    private StateListDrawable heroBg() {
-        GradientDrawable normal = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{0xFF5B3FD6, 0xFFB5179E});
-        normal.setCornerRadius(dp(16));
-        GradientDrawable focused = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{0xFF7358F0, 0xFFD62BB8});
-        focused.setCornerRadius(dp(16));
-        focused.setStroke(dp(3), Color.WHITE);
-        StateListDrawable sl = new StateListDrawable();
-        sl.addState(new int[]{android.R.attr.state_focused}, focused);
-        sl.addState(new int[]{}, normal);
-        return sl;
-    }
-
-    // Полупрозрачна "стъклена" карта; на фокус получава кехлибарена рамка.
-    private StateListDrawable glassBg() {
-        GradientDrawable normal = new GradientDrawable();
-        normal.setColor(0x2EFFFFFF);
-        normal.setCornerRadius(dp(20));
-        normal.setStroke(dp(1), 0x33FFFFFF);
-        GradientDrawable focused = new GradientDrawable();
-        focused.setColor(0x4DFFFFFF);
-        focused.setCornerRadius(dp(20));
-        focused.setStroke(dp(3), C_AMBER);
         StateListDrawable sl = new StateListDrawable();
         sl.addState(new int[]{android.R.attr.state_focused}, focused);
         sl.addState(new int[]{}, normal);
@@ -941,9 +1000,9 @@ public class MainActivity extends Activity {
     // Плочка с иконата на сайта; докато я няма, показва буква на цветен фон.
     private View makeIconTile(String host, int color, String letter, int sizeDp) {
         final FrameLayout tile = new FrameLayout(this);
-        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                new int[]{lighter(color), color});
-        bg.setCornerRadius(dp(16));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(color);
+        bg.setCornerRadius(dp(14));
         tile.setBackground(bg);
 
         final TextView t = new TextView(this);
@@ -966,17 +1025,10 @@ public class MainActivity extends Activity {
         return tile;
     }
 
-    private static int lighter(int c) {
-        int r = Math.min(255, ((c >> 16) & 0xFF) + 50);
-        int g = Math.min(255, ((c >> 8) & 0xFF) + 50);
-        int b = Math.min(255, (c & 0xFF) + 50);
-        return 0xFF000000 | (r << 16) | (g << 8) | b;
-    }
-
     private void showIcon(FrameLayout tile, ImageView iv, TextView letter, Bitmap bmp) {
         GradientDrawable white = new GradientDrawable();
-        white.setColor(0xFFF4F5FF);
-        white.setCornerRadius(dp(16));
+        white.setColor(0xFFF1F2F5);
+        white.setCornerRadius(dp(14));
         tile.setBackground(white);
         iv.setImageBitmap(bmp);
         iv.setVisibility(View.VISIBLE);
@@ -984,12 +1036,20 @@ public class MainActivity extends Activity {
     }
 
     // Иконата се сваля веднъж и се пази във файловете на приложението (не в кеша).
+    // Веднъж прочетена от диска, остава в паметта (няколко малки картинки), за да не се
+    // чете наново при всяко отваряне на менюто.
     private void loadIcon(final String host, final FrameLayout tile, final ImageView iv,
                           final TextView letter) {
+        Bitmap hit = ICONS.get(host);
+        if (hit != null) {
+            showIcon(tile, iv, letter, hit);
+            return;
+        }
         final File f = new File(new File(getFilesDir(), "icons"), host + ".png");
         if (f.exists()) {
             Bitmap b = BitmapFactory.decodeFile(f.getAbsolutePath());
             if (b != null) {
+                ICONS.put(host, b);
                 showIcon(tile, iv, letter, b);
                 return;
             }
@@ -1030,7 +1090,9 @@ public class MainActivity extends Activity {
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            if (!isFinishing()) showIcon(tile, iv, letter, result);
+                            if (isFinishing()) return;
+                            ICONS.put(host, result);
+                            showIcon(tile, iv, letter, result);
                         }
                     });
                 }
@@ -1039,21 +1101,19 @@ public class MainActivity extends Activity {
     }
 
     private View makeCard(String title, String subtitle, int badgeColor, String badgeText,
-                          boolean hero, String host, final Runnable action) {
+                          String host, final Runnable action) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.HORIZONTAL);
         card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setPadding(dp(18), dp(16), dp(18), dp(16));
-        card.setMinimumHeight(dp(hero ? 104 : 96));
+        card.setPadding(dp(18), dp(14), dp(18), dp(14));
+        card.setMinimumHeight(dp(92));
         card.setFocusable(true);
         card.setClickable(true);
-        card.setBackground(hero ? heroBg() : glassBg());
+        card.setBackground(stateBg(C_CARD, C_CARD_FOCUS, Color.WHITE, 18));
 
-        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
-                dp(hero ? 68 : 64), dp(hero ? 68 : 64));
-        blp.setMargins(0, 0, dp(18), 0);
-        card.addView(makeIconTile(host, hero ? 0xFF7C3AED : badgeColor, badgeText,
-                hero ? 68 : 64), blp);
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(dp(60), dp(60));
+        blp.setMargins(0, 0, dp(16), 0);
+        card.addView(makeIconTile(host, badgeColor, badgeText, 60), blp);
 
         LinearLayout texts = new LinearLayout(this);
         texts.setOrientation(LinearLayout.VERTICAL);
@@ -1066,8 +1126,8 @@ public class MainActivity extends Activity {
         tt.setEllipsize(TextUtils.TruncateAt.END);
         TextView st = new TextView(this);
         st.setText(subtitle);
-        st.setTextColor(hero ? 0xCCFFFFFF : C_MUTED);
-        st.setTextSize(13);
+        st.setTextColor(C_MUTED);
+        st.setTextSize(14);
         st.setSingleLine(true);
         st.setEllipsize(TextUtils.TruncateAt.END);
         texts.addView(tt);
@@ -1085,18 +1145,85 @@ public class MainActivity extends Activity {
         return card;
     }
 
+    // Голямата карта най-горе: връща към последния отворен сайт.
+    private View makeHero(final String[] last) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setPadding(dp(26), dp(18), dp(26), dp(18));
+        card.setMinimumHeight(dp(116));
+        card.setFocusable(true);
+        card.setClickable(true);
+        card.setBackground(stateBg(C_CARD, C_CARD_FOCUS, Color.WHITE, 22));
+
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(dp(76), dp(76));
+        blp.setMargins(0, 0, dp(22), 0);
+        card.addView(makeIconTile(hostOf(last[1]), badgeColor(last[0]), initial(last[0]), 76), blp);
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        TextView lab = new TextView(this);
+        lab.setText("ПРОДЪЛЖИ");
+        lab.setTextColor(C_ACCENT);
+        lab.setTextSize(13);
+        lab.setTypeface(Typeface.DEFAULT_BOLD);
+        lab.setLetterSpacing(0.12f);
+        TextView name = new TextView(this);
+        name.setText(last[0]);
+        name.setTextColor(Color.WHITE);
+        name.setTextSize(28);
+        name.setTypeface(Typeface.DEFAULT_BOLD);
+        name.setSingleLine(true);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        TextView sub = new TextView(this);
+        sub.setText("Последно отворен сайт  ·  " + hostOf(last[1]));
+        sub.setTextColor(C_MUTED);
+        sub.setTextSize(14);
+        sub.setSingleLine(true);
+        sub.setEllipsize(TextUtils.TruncateAt.END);
+        texts.addView(lab);
+        texts.addView(name);
+        texts.addView(sub);
+        card.addView(texts, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView pill = new TextView(this);
+        pill.setText("Отвори");
+        pill.setTextColor(0xFF14110A);
+        pill.setTextSize(18);
+        pill.setTypeface(Typeface.DEFAULT_BOLD);
+        pill.setPadding(dp(30), dp(13), dp(30), dp(13));
+        GradientDrawable pb = new GradientDrawable();
+        pb.setColor(C_ACCENT);
+        pb.setCornerRadius(dp(30));
+        pill.setBackground(pb);
+        card.addView(pill, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        card.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                openSite(last);
+            }
+        });
+        card.setOnFocusChangeListener(focusAnim);
+        return card;
+    }
+
     private View makeButton(String text, boolean danger, final Runnable action) {
         TextView b = new TextView(this);
         b.setText(text);
-        b.setTextColor(Color.WHITE);
-        b.setTextSize(18);
+        b.setTextColor(danger ? 0xFFFCA5A5 : 0xFFC3C9D4);
+        b.setTextSize(17);
         b.setGravity(Gravity.CENTER);
-        b.setPadding(dp(16), dp(18), dp(16), dp(18));
+        b.setSingleLine(true);
+        b.setEllipsize(TextUtils.TruncateAt.END);
+        b.setPadding(dp(14), dp(15), dp(14), dp(15));
         b.setFocusable(true);
         b.setClickable(true);
         b.setBackground(danger
-                ? stateBg(0xFF3A1D2A, 0xFF5B2437, C_DANGER)
-                : stateBg(0xFF161B38, C_CARD_FOCUS, C_ACCENT));
+                ? stateBg(0xFF24161B, 0xFF3A1D2A, C_DANGER, 26)
+                : stateBg(C_CARD, C_CARD_FOCUS, Color.WHITE, 26));
         b.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -1107,24 +1234,86 @@ public class MainActivity extends Activity {
         return b;
     }
 
+    // Лента най-горе, когато при пускане е намерена по-нова версия.
+    private void addUpdateBanner(int index) {
+        final int ver = updateAvail;
+        final String url = updateUrl;
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(26), dp(16), dp(26), dp(16));
+        card.setFocusable(true);
+        card.setClickable(true);
+        card.setBackground(stateBg(C_ACCENT, 0xFFFFC04D, Color.WHITE, 18));
+        TextView t = new TextView(this);
+        t.setText("Има нова версия 2." + ver);
+        t.setTextColor(0xFF14110A);
+        t.setTextSize(21);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        TextView s = new TextView(this);
+        s.setText("Натисни OK, за да я свалиш и инсталираш");
+        s.setTextColor(0xFF3A2A06);
+        s.setTextSize(15);
+        card.addView(t);
+        card.addView(s);
+        card.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                askUpdate(ver, url);
+            }
+        });
+        card.setOnFocusChangeListener(focusAnim);
+        LinearLayout row = newRow();
+        row.addView(card, cellLp());
+        menu.addView(row, index, rowLp());
+        updateBanner = row;
+    }
+
+    // Подрежда картите на редове по COLS; последният ред се допълва с празни клетки.
+    private void addCards(ArrayList<View> cards) {
+        LinearLayout row = null;
+        for (int i = 0; i < cards.size(); i++) {
+            if (i % COLS == 0) {
+                row = newRow();
+                menu.addView(row, rowLp());
+            }
+            row.addView(cards.get(i), cellLp());
+        }
+        int rem = cards.size() % COLS;
+        if (rem != 0 && row != null) {
+            for (int k = rem; k < COLS; k++) row.addView(new View(this), cellLp());
+        }
+    }
+
     private void fillMenu() {
         menu.removeAllViews();
+        updateBanner = null;
         menu.addView(buildHeader());
+        if (updateAvail > installedCode()) addUpdateBanner(menu.getChildCount());
 
         // Продължи от последния сайт.
         String lastUrl = prefs.getString("lastUrl", null);
         String lastName = prefs.getString("lastName", null);
         if (lastUrl != null && lastName != null) {
-            final String[] last = findSite(lastUrl, lastName);
             LinearLayout row = newRow();
-            row.addView(makeCard("Продължи: " + last[0], "Последно отворен сайт",
-                    0, "▶", true, hostOf(last[1]), new Runnable() {
-                        @Override
-                        public void run() {
-                            openSite(last);
-                        }
-                    }), cellLp());
+            row.addView(makeHero(findSite(lastUrl, lastName)), cellLp());
             menu.addView(row, rowLp());
+        }
+
+        // Последни страници (филм или канал, на който си спрял).
+        ArrayList<String[]> recent = loadRecent();
+        if (!recent.isEmpty()) {
+            menu.addView(makeSectionLabel("Последни страници", 0));
+            ArrayList<View> cards = new ArrayList<>();
+            for (final String[] rec : recent) {
+                cards.add(makeCard(rec[0], rec[2], badgeColor(rec[2]), initial(rec[2]),
+                        hostOf(rec[1]), new Runnable() {
+                            @Override
+                            public void run() {
+                                openRecent(rec);
+                            }
+                        }));
+            }
+            addCards(cards);
         }
 
         // Групи от сайтове.
@@ -1139,38 +1328,30 @@ public class MainActivity extends Activity {
             l.add(s);
         }
         for (Map.Entry<String, ArrayList<String[]>> en : groups.entrySet()) {
-            menu.addView(makeSectionLabel(en.getKey()));
             ArrayList<String[]> list = en.getValue();
-            LinearLayout row = null;
-            for (int i = 0; i < list.size(); i++) {
-                if (i % COLS == 0) {
-                    row = newRow();
-                    menu.addView(row, rowLp());
-                }
-                final String[] site = list.get(i);
-                row.addView(makeCard(site[0], hostOf(site[1]), badgeColor(site[0]),
-                        initial(site[0]), false, hostOf(site[1]), new Runnable() {
+            menu.addView(makeSectionLabel(en.getKey(), list.size()));
+            ArrayList<View> cards = new ArrayList<>();
+            for (final String[] site : list) {
+                cards.add(makeCard(site[0], hostOf(site[1]), badgeColor(site[0]),
+                        initial(site[0]), hostOf(site[1]), new Runnable() {
                             @Override
                             public void run() {
                                 openSite(site);
                             }
-                        }), cellLp());
+                        }));
             }
-            int rem = list.size() % COLS;
-            if (rem != 0 && row != null) {
-                for (int k = rem; k < COLS; k++) row.addView(new View(this), cellLp());
-            }
+            addCards(cards);
         }
 
-        // Бутони най-долу.
+        // Бутони най-долу, на един ред.
         LinearLayout bottom = newRow();
-        bottom.addView(makeButton("↻  Провери за актуализации", false, new Runnable() {
+        bottom.addView(makeButton("Обнови", false, new Runnable() {
             @Override
             public void run() {
                 checkUpdate();
             }
         }), cellLp());
-        cacheBtn = (TextView) makeButton("♻  Изчисти кеша"
+        cacheBtn = (TextView) makeButton("Изчисти кеша"
                 + (cacheSizeText != null ? " (" + cacheSizeText + ")" : ""), false, new Runnable() {
             @Override
             public void run() {
@@ -1185,33 +1366,29 @@ public class MainActivity extends Activity {
             }
         });
         bottom.addView(autoBtn, cellLp());
-        LinearLayout.LayoutParams blp = rowLp();
-        blp.topMargin = dp(20);
-        menu.addView(bottom, blp);
-
-        LinearLayout bottom2 = newRow();
-        bottom2.addView(makeButton("⏻  Изход", true, new Runnable() {
-            @Override
-            public void run() {
-                exitApp();
-            }
-        }), cellLp());
-        bottom2.addView(makeButton("☰  Диагностика", false, new Runnable() {
+        bottom.addView(makeButton("Диагностика", false, new Runnable() {
             @Override
             public void run() {
                 showDiagnostics();
             }
         }), cellLp());
-        bottom2.addView(new View(this), cellLp());
-        menu.addView(bottom2, rowLp());
+        bottom.addView(makeButton("Изход", true, new Runnable() {
+            @Override
+            public void run() {
+                exitApp();
+            }
+        }), cellLp());
+        LinearLayout.LayoutParams blp = rowLp();
+        blp.topMargin = dp(18);
+        menu.addView(bottom, blp);
 
         TextView ver = new TextView(this);
         ver.setText("Версия " + installedName()
                 + "      •      OK — отваря      •      Назад — изход");
-        ver.setTextColor(0xFF5B6490);
+        ver.setTextColor(0xFF7C8493);
         ver.setTextSize(13);
         ver.setGravity(Gravity.CENTER);
-        ver.setPadding(0, dp(16), 0, 0);
+        ver.setPadding(0, dp(14), 0, 0);
         menu.addView(ver);
 
         menu.post(new Runnable() {
@@ -1220,6 +1397,78 @@ public class MainActivity extends Activity {
                 if (menuHolder.getVisibility() == View.VISIBLE) menu.requestFocus();
             }
         });
+    }
+
+    // ---------- Последни страници ----------
+
+    // Всеки ред във файла с настройките: адрес, табулация, сайт, табулация, заглавие.
+    // Връща масиви {заглавие, адрес, сайт}, най-новата е първа.
+    private ArrayList<String[]> loadRecent() {
+        ArrayList<String[]> out = new ArrayList<>();
+        String raw = prefs.getString("recent", "");
+        for (String line : raw.split("\n")) {
+            String[] p = line.split("\t", 3);
+            if (p.length == 3 && p[0].startsWith("http")) out.add(new String[]{p[2], p[0], p[1]});
+        }
+        return out;
+    }
+
+    private static String oneLine(String s) {
+        return s.replace('\t', ' ').replace('\n', ' ').replace('\r', ' ').trim();
+    }
+
+    // Заглавието на страницата без името на сайта накрая ("Филм - FilmiZip").
+    private static String cleanTitle(String t, Uri uri) {
+        if (t != null) {
+            t = oneLine(t);
+            int cut = -1;
+            for (String sep : new String[]{" | ", " - ", " – ", " — ", " » ", " :: "}) {
+                int i = t.lastIndexOf(sep);
+                if (i > 8 && i > cut) cut = i;
+            }
+            if (cut > 0) t = t.substring(0, cut).trim();
+        }
+        if (t == null || t.length() < 2 || t.startsWith("http")) {
+            String seg = uri.getLastPathSegment();
+            t = seg == null ? String.valueOf(uri.getHost()) : seg.replace('-', ' ').replace('_', ' ');
+        }
+        if (t.length() > 70) t = t.substring(0, 67) + "...";
+        return t;
+    }
+
+    // Запомня страницата, на която си в момента (вика се малко след всяка смяна на адреса,
+    // при излизане от сайта и при изход). Началната страница на сайта не се записва.
+    private void rememberPage() {
+        WebView w = web;
+        if (w == null || allowedHost == null || menuHolder.getVisibility() == View.VISIBLE) return;
+        String u = w.getUrl();
+        if (u == null || !u.startsWith("http")) return;
+        Uri uri = Uri.parse(u);
+        String host = uri.getHost();
+        if (host == null || !isOwnHost(host)) return;
+        String path = uri.getPath();
+        if ((path == null || path.isEmpty() || path.equals("/")) && uri.getQuery() == null) return;
+        String title = cleanTitle(w.getTitle(), uri);
+        String site = curSiteName.isEmpty() ? hostOf(u) : curSiteName;
+
+        ArrayList<String[]> l = loadRecent();
+        if (!l.isEmpty() && l.get(0)[1].equals(u) && l.get(0)[0].equals(title)) return;
+        for (int i = l.size() - 1; i >= 0; i--) {
+            if (l.get(i)[1].equals(u)) l.remove(i);
+        }
+        l.add(0, new String[]{title, u, site});
+        while (l.size() > RECENT_MAX) l.remove(l.size() - 1);
+        StringBuilder sb = new StringBuilder();
+        for (String[] e : l) {
+            sb.append(e[1]).append('\t').append(oneLine(e[2])).append('\t')
+                    .append(oneLine(e[0])).append('\n');
+        }
+        prefs.edit().putString("recent", sb.toString()).apply();
+    }
+
+    private void openRecent(String[] rec) {
+        String[] s = findSite(rec[1], rec[2]);
+        openSite(new String[]{s[0], rec[1], s.length > 2 ? s[2] : "", s.length > 3 ? s[3] : ""});
     }
 
     // ---------- Кеш ----------
@@ -1287,7 +1536,7 @@ public class MainActivity extends Activity {
 
     private void showCacheSize(long size) {
         cacheSizeText = mb(size);
-        if (cacheBtn != null) cacheBtn.setText("♻  Изчисти кеша (" + cacheSizeText + ")");
+        if (cacheBtn != null) cacheBtn.setText("Изчисти кеша (" + cacheSizeText + ")");
         if (logShown()) refreshLog(Math.max(1, logList.getSelectedItemPosition()));
     }
 
@@ -1342,7 +1591,7 @@ public class MainActivity extends Activity {
     }
 
     private String autoLabel() {
-        return "⟳  Авто чистене: " + (autoCacheOn() ? "ДА" : "не");
+        return "Авто чистене: " + (autoCacheOn() ? "ДА" : "не");
     }
 
     private void clearCacheNow() {
@@ -1417,66 +1666,13 @@ public class MainActivity extends Activity {
         });
     }
 
-    // Меко "светещо" фоново оформление на менюто.
-    private static class GlowDrawable extends Drawable {
-        private final Paint p = new Paint();
-        // Преливанията се създават само при промяна на размера, а не при всяко рисуване.
-        private Shader base, s1, s2, s3;
-        private int bw = -1, bh = -1;
-
-        private static Shader blobShader(float x, float y, float r, int color) {
-            return new RadialGradient(x, y, r, color, color & 0x00FFFFFF, Shader.TileMode.CLAMP);
-        }
-
-        private void build(int w, int h) {
-            bw = w;
-            bh = h;
-            float m = Math.max(w, h);
-            base = new LinearGradient(0, 0, w, h,
-                    new int[]{0xFF140C3A, 0xFF241261, 0xFF0E1A55}, null, Shader.TileMode.CLAMP);
-            s1 = blobShader(w * 0.92f, h * 0.05f, m * 0.55f, 0x88D946A8);
-            s2 = blobShader(w * 0.05f, h * 0.95f, m * 0.45f, 0x773B82F6);
-            s3 = blobShader(w * 0.55f, h * 0.45f, m * 0.35f, 0x338B5CF6);
-        }
-
-        @Override
-        public void draw(Canvas c) {
-            Rect b = getBounds();
-            int w = b.width();
-            int h = b.height();
-            if (w <= 0 || h <= 0) return;
-            if (w != bw || h != bh) build(w, h);
-            float m = Math.max(w, h);
-            p.setShader(base);
-            c.drawRect(0, 0, w, h, p);
-            p.setShader(s1);
-            c.drawCircle(w * 0.92f, h * 0.05f, m * 0.55f, p);
-            p.setShader(s2);
-            c.drawCircle(w * 0.05f, h * 0.95f, m * 0.45f, p);
-            p.setShader(s3);
-            c.drawCircle(w * 0.55f, h * 0.45f, m * 0.35f, p);
-        }
-
-        @Override
-        public void setAlpha(int a) {
-        }
-
-        @Override
-        public void setColorFilter(ColorFilter cf) {
-        }
-
-        @Override
-        public int getOpacity() {
-            return PixelFormat.OPAQUE;
-        }
-    }
-
     // ---------- Отваряне на сайт ----------
 
     private void openSite(String[] site) {
         String url = site[1];
         String mode = site.length > 2 ? site[2] : "";
         allowedHost = Uri.parse(url).getHost();
+        curSiteName = site[0];
         // Личният избор на потребителя (от журнала) е по-важен от настройката по подразбиране.
         String chosen = prefs.getString("mode:" + allowedHost, null);
         if (chosen != null) mode = chosen.equals("mobile") ? "mobile" : "";
@@ -1597,6 +1793,14 @@ public class MainActivity extends Activity {
                         mediaFiles.clear();
                     }
                 }
+            }
+
+            // Вика се и при преходи вътре в сайта без ново зареждане. Страницата се запомня
+            // след няколко секунди, ако си останал на нея (не при бързо прелистване).
+            @Override
+            public void doUpdateVisitedHistory(WebView v, String u, boolean isReload) {
+                ui.removeCallbacks(rememberTick);
+                if (u != null && u.startsWith("http")) ui.postDelayed(rememberTick, 6000);
             }
 
             @Override
@@ -1735,6 +1939,8 @@ public class MainActivity extends Activity {
     // Спира всичко, което върви в сайта, и изхвърля страницата напълно:
     // паметта се освобождава и всеки сайт започва на чисто.
     private void teardownSite() {
+        ui.removeCallbacks(rememberTick);
+        rememberPage();
         root.removeCallbacks(cacheWatch);
         closeNative(false);
         if (logPanel != null) logPanel.setVisibility(View.GONE);
@@ -1756,6 +1962,8 @@ public class MainActivity extends Activity {
     // Пълно затваряне: приложението и процесът му се прекратяват.
     private void exitApp() {
         logEvent("Изход с бутона");
+        ui.removeCallbacks(rememberTick);
+        rememberPage();
         exiting = true;
         root.removeCallbacks(cacheWatch);
         closeNative(false);
@@ -1801,7 +2009,7 @@ public class MainActivity extends Activity {
 
     private void buildLoadingUi() {
         splash = new FrameLayout(this);
-        splash.setBackground(new GlowDrawable());
+        splash.setBackgroundColor(C_BG);
         splash.setVisibility(View.GONE);
         splashBox = new LinearLayout(this);
         splashBox.setOrientation(LinearLayout.VERTICAL);
@@ -2074,7 +2282,7 @@ public class MainActivity extends Activity {
     private void buildLogPanel() {
         logPanel = new LinearLayout(this);
         logPanel.setOrientation(LinearLayout.VERTICAL);
-        logPanel.setBackground(new GlowDrawable());
+        logPanel.setBackgroundColor(C_BG);
         logPanel.setPadding(dp(96), dp(36), dp(96), dp(28));
 
         TextView t = new TextView(this);
@@ -2092,9 +2300,9 @@ public class MainActivity extends Activity {
 
         logList = new ListView(this);
         GradientDrawable sel = new GradientDrawable();
-        sel.setColor(0x40FFFFFF);
+        sel.setColor(0x22FFFFFF);
         sel.setCornerRadius(dp(14));
-        sel.setStroke(dp(3), C_AMBER);
+        sel.setStroke(dp(3), Color.WHITE);
         logList.setSelector(sel);
         logList.setDividerHeight(0);
         logList.setVerticalScrollBarEnabled(false);
@@ -2250,6 +2458,9 @@ public class MainActivity extends Activity {
                 cursorEnabled ? "Стрелките местят курсора, OK кликва"
                         : "Стрелките местят фокуса по страницата",
                 onOff(cursorEnabled), cursorEnabled ? C_ON : C_MUTED);
+        addAction("#sleep", "☾", "Таймер за заспиване",
+                "Спира гледането и затваря приложението след избраното време",
+                sleepLabel(), sleepAt != 0 ? C_ON : C_MUTED);
 
         addHeader("ПРИЛОЖЕНИЕ");
         addAction("#update", "⬇", "Провери за актуализации", "Версия " + installedName(),
@@ -2416,6 +2627,10 @@ public class MainActivity extends Activity {
             refreshLog(pos);
             return;
         }
+        if (key.equals("#sleep")) {
+            chooseSleep();
+            return;
+        }
         if (key.equals("#update")) {
             checkUpdate();
             return;
@@ -2452,6 +2667,58 @@ public class MainActivity extends Activity {
         refreshLog(pos);
     }
 
+    // ---------- Таймер за заспиване (само ръчно, по желание) ----------
+
+    private String sleepLabel() {
+        if (sleepAt == 0) return "ИЗКЛ";
+        long min = Math.max(1, (sleepAt - SystemClock.uptimeMillis() + 59999) / 60000);
+        return min + " МИН";
+    }
+
+    private static String sleepText(int min) {
+        if (min == 60) return "1 час";
+        if (min == 90) return "1 час и 30 минути";
+        if (min == 120) return "2 часа";
+        return min + " минути";
+    }
+
+    private void chooseSleep() {
+        String[] items = new String[SLEEP_MIN.length];
+        for (int i = 0; i < SLEEP_MIN.length; i++) {
+            items[i] = SLEEP_MIN[i] == 0 ? (sleepAt == 0 ? "Изключен" : "Изключи таймера")
+                    : sleepText(SLEEP_MIN[i]);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Таймер за заспиване" + (sleepAt == 0 ? "" : " (остават "
+                        + sleepLabel().toLowerCase(Locale.ROOT) + ")"))
+                .setItems(items, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int which) {
+                        setSleep(SLEEP_MIN[which]);
+                    }
+                })
+                .show();
+    }
+
+    // Поставя таймера (0 = изключва го). Минута преди края пита дали да продължи.
+    private void setSleep(int min) {
+        ui.removeCallbacks(sleepWarn);
+        ui.removeCallbacks(sleepFire);
+        if (min <= 0) {
+            sleepAt = 0;
+            Toast.makeText(this, "Таймерът е изключен", Toast.LENGTH_SHORT).show();
+        } else {
+            long ms = min * 60000L;
+            sleepAt = SystemClock.uptimeMillis() + ms;
+            if (ms > 60000) ui.postDelayed(sleepWarn, ms - 60000);
+            ui.postDelayed(sleepFire, ms);
+            Toast.makeText(this, "Приложението ще спре след " + sleepText(min),
+                    Toast.LENGTH_LONG).show();
+        }
+        logEvent("Таймер за заспиване: " + (min <= 0 ? "изключен" : min + " мин"));
+        if (logShown()) refreshLog(Math.max(1, logList.getSelectedItemPosition()));
+    }
+
     // ---------- Актуализации ----------
 
     private void showInfo(String title, String msg) {
@@ -2462,56 +2729,67 @@ public class MainActivity extends Activity {
                 .show();
     }
 
-    // Проверява само когато потребителят го поиска.
+    private static class Release {
+        int code;
+        String apkUrl;
+        String err;
+    }
+
+    // Пита GitHub за последната версия. Вика се само от фонова нишка.
+    private Release fetchLatestRelease() {
+        Release r = new Release();
+        HttpURLConnection c = null;
+        try {
+            c = (HttpURLConnection) new URL(
+                    "https://api.github.com/repos/" + UPDATE_REPO + "/releases/latest")
+                    .openConnection();
+            c.setRequestProperty("Accept", "application/vnd.github+json");
+            c.setRequestProperty("User-Agent", "TvSites");
+            c.setConnectTimeout(10000);
+            c.setReadTimeout(10000);
+            int rc = c.getResponseCode();
+            if (rc != 200) {
+                r.err = "GitHub отговори с код " + rc
+                        + (rc == 404 ? " (няма публикувана версия или хранилището не е публично)" : "");
+            } else {
+                JSONObject o = new JSONObject(readAll(c.getInputStream()));
+                String digits = o.optString("tag_name", "").replaceAll("[^0-9]", "");
+                r.code = digits.isEmpty() ? 0 : Integer.parseInt(digits);
+                JSONArray assets = o.optJSONArray("assets");
+                if (assets != null) {
+                    for (int i = 0; i < assets.length(); i++) {
+                        JSONObject a = assets.getJSONObject(i);
+                        if (a.optString("name", "").endsWith(".apk")) {
+                            r.apkUrl = a.optString("browser_download_url", null);
+                            break;
+                        }
+                    }
+                }
+                if (r.apkUrl == null) r.err = "В последната версия няма APK файл.";
+            }
+        } catch (Exception e) {
+            r.err = "Няма връзка или грешка при проверката.";
+        } finally {
+            if (c != null) c.disconnect();
+        }
+        return r;
+    }
+
+    // Проверява, когато потребителят го поиска (бутон "Обнови" или Опции).
     private void checkUpdate() {
         Toast.makeText(this, "Проверявам за нова версия...", Toast.LENGTH_SHORT).show();
         new Thread(new Runnable() {
             @Override
             public void run() {
-                String err = null;
-                int latest = 0;
-                String apkUrl = null;
-                try {
-                    HttpURLConnection c = (HttpURLConnection) new URL(
-                            "https://api.github.com/repos/" + UPDATE_REPO + "/releases/latest")
-                            .openConnection();
-                    c.setRequestProperty("Accept", "application/vnd.github+json");
-                    c.setRequestProperty("User-Agent", "TvSites");
-                    c.setConnectTimeout(10000);
-                    c.setReadTimeout(10000);
-                    int rc = c.getResponseCode();
-                    if (rc != 200) {
-                        err = "GitHub отговори с код " + rc
-                                + (rc == 404 ? " (няма публикувана версия или хранилището не е публично)" : "");
-                    } else {
-                        JSONObject o = new JSONObject(readAll(c.getInputStream()));
-                        String digits = o.optString("tag_name", "").replaceAll("[^0-9]", "");
-                        latest = digits.isEmpty() ? 0 : Integer.parseInt(digits);
-                        JSONArray assets = o.optJSONArray("assets");
-                        if (assets != null) {
-                            for (int i = 0; i < assets.length(); i++) {
-                                JSONObject a = assets.getJSONObject(i);
-                                if (a.optString("name", "").endsWith(".apk")) {
-                                    apkUrl = a.optString("browser_download_url", null);
-                                    break;
-                                }
-                            }
-                        }
-                        if (apkUrl == null) err = "В последната версия няма APK файл.";
-                    }
-                } catch (Exception e) {
-                    err = "Няма връзка или грешка при проверката.";
-                }
-                final String ferr = err;
-                final int flatest = latest;
-                final String furl = apkUrl;
+                final Release r = fetchLatestRelease();
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        if (ferr != null) {
-                            showInfo("Проверка за актуализации", ferr);
-                        } else if (flatest > installedCode()) {
-                            askUpdate(flatest, furl);
+                        if (isFinishing()) return;
+                        if (r.err != null) {
+                            showInfo("Проверка за актуализации", r.err);
+                        } else if (r.code > installedCode()) {
+                            askUpdate(r.code, r.apkUrl);
                         } else {
                             showInfo("Проверка за актуализации",
                                     "Имаш последната версия (" + installedName() + ").");
@@ -2520,6 +2798,38 @@ public class MainActivity extends Activity {
                 });
             }
         }).start();
+    }
+
+    // Една тиха проверка при пускане: нищо не показва, освен ако има по-нова версия -
+    // тогава излиза съобщение и лента най-горе в менюто.
+    private void checkUpdateQuiet() {
+        Thread t = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final Release r = fetchLatestRelease();
+                if (r.err != null) {
+                    logEvent("Проверка за версия при пускане: " + r.err);
+                    return;
+                }
+                if (r.code <= installedCode()) return;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (isFinishing()) return;
+                        updateAvail = r.code;
+                        updateUrl = r.apkUrl;
+                        logEvent("Има нова версия 2." + r.code);
+                        Toast.makeText(MainActivity.this, "Има нова версия 2." + r.code
+                                + " - натисни лентата най-горе в менюто", Toast.LENGTH_LONG).show();
+                        if (menuHolder.getVisibility() == View.VISIBLE && updateBanner == null) {
+                            addUpdateBanner(1);
+                        }
+                    }
+                });
+            }
+        });
+        t.setPriority(Thread.MIN_PRIORITY);
+        t.start();
     }
 
     private void askUpdate(final int latest, final String url) {
@@ -2783,6 +3093,8 @@ public class MainActivity extends Activity {
         resumeUrl = (cur != null && cur.startsWith("http")) ? cur : prefs.getString("lastUrl", null);
         if (customView != null && chromeClient != null) chromeClient.onHideCustomView();
         root.removeCallbacks(cacheWatch);
+        ui.removeCallbacks(rememberTick);
+        rememberPage();
         destroyWeb();
 
         closeNative(false);
@@ -3299,6 +3611,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        ui.removeCallbacksAndMessages(null);
         closeNative(false);
         if (web != null) {
             root.removeView(web);
