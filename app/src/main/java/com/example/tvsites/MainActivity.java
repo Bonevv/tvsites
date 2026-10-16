@@ -220,22 +220,22 @@ public class MainActivity extends Activity {
         @Override
         public void run() {
             if (web == null || web.getVisibility() != View.VISIBLE) return;
-            if (autoCacheOn()) {
-                new Thread(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (dirSize(getCacheDir()) < CACHE_AUTO_BYTES) return;
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                if (web != null && web.getVisibility() == View.VISIBLE) {
-                                    web.clearCache(true);
-                                }
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    long cs = dirSize(getCacheDir());
+                    logEvent(memLine() + ", кеш " + mb(cs));
+                    if (!autoCacheOn() || cs < CACHE_AUTO_BYTES) return;
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (web != null && web.getVisibility() == View.VISIBLE) {
+                                web.clearCache(true);
                             }
-                        });
-                    }
-                }).start();
-            }
+                        }
+                    });
+                }
+            }).start();
             root.postDelayed(this, CACHE_WATCH_MS);
         }
     };
@@ -400,6 +400,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         installCrashLogger();
+        logEvent("Приложението стартира (v" + installedName() + ")");
         prefs = getSharedPreferences("tvsites", MODE_PRIVATE);
         loadLists();
 
@@ -443,6 +444,72 @@ public class MainActivity extends Activity {
         });
     }
 
+    // ---------- Дневник на събитията (за диагностика) ----------
+
+    private static final Object EVENT_LOCK = new Object();
+
+    // Пази последните ~40 събития във файл, за да се вижда какво е станало преди спиране.
+    private void logEvent(String msg) {
+        try {
+            synchronized (EVENT_LOCK) {
+                File f = new File(getFilesDir(), "events.txt");
+                String old = f.exists() ? readAll(new java.io.FileInputStream(f)) : "";
+                String[] lines = old.isEmpty() ? new String[0] : old.split("\n");
+                StringBuilder sb = new StringBuilder();
+                int from = Math.max(0, lines.length - 39);
+                for (int i = from; i < lines.length; i++) sb.append(lines[i]).append('\n');
+                sb.append(new java.text.SimpleDateFormat("dd.MM HH:mm:ss", Locale.US)
+                        .format(new java.util.Date())).append("  ").append(msg).append('\n');
+                FileOutputStream fo = new FileOutputStream(f);
+                fo.write(sb.toString().getBytes("UTF-8"));
+                fo.close();
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private String memLine() {
+        ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
+        am.getMemoryInfo(mi);
+        long appMb = 0;
+        try {
+            android.os.Debug.MemoryInfo[] pm =
+                    am.getProcessMemoryInfo(new int[]{android.os.Process.myPid()});
+            if (pm != null && pm.length > 0) appMb = pm[0].getTotalPss() / 1024L;
+        } catch (Exception ignored) {
+        }
+        return "RAM своб. " + (mi.availMem / 1048576L) + "/" + (mi.totalMem / 1048576L)
+                + " МБ, прил. " + appMb + " МБ" + (mi.lowMemory ? ", МАЛКО ПАМЕТ" : "");
+    }
+
+    private void showDiagnostics() {
+        String txt = "";
+        try {
+            File f = new File(getFilesDir(), "events.txt");
+            if (f.exists()) txt = readAll(new java.io.FileInputStream(f));
+        } catch (Exception ignored) {
+        }
+        if (txt.isEmpty()) {
+            txt = "Още няма записани събития.";
+        } else {
+            String[] ls = txt.trim().split("\n");
+            StringBuilder sb = new StringBuilder();
+            for (int i = Math.max(0, ls.length - 10); i < ls.length; i++) sb.append(ls[i]).append('\n');
+            txt = sb.toString();
+        }
+        showInfo("Диагностика", "Последни събития (най-новите са най-долу). "
+                + "Ако нещо спре, снимай този екран.\n\n" + txt);
+    }
+
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (level >= TRIM_MEMORY_RUNNING_LOW && web != null) {
+            logEvent("Системата сигнализира малко памет (ниво " + level + ") - " + memLine());
+        }
+    }
+
     // ---------- Запис на неочаквано затваряне ----------
 
     // При неочаквано затваряне записва причината, за да я покажем следващия път.
@@ -451,6 +518,10 @@ public class MainActivity extends Activity {
         Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
             @Override
             public void uncaughtException(Thread t, Throwable e) {
+                try {
+                    logEvent("ГРЕШКА: " + e);
+                } catch (Throwable ignored) {
+                }
                 try {
                     java.io.StringWriter sw = new java.io.StringWriter();
                     e.printStackTrace(new java.io.PrintWriter(sw));
@@ -965,7 +1036,12 @@ public class MainActivity extends Activity {
                 exitApp();
             }
         }), cellLp());
-        bottom2.addView(new View(this), cellLp());
+        bottom2.addView(makeButton("☰  Диагностика", false, new Runnable() {
+            @Override
+            public void run() {
+                showDiagnostics();
+            }
+        }), cellLp());
         bottom2.addView(new View(this), cellLp());
         menu.addView(bottom2, rowLp());
 
@@ -1064,9 +1140,19 @@ public class MainActivity extends Activity {
         clearCache(false);
     }
 
-    private void clearCache(boolean quiet) {
+    private void clearCache(final boolean quiet) {
         final long before = dirSize(getCacheDir());
-        if (web != null) web.clearCache(true);
+        if (web != null) {
+            web.clearCache(true);
+        } else {
+            // Без отворена страница чистим през кратко живо WebView, за да е безопасно.
+            try {
+                WebView tmp = new WebView(this);
+                tmp.clearCache(true);
+                tmp.destroy();
+            } catch (Throwable ignored) {
+            }
+        }
         // Старият свален файл за актуализация вече не трябва, освен ако чака инсталиране.
         File[] l = getCacheDir().listFiles();
         if (l != null) {
@@ -1076,12 +1162,18 @@ public class MainActivity extends Activity {
                 deleteTree(c, false);
             }
         }
-        if (web == null) deleteTree(new File(getCacheDir(), "WebView"), false);
-        long after = dirSize(getCacheDir());
-        Toast.makeText(this, (quiet ? "Кешът е изчистен автоматично: " : "Изчистено: ")
-                + mb(Math.max(0, before - after))
-                + " (остава " + mb(after) + ")", Toast.LENGTH_LONG).show();
-        refreshCacheLabel();
+        // Браузърът трие на заден план, затова размерът се мери малко по-късно.
+        root.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                long after = dirSize(getCacheDir());
+                Toast.makeText(MainActivity.this,
+                        (quiet ? "Кешът е изчистен автоматично: " : "Изчистено: ")
+                                + mb(Math.max(0, before - after))
+                                + " (остава " + mb(after) + ")", Toast.LENGTH_LONG).show();
+                refreshCacheLabel();
+            }
+        }, 1500);
     }
 
     // Автоматично чистене над 200 МБ (ако е включено), иначе - въпрос над 150 МБ.
@@ -1192,6 +1284,8 @@ public class MainActivity extends Activity {
         reqTotal.set(0);
         reqBlocked.set(0);
         prefs.edit().putString("lastUrl", url).putString("lastName", site[0]).apply();
+        logEvent("Отворен сайт: " + site[0] + (curMode.isEmpty() ? "" : " (" + curMode + ")")
+                + " - " + memLine());
 
         if (web == null) createWebView();
 
@@ -1219,6 +1313,9 @@ public class MainActivity extends Activity {
 
     private void createWebView() {
         web = new WebView(this);
+        web.setBackgroundColor(Color.BLACK);
+        web.setVerticalScrollBarEnabled(false);
+        web.setHorizontalScrollBarEnabled(false);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -1301,6 +1398,7 @@ public class MainActivity extends Activity {
                 if (!u.startsWith("http")) return;
                 String desc = err == null ? "" : String.valueOf(err.getDescription());
                 if (desc.contains("ERR_ABORTED")) return;
+                logEvent("Грешка при зареждане: " + r.getUrl().getHost() + " " + desc);
                 showErrorPage(v, u, desc);
             }
 
@@ -1380,20 +1478,15 @@ public class MainActivity extends Activity {
 
     // Страницата е спряна от системата: връщаме се в менюто със съобщение вместо да се затваря всичко.
     private void recoverFromRendererLoss(boolean crashed) {
+        if (web == null) return; // страницата вече е затворена
         root.removeCallbacks(cacheWatch);
         if (customView != null) {
             root.removeView(customView);
             customView = null;
             customCallback = null;
         }
-        if (web != null) {
-            root.removeView(web);
-            try {
-                web.destroy();
-            } catch (Exception ignored) {
-            }
-            web = null;
-        }
+        logEvent("Страницата е спряна от системата" + (crashed ? " (срив)" : " (липса на памет)"));
+        destroyWeb();
         backToMenu();
         showInfo("Страницата беше спряна",
                 (crashed ? "Страницата се срина." : "Системата спря страницата, защото приставката остана без памет.")
@@ -1405,17 +1498,31 @@ public class MainActivity extends Activity {
         return host.startsWith("www.") ? host.substring(4) : host;
     }
 
+    // Затваря WebView и освобождава паметта му (бисквитките остават записани).
+    private void destroyWeb() {
+        if (web == null) return;
+        try {
+            CookieManager.getInstance().flush();
+        } catch (Exception ignored) {
+        }
+        try {
+            web.stopLoading();
+            root.removeView(web);
+            web.destroy();
+        } catch (Exception ignored) {
+        }
+        web = null;
+    }
+
     // Връща към менюто и спира всичко, което върви.
     private void backToMenu() {
+        if (menuHolder.getVisibility() != View.VISIBLE) logEvent("Връщане към менюто");
         root.removeCallbacks(cacheWatch);
         closeNative(false);
         if (logPanel != null) logPanel.setVisibility(View.GONE);
         if (customView != null && chromeClient != null) chromeClient.onHideCustomView();
-        if (web != null) {
-            clearHistoryPending = true;
-            web.loadUrl("about:blank");
-            web.setVisibility(View.GONE);
-        }
+        // Страницата се изхвърля напълно: паметта се освобождава и всеки сайт започва на чисто.
+        destroyWeb();
         menuHolder.setVisibility(View.VISIBLE);
         resetOverlays();
         updateState();
@@ -1425,6 +1532,7 @@ public class MainActivity extends Activity {
 
     // Пълно затваряне: приложението и процесът му се прекратяват.
     private void exitApp() {
+        logEvent("Изход с бутона");
         exiting = true;
         root.removeCallbacks(cacheWatch);
         closeNative(false);
@@ -2896,6 +3004,7 @@ public class MainActivity extends Activity {
         super.onStop();
         // Когато излезеш (Home), всичко се спира и при връщане започваш от менюто.
         if (!exiting && !isFinishing() && !isChangingConfigurations()) {
+            logEvent("Приложението е скрито (Home, друго приложение или угаснал екран)");
             backToMenu();
         }
     }
