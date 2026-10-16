@@ -18,6 +18,7 @@ import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.graphics.PorterDuff;
 import android.graphics.RadialGradient;
+import android.graphics.Rect;
 import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
@@ -67,6 +68,7 @@ import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 
@@ -86,7 +88,13 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class MainActivity extends Activity {
@@ -131,7 +139,27 @@ public class MainActivity extends Activity {
             "adapex.io", "adsrvr.org", "casalemedia.com", "bidswitch.net",
             "sharethrough.com", "sovrn.com", "33across.com", "id5-sync.com",
             "contextweb.com", "teads.tv", "onetag-sys.com",
+            // Още рекламни мрежи, изскачащи реклами и проследяване
+            "profitablecpmrate.com", "profitablegatecpm.com", "effectivegatecpm.com",
+            "revenuecpmgate.com", "clickadilla.com", "mondiad.com", "acscdn.com",
+            "exdynsrv.com", "magsrv.com", "plugrush.com", "tubecorporate.com",
+            "criteo.net", "moatads.com", "doubleverify.com", "adsafeprotected.com",
+            "serving-sys.com", "advertising.com", "yieldmo.com", "lijit.com",
+            "indexww.com", "3lift.com", "triplelift.com", "gumgum.com", "media.net",
+            "everesttech.net", "demdex.net", "krxd.net", "bluekai.com", "rlcdn.com",
+            "tapad.com", "agkn.com", "mathtag.com", "bidr.io", "2mdn.net",
+            "scorecardresearch.com", "quantserve.com", "quantcount.com", "hotjar.com",
+            "clarity.ms", "histats.com", "statcounter.com", "gemius.pl", "gemius.com",
+            "adocean.pl", "adocean-global.com", "yadro.ru", "liveinternet.ru",
+            "mixpanel.com", "facebook.net", "addthis.com", "sharethis.com",
     };
+
+    // Същият списък като множество: проверката е мигновена, без обхождане на списъка.
+    private static final HashSet<String> BLOCKED_SET = new HashSet<>();
+
+    static {
+        Collections.addAll(BLOCKED_SET, BLOCKED);
+    }
 
     private static final String MOBILE_UA =
             "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 "
@@ -214,33 +242,90 @@ public class MainActivity extends Activity {
     private static final long CACHE_ASK_BYTES = 150L * 1024 * 1024;
     private static final long CACHE_ASK_EVERY_MS = 6L * 60 * 60 * 1000;
     private static final long CACHE_AUTO_BYTES = 200L * 1024 * 1024;
-    private static final long CACHE_WATCH_MS = 90L * 1000;
+    private static final long CACHE_WATCH_MS = 120L * 1000;
 
-    // Докато гледаш сайт, на всеки 90 секунди проверява кеша и го чисти над прага
+    // Две нишки с нисък приоритет: IO за дневника и измерването на паметта, DISK за обхождане
+    // на кеша. Главната нишка никога не чака диска, а гледането не се забавя от тези задачи.
+    // Отделени са, за да не закъснява записът на събитията, докато се брои кешът.
+    private static ThreadFactory lowPriority(final String name) {
+        return new ThreadFactory() {
+            @Override
+            public Thread newThread(final Runnable r) {
+                Thread t = new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        android.os.Process.setThreadPriority(
+                                android.os.Process.THREAD_PRIORITY_BACKGROUND);
+                        r.run();
+                    }
+                }, name);
+                t.setDaemon(true);
+                return t;
+            }
+        };
+    }
+
+    private static final ExecutorService IO = Executors.newSingleThreadExecutor(lowPriority("tvs-io"));
+    private static final ExecutorService DISK =
+            Executors.newSingleThreadExecutor(lowPriority("tvs-disk"));
+
+    private static void submit(ExecutorService ex, final Runnable r) {
+        try {
+            ex.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        r.run();
+                    } catch (Throwable ignored) {
+                        // една неуспешна задача не бива да спира приложението
+                    }
+                }
+            });
+        } catch (Throwable ignored) {
+            // нишката е спряна (приложението се затваря)
+        }
+    }
+
+    private static void bg(Runnable r) {
+        submit(IO, r);
+    }
+
+    private static void disk(Runnable r) {
+        submit(DISK, r);
+    }
+
+    // Докато гледаш сайт, на всеки 2 минути проверява кеша и го чисти над прага
     // (ако авто чистенето е включено). Не показва съобщения, за да не пречи на картината.
     private final Runnable cacheWatch = new Runnable() {
         @Override
         public void run() {
-            if (web == null || web.getVisibility() != View.VISIBLE) return;
-            new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    long cs = dirSize(getCacheDir());
-                    logEvent(memLine() + ", кеш " + mb(cs));
-                    if (!autoCacheOn() || cs < CACHE_AUTO_BYTES) return;
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            if (web != null && web.getVisibility() == View.VISIBLE) {
-                                web.clearCache(true);
+            if (web == null) return; // сайтът е затворен: проверката приключва
+            if (web.getVisibility() == View.VISIBLE) {
+                disk(new Runnable() {
+                    @Override
+                    public void run() {
+                        long cs = dirSize(getCacheDir());
+                        logEvent("Проверка: кеш " + mb(cs), true);
+                        if (!autoCacheOn() || cs < CACHE_AUTO_BYTES) return;
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (web != null && web.getVisibility() == View.VISIBLE) {
+                                    web.clearCache(true);
+                                }
                             }
-                        }
-                    });
-                }
-            }).start();
+                        });
+                    }
+                });
+            }
             root.postDelayed(this, CACHE_WATCH_MS);
         }
     };
+
+    private void startWatch() {
+        root.removeCallbacks(cacheWatch);
+        root.postDelayed(cacheWatch, CACHE_WATCH_MS);
+    }
     private TextView cacheBtn;
     private TextView autoBtn;
     // Версия на отворения сайт: "" (както е по подразбиране на устройството), "mobile" или "desktop".
@@ -352,7 +437,7 @@ public class MainActivity extends Activity {
         @Override
         public void run() {
             updateStats();
-            if (statsOn) root.postDelayed(this, 2000);
+            if (statsOn) root.postDelayed(this, 3000);
         }
     };
 
@@ -402,7 +487,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         installCrashLogger();
-        logEvent("Приложението стартира (v" + installedName() + ")");
+        logEvent("Приложението стартира (v" + installedName() + ") - " + deviceLine(), true);
         prefs = getSharedPreferences("tvsites", MODE_PRIVATE);
         loadLists();
 
@@ -437,7 +522,7 @@ public class MainActivity extends Activity {
         }
         fetchConfig();
         hideSystemBars();
-        maybeAskClearCache();
+        scanCache(true);
         menu.post(new Runnable() {
             @Override
             public void run() {
@@ -449,20 +534,51 @@ public class MainActivity extends Activity {
     // ---------- Дневник на събитията (за диагностика) ----------
 
     private static final Object EVENT_LOCK = new Object();
+    private static ArrayList<String> eventLines; // последните редове; пази се докато процесът живее
 
     // Пази последните ~40 събития във файл, за да се вижда какво е станало преди спиране.
+    // Записът става на заден план. withMem добавя и паметта (измерва се във фоновата нишка).
     private void logEvent(String msg) {
+        logEvent(msg, false);
+    }
+
+    private void logEvent(final String msg, final boolean withMem) {
+        final long when = System.currentTimeMillis();
+        bg(new Runnable() {
+            @Override
+            public void run() {
+                writeEvent(when, withMem ? msg + " - " + memLine() : msg);
+            }
+        });
+    }
+
+    // Само докато се държи EVENT_LOCK.
+    private ArrayList<String> eventsLocked() {
+        if (eventLines == null) {
+            eventLines = new ArrayList<>();
+            try {
+                File f = new File(getFilesDir(), "events.txt");
+                if (f.exists()) {
+                    for (String l : readAll(new java.io.FileInputStream(f)).split("\n")) {
+                        if (!l.isEmpty()) eventLines.add(l);
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return eventLines;
+    }
+
+    private void writeEvent(long when, String msg) {
         try {
             synchronized (EVENT_LOCK) {
-                File f = new File(getFilesDir(), "events.txt");
-                String old = f.exists() ? readAll(new java.io.FileInputStream(f)) : "";
-                String[] lines = old.isEmpty() ? new String[0] : old.split("\n");
+                ArrayList<String> l = eventsLocked();
+                l.add(new java.text.SimpleDateFormat("dd.MM HH:mm:ss", Locale.US)
+                        .format(new java.util.Date(when)) + "  " + msg.replace('\n', ' '));
+                while (l.size() > 40) l.remove(0);
                 StringBuilder sb = new StringBuilder();
-                int from = Math.max(0, lines.length - 39);
-                for (int i = from; i < lines.length; i++) sb.append(lines[i]).append('\n');
-                sb.append(new java.text.SimpleDateFormat("dd.MM HH:mm:ss", Locale.US)
-                        .format(new java.util.Date())).append("  ").append(msg).append('\n');
-                FileOutputStream fo = new FileOutputStream(f);
+                for (String s : l) sb.append(s).append('\n');
+                FileOutputStream fo = new FileOutputStream(new File(getFilesDir(), "events.txt"));
                 fo.write(sb.toString().getBytes("UTF-8"));
                 fo.close();
             }
@@ -470,44 +586,75 @@ public class MainActivity extends Activity {
         }
     }
 
+    // Мерането на PSS е скъпо (системата чете цялата карта на паметта на процеса),
+    // затова се вика само от фоновата нишка и рядко.
+    private long pssMb() {
+        try {
+            ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+            android.os.Debug.MemoryInfo[] pm =
+                    am.getProcessMemoryInfo(new int[]{android.os.Process.myPid()});
+            if (pm != null && pm.length > 0) return pm[0].getTotalPss() / 1024L;
+        } catch (Exception ignored) {
+        }
+        return 0;
+    }
+
     private String memLine() {
         ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
         ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
         am.getMemoryInfo(mi);
-        long appMb = 0;
-        try {
-            android.os.Debug.MemoryInfo[] pm =
-                    am.getProcessMemoryInfo(new int[]{android.os.Process.myPid()});
-            if (pm != null && pm.length > 0) appMb = pm[0].getTotalPss() / 1024L;
-        } catch (Exception ignored) {
-        }
         return "RAM своб. " + (mi.availMem / 1048576L) + "/" + (mi.totalMem / 1048576L)
-                + " МБ, прил. " + appMb + " МБ" + (mi.lowMemory ? ", МАЛКО ПАМЕТ" : "");
+                + " МБ, прил. " + pssMb() + " МБ" + (mi.lowMemory ? ", МАЛКО ПАМЕТ" : "");
+    }
+
+    // Кратко описание на устройството (за диагностиката).
+    private String deviceLine() {
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        return Build.MANUFACTURER + " " + Build.MODEL + ", Android " + Build.VERSION.RELEASE
+                + ", екран " + dm.widthPixels + "x" + dm.heightPixels + " @" + dm.density
+                + ", клас " + am.getMemoryClass() + " МБ"
+                + (am.isLowRamDevice() ? ", МАЛКО RAM" : "");
     }
 
     private void showDiagnostics() {
-        String txt = "";
-        try {
-            File f = new File(getFilesDir(), "events.txt");
-            if (f.exists()) txt = readAll(new java.io.FileInputStream(f));
-        } catch (Exception ignored) {
-        }
-        if (txt.isEmpty()) {
-            txt = "Още няма записани събития.";
-        } else {
-            String[] ls = txt.trim().split("\n");
-            StringBuilder sb = new StringBuilder();
-            for (int i = Math.max(0, ls.length - 10); i < ls.length; i++) sb.append(ls[i]).append('\n');
-            txt = sb.toString();
-        }
-        showInfo("Диагностика", "Последни събития (най-новите са най-долу).\n\n" + txt);
+        // Опашката е една, затова четенето идва след всички чакащи записи.
+        bg(new Runnable() {
+            @Override
+            public void run() {
+                StringBuilder sb = new StringBuilder();
+                synchronized (EVENT_LOCK) {
+                    ArrayList<String> l = eventsLocked();
+                    for (int i = Math.max(0, l.size() - 10); i < l.size(); i++) {
+                        sb.append(l.get(i)).append('\n');
+                    }
+                }
+                final String txt = sb.length() == 0 ? "Още няма записани събития." : sb.toString();
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!isFinishing()) {
+                            showInfo("Диагностика",
+                                    "Последни събития (най-новите са най-долу).\n\n" + txt);
+                        }
+                    }
+                });
+            }
+        });
     }
+
+    private long lastTrimLog;
 
     @Override
     public void onTrimMemory(int level) {
         super.onTrimMemory(level);
         if (level >= TRIM_MEMORY_RUNNING_LOW && web != null) {
-            logEvent("Системата сигнализира малко памет (ниво " + level + ") - " + memLine());
+            // Сигналите идват на серии: записваме най-много един на половин минута.
+            long now = SystemClock.uptimeMillis();
+            if (now - lastTrimLog > 30000) {
+                lastTrimLog = now;
+                logEvent("Системата сигнализира малко памет (ниво " + level + ")", true);
+            }
         }
     }
 
@@ -520,7 +667,13 @@ public class MainActivity extends Activity {
             @Override
             public void uncaughtException(Thread t, Throwable e) {
                 try {
-                    logEvent("ГРЕШКА: " + e);
+                    // Чакащите записи се довършват, после се записва причината (веднага, без опашка).
+                    IO.shutdown();
+                    IO.awaitTermination(700, TimeUnit.MILLISECONDS);
+                } catch (Throwable ignored) {
+                }
+                try {
+                    writeEvent(System.currentTimeMillis(), "ГРЕШКА: " + e);
                 } catch (Throwable ignored) {
                 }
                 try {
@@ -631,6 +784,7 @@ public class MainActivity extends Activity {
             sites.clear();
             sites.addAll(newSites);
         }
+        blockCache.clear();
         fillMenu();
     }
 
@@ -639,6 +793,11 @@ public class MainActivity extends Activity {
     private String[] findSite(String url, String name) {
         for (String[] s : sites) {
             if (s[1].equals(url)) return s;
+        }
+        // Последният адрес може да е вътрешна страница (резултати, филм): отваряме сайта му.
+        String h = hostOf(url);
+        for (String[] s : sites) {
+            if (hostOf(s[1]).equals(h)) return s;
         }
         return new String[]{name, url, "", ""};
     }
@@ -968,20 +1127,6 @@ public class MainActivity extends Activity {
             menu.addView(row, rowLp());
         }
 
-        // Търсене на филм във всички филмови сайтове.
-        if (!searchableSites().isEmpty()) {
-            LinearLayout srow = newRow();
-            srow.addView(makeCard("Търси филм", "Напиши заглавие и избери сайт",
-                    0xFF2E7D32, "🔍", true, "", new Runnable() {
-                        @Override
-                        public void run() {
-                            menuSearch = true;
-                            showTextDialog("text", "", "Име на филм", true, false);
-                        }
-                    }), cellLp());
-            menu.addView(srow, rowLp());
-        }
-
         // Групи от сайтове.
         LinkedHashMap<String, ArrayList<String[]>> groups = new LinkedHashMap<>();
         for (String[] s : sites) {
@@ -1025,7 +1170,8 @@ public class MainActivity extends Activity {
                 checkUpdate();
             }
         }), cellLp());
-        cacheBtn = (TextView) makeButton("♻  Изчисти кеша", false, new Runnable() {
+        cacheBtn = (TextView) makeButton("♻  Изчисти кеша"
+                + (cacheSizeText != null ? " (" + cacheSizeText + ")" : ""), false, new Runnable() {
             @Override
             public void run() {
                 clearCacheNow();
@@ -1039,7 +1185,6 @@ public class MainActivity extends Activity {
             }
         });
         bottom.addView(autoBtn, cellLp());
-        refreshCacheLabel();
         LinearLayout.LayoutParams blp = rowLp();
         blp.topMargin = dp(20);
         menu.addView(bottom, blp);
@@ -1103,23 +1248,72 @@ public class MainActivity extends Activity {
         return Math.round(bytes / 1048576.0) + " МБ";
     }
 
-    // Смята размера на заден план и го показва върху бутона.
+    private final AtomicBoolean scanBusy = new AtomicBoolean();
+    private volatile boolean scanDecide;
+
     private void refreshCacheLabel() {
-        final TextView btn = cacheBtn;
-        new Thread(new Runnable() {
+        scanCache(false);
+    }
+
+    // Смята размера на кеша на заден план (само едно измерване наведнъж) и го показва.
+    // При decide=true решава и дали да чисти: автоматично над 200 МБ (ако е включено),
+    // иначе пита над 150 МБ.
+    private void scanCache(boolean decide) {
+        if (decide) scanDecide = true;
+        if (!scanBusy.compareAndSet(false, true)) return;
+        disk(new Runnable() {
             @Override
             public void run() {
-                final long size = dirSize(getCacheDir());
+                long s = 0;
+                try {
+                    s = dirSize(getCacheDir());
+                } finally {
+                    scanBusy.set(false);
+                }
+                final long size = s;
+                final boolean d = scanDecide;
+                scanDecide = false;
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        cacheSizeText = mb(size);
-                        if (btn != null) btn.setText("♻  Изчисти кеша (" + mb(size) + ")");
-                        if (logShown()) refreshLog(Math.max(1, logList.getSelectedItemPosition()));
+                        if (isFinishing()) return;
+                        showCacheSize(size);
+                        if (d) decideCache(size);
                     }
                 });
             }
-        }).start();
+        });
+    }
+
+    private void showCacheSize(long size) {
+        cacheSizeText = mb(size);
+        if (cacheBtn != null) cacheBtn.setText("♻  Изчисти кеша (" + cacheSizeText + ")");
+        if (logShown()) refreshLog(Math.max(1, logList.getSelectedItemPosition()));
+    }
+
+    // Ако кешът е изчистен ръчно и е малък, не се прави нищо.
+    private void decideCache(final long size) {
+        if (menuHolder.getVisibility() != View.VISIBLE) return;
+        if (autoCacheOn()) {
+            if (size >= CACHE_AUTO_BYTES) clearCache(true);
+            return;
+        }
+        if (size < CACHE_ASK_BYTES) return;
+        long last = prefs.getLong("cacheAsk", 0);
+        if (System.currentTimeMillis() - last < CACHE_ASK_EVERY_MS) return;
+        prefs.edit().putLong("cacheAsk", System.currentTimeMillis()).apply();
+        new AlertDialog.Builder(MainActivity.this)
+                .setTitle("Кешът е голям")
+                .setMessage("Заема " + mb(size) + ". Да се изчисти ли? "
+                        + "Няма да изтрие сайтовете и входовете ти.")
+                .setPositiveButton("Изчисти", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int w) {
+                        clearCacheNow();
+                    }
+                })
+                .setNegativeButton("Не сега", null)
+                .show();
     }
 
     // Сменя между нормална и мобилна версия за отворения сайт, запомня избора и презарежда.
@@ -1155,109 +1349,112 @@ public class MainActivity extends Activity {
         clearCache(false);
     }
 
+    // Обхождането на файлове е на заден план; само самото WebView се чисти от главната нишка.
     private void clearCache(final boolean quiet) {
-        final long before = dirSize(getCacheDir());
-        if (web != null) {
-            web.clearCache(true);
-        } else {
-            // Без отворена страница чистим през кратко живо WebView, за да е безопасно.
-            try {
-                WebView tmp = new WebView(this);
-                tmp.clearCache(true);
-                tmp.destroy();
-            } catch (Throwable ignored) {
-            }
-        }
-        // Старият свален файл за актуализация вече не трябва, освен ако чака инсталиране.
-        File[] l = getCacheDir().listFiles();
-        if (l != null) {
-            for (File c : l) {
-                if (c.getName().equals("WebView")) continue;
-                if (c.getName().equals("updates") && pendingApk != null) continue;
-                deleteTree(c, false);
-            }
-        }
-        // Браузърът трие на заден план, затова размерът се мери малко по-късно.
-        root.postDelayed(new Runnable() {
+        final boolean keepUpdates = pendingApk != null;
+        disk(new Runnable() {
             @Override
             public void run() {
-                long after = dirSize(getCacheDir());
-                Toast.makeText(MainActivity.this,
-                        (quiet ? "Кешът е изчистен автоматично: " : "Изчистено: ")
-                                + mb(Math.max(0, before - after))
-                                + " (остава " + mb(after) + ")", Toast.LENGTH_LONG).show();
-                refreshCacheLabel();
-            }
-        }, 1500);
-    }
-
-    // Автоматично чистене над 200 МБ (ако е включено), иначе - въпрос над 150 МБ.
-    // Ако кешът е изчистен ръчно и е малък, не се прави нищо.
-    private void maybeAskClearCache() {
-        final boolean auto = autoCacheOn();
-        long last = prefs.getLong("cacheAsk", 0);
-        if (!auto && System.currentTimeMillis() - last < CACHE_ASK_EVERY_MS) return;
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                final long size = dirSize(getCacheDir());
-                if (auto) {
-                    if (size < CACHE_AUTO_BYTES) return;
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            if (!isFinishing() && menuHolder.getVisibility() == View.VISIBLE) {
-                                clearCache(true);
-                            }
-                        }
-                    });
-                    return;
+                final long before = dirSize(getCacheDir());
+                // Старият свален файл за актуализация вече не трябва, освен ако чака инсталиране.
+                File[] l = getCacheDir().listFiles();
+                if (l != null) {
+                    for (File c : l) {
+                        if (c.getName().equals("WebView")) continue;
+                        if (c.getName().equals("updates") && keepUpdates) continue;
+                        deleteTree(c, false);
+                    }
                 }
-                if (size < CACHE_ASK_BYTES) return;
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        if (isFinishing() || menuHolder.getVisibility() != View.VISIBLE) return;
-                        prefs.edit().putLong("cacheAsk", System.currentTimeMillis()).apply();
-                        new AlertDialog.Builder(MainActivity.this)
-                                .setTitle("Кешът е голям")
-                                .setMessage("Заема " + mb(size) + ". Да се изчисти ли? "
-                                        + "Няма да изтрие сайтовете и входовете ти.")
-                                .setPositiveButton("Изчисти", new DialogInterface.OnClickListener() {
-                                    @Override
-                                    public void onClick(DialogInterface d, int w) {
-                                        clearCacheNow();
-                                    }
-                                })
-                                .setNegativeButton("Не сега", null)
-                                .show();
+                        if (isFinishing()) return;
+                        clearWebCache();
+                        // Браузърът трие на заден план, затова размерът се мери малко по-късно.
+                        root.postDelayed(new Runnable() {
+                            @Override
+                            public void run() {
+                                reportCleared(before, quiet);
+                            }
+                        }, 1500);
                     }
                 });
             }
-        }).start();
+        });
+    }
+
+    private void clearWebCache() {
+        if (web != null) {
+            web.clearCache(true);
+            return;
+        }
+        // Без отворена страница чистим през кратко живо WebView, за да е безопасно.
+        try {
+            WebView tmp = new WebView(this);
+            tmp.clearCache(true);
+            tmp.destroy();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void reportCleared(final long before, final boolean quiet) {
+        disk(new Runnable() {
+            @Override
+            public void run() {
+                final long after = dirSize(getCacheDir());
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (isFinishing()) return;
+                        Toast.makeText(MainActivity.this,
+                                (quiet ? "Кешът е изчистен автоматично: " : "Изчистено: ")
+                                        + mb(Math.max(0, before - after))
+                                        + " (остава " + mb(after) + ")", Toast.LENGTH_LONG).show();
+                        showCacheSize(after);
+                    }
+                });
+            }
+        });
     }
 
     // Меко "светещо" фоново оформление на менюто.
     private static class GlowDrawable extends Drawable {
-        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint p = new Paint();
+        // Преливанията се създават само при промяна на размера, а не при всяко рисуване.
+        private Shader base, s1, s2, s3;
+        private int bw = -1, bh = -1;
+
+        private static Shader blobShader(float x, float y, float r, int color) {
+            return new RadialGradient(x, y, r, color, color & 0x00FFFFFF, Shader.TileMode.CLAMP);
+        }
+
+        private void build(int w, int h) {
+            bw = w;
+            bh = h;
+            float m = Math.max(w, h);
+            base = new LinearGradient(0, 0, w, h,
+                    new int[]{0xFF140C3A, 0xFF241261, 0xFF0E1A55}, null, Shader.TileMode.CLAMP);
+            s1 = blobShader(w * 0.92f, h * 0.05f, m * 0.55f, 0x88D946A8);
+            s2 = blobShader(w * 0.05f, h * 0.95f, m * 0.45f, 0x773B82F6);
+            s3 = blobShader(w * 0.55f, h * 0.45f, m * 0.35f, 0x338B5CF6);
+        }
 
         @Override
         public void draw(Canvas c) {
-            int w = getBounds().width();
-            int h = getBounds().height();
-            p.setShader(new LinearGradient(0, 0, w, h,
-                    new int[]{0xFF140C3A, 0xFF241261, 0xFF0E1A55}, null, Shader.TileMode.CLAMP));
+            Rect b = getBounds();
+            int w = b.width();
+            int h = b.height();
+            if (w <= 0 || h <= 0) return;
+            if (w != bw || h != bh) build(w, h);
+            float m = Math.max(w, h);
+            p.setShader(base);
             c.drawRect(0, 0, w, h, p);
-            blob(c, w * 0.92f, h * 0.05f, Math.max(w, h) * 0.55f, 0x88D946A8);
-            blob(c, w * 0.05f, h * 0.95f, Math.max(w, h) * 0.45f, 0x773B82F6);
-            blob(c, w * 0.55f, h * 0.45f, Math.max(w, h) * 0.35f, 0x338B5CF6);
-            p.setShader(null);
-        }
-
-        private void blob(Canvas c, float x, float y, float r, int color) {
-            p.setShader(new RadialGradient(x, y, r, color, color & 0x00FFFFFF,
-                    Shader.TileMode.CLAMP));
-            c.drawCircle(x, y, r, p);
+            p.setShader(s1);
+            c.drawCircle(w * 0.92f, h * 0.05f, m * 0.55f, p);
+            p.setShader(s2);
+            c.drawCircle(w * 0.05f, h * 0.95f, m * 0.45f, p);
+            p.setShader(s3);
+            c.drawCircle(w * 0.55f, h * 0.45f, m * 0.35f, p);
         }
 
         @Override
@@ -1299,21 +1496,14 @@ public class MainActivity extends Activity {
         reqTotal.set(0);
         reqBlocked.set(0);
         prefs.edit().putString("lastUrl", url).putString("lastName", site[0]).apply();
-        logEvent("Отворен сайт: " + site[0] + (curMode.isEmpty() ? "" : " (" + curMode + ")")
-                + " - " + memLine());
+        logEvent("Отворен сайт: " + site[0] + (curMode.isEmpty() ? "" : " (" + curMode + ")"), true);
 
         if (web == null) createWebView();
-
-        // Мобилна или десктоп версия по сайт.
-        String ua = null;
-        if ("mobile".equals(mode)) ua = MOBILE_UA;
-        else if ("desktop".equals(mode)) ua = DESKTOP_UA;
-        web.getSettings().setUserAgentString(ua);
+        applyUserAgent();
 
         menuHolder.setVisibility(View.GONE);
         web.setVisibility(View.VISIBLE);
-        root.removeCallbacks(cacheWatch);
-        root.postDelayed(cacheWatch, CACHE_WATCH_MS);
+        startWatch();
 
         // Курсорът започва в средата на екрана.
         cx = (root.getWidth() > 0 ? root.getWidth() : 1920) / 2f;
@@ -1326,14 +1516,27 @@ public class MainActivity extends Activity {
         web.requestFocus();
     }
 
+    // Мобилна или десктоп версия по сайт (според curMode).
+    private void applyUserAgent() {
+        String ua = null;
+        if ("mobile".equals(curMode)) ua = MOBILE_UA;
+        else if ("desktop".equals(curMode)) ua = DESKTOP_UA;
+        web.getSettings().setUserAgentString(ua);
+    }
+
     private void createWebView() {
         web = new WebView(this);
         web.setBackgroundColor(Color.BLACK);
         web.setVerticalScrollBarEnabled(false);
         web.setHorizontalScrollBarEnabled(false);
+        web.setOverScrollMode(View.OVER_SCROLL_NEVER);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
+        // Ненужни възможности: по-малко работа и по-малко повърхност за реклами.
+        s.setGeolocationEnabled(false);
+        s.setAllowFileAccess(false);
+        s.setAllowContentAccess(false);
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setLoadWithOverviewMode(true);
         s.setUseWideViewPort(true);
@@ -1379,7 +1582,7 @@ public class MainActivity extends Activity {
                 // Блокира пренасочвания на главната страница към други домейни (реклами).
                 String host = r.getUrl().getHost();
                 return r.isForMainFrame() && host != null && allowedHost != null
-                        && !host.endsWith(stripWww(allowedHost));
+                        && !isOwnHost(host);
             }
 
             @Override
@@ -1529,20 +1732,25 @@ public class MainActivity extends Activity {
         web = null;
     }
 
-    // Връща към менюто и спира всичко, което върви.
-    private void backToMenu() {
-        if (menuHolder.getVisibility() != View.VISIBLE) logEvent("Връщане към менюто");
+    // Спира всичко, което върви в сайта, и изхвърля страницата напълно:
+    // паметта се освобождава и всеки сайт започва на чисто.
+    private void teardownSite() {
         root.removeCallbacks(cacheWatch);
         closeNative(false);
         if (logPanel != null) logPanel.setVisibility(View.GONE);
         if (customView != null && chromeClient != null) chromeClient.onHideCustomView();
-        // Страницата се изхвърля напълно: паметта се освобождава и всеки сайт започва на чисто.
         destroyWeb();
         menuHolder.setVisibility(View.VISIBLE);
         resetOverlays();
         updateState();
+    }
+
+    // Връща към менюто и спира всичко, което върви.
+    private void backToMenu() {
+        if (menuHolder.getVisibility() != View.VISIBLE) logEvent("Връщане към менюто");
+        teardownSite();
         fillMenu();
-        maybeAskClearCache();
+        scanCache(true);
     }
 
     // Пълно затваряне: приложението и процесът му се прекратяват.
@@ -1575,12 +1783,19 @@ public class MainActivity extends Activity {
         // Докато гледаш, екранът не заспива.
         boolean inSite = customView != null || nativeActive()
                 || (web != null && web.getVisibility() == View.VISIBLE);
-        if (inSite) {
-            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        } else {
-            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        // Флагът се сменя само при промяна. Всяка смяна кара системата да преизчислява
+        // прозореца, а тук се минава при всяко натискане на стрелка (движение на курсора).
+        if (inSite != keepOn) {
+            keepOn = inSite;
+            if (inSite) {
+                getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            } else {
+                getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            }
         }
     }
+
+    private boolean keepOn;
 
     // ---------- Зареждане, грешки и подсказки ----------
 
@@ -1732,28 +1947,35 @@ public class MainActivity extends Activity {
 
     // ---------- Блокиране на домейни ----------
 
-    private static boolean matches(String host, String d) {
-        return host.equals(d) || host.endsWith("." + d);
+    // Проверка по домейна и по всичките му родителски домейни (a.b.c.com, b.c.com, c.com).
+    private static boolean inSet(java.util.Set<String> set, String host) {
+        if (set.isEmpty()) return false;
+        String h = host;
+        while (true) {
+            if (set.contains(h)) return true;
+            int i = h.indexOf('.');
+            if (i < 0) return false;
+            h = h.substring(i + 1);
+        }
     }
+
+    // Решението за всеки домейн се помни: една страница праща стотици заявки към едни и същи
+    // домейни, а проверката се прави за всяка от тях.
+    private final ConcurrentHashMap<String, Boolean> blockCache = new ConcurrentHashMap<>();
 
     private boolean isBlocked(String host) {
         if (host == null) return false;
-        for (String a : userAllowed) {
-            if (matches(host, a)) return false;
-        }
-        for (String d : userBlocked) {
-            if (matches(host, d)) return true;
-        }
-        for (String a : cfgAllowed) {
-            if (matches(host, a)) return false;
-        }
-        for (String d : cfgBlocked) {
-            if (matches(host, d)) return true;
-        }
-        for (String d : BLOCKED) {
-            if (matches(host, d)) return true;
-        }
-        return false;
+        Boolean cached = blockCache.get(host);
+        if (cached != null) return cached;
+        boolean b;
+        if (inSet(userAllowed, host)) b = false;
+        else if (inSet(userBlocked, host)) b = true;
+        else if (inSet(cfgAllowed, host)) b = false;
+        else if (inSet(cfgBlocked, host)) b = true;
+        else b = inSet(BLOCKED_SET, host);
+        if (blockCache.size() > 3000) blockCache.clear();
+        blockCache.put(host, b);
+        return b;
     }
 
     private boolean isOwnHost(String host) {
@@ -1766,6 +1988,7 @@ public class MainActivity extends Activity {
         userBlocked.addAll(prefs.getStringSet("blocked", new HashSet<String>()));
         userAllowed.addAll(prefs.getStringSet("allowed", new HashSet<String>()));
         cursorOff.addAll(prefs.getStringSet("cursorOff", new HashSet<String>()));
+        blockCache.clear();
     }
 
     private void saveLists() {
@@ -1784,6 +2007,7 @@ public class MainActivity extends Activity {
             userAllowed.remove(host);
             userBlocked.add(host);
         }
+        blockCache.clear();
         saveLists();
     }
 
@@ -1802,20 +2026,27 @@ public class MainActivity extends Activity {
     }
 
     // Запомня адресите на видео потоци, които страницата зарежда.
+    // 1 = плейлист (.m3u8, .mpd), 2 = видео файл (.mp4), 0 = друго.
+    // Без копиране на адреса: тази проверка минава за всяка заявка на страницата.
+    private static int mediaKind(String url) {
+        int kind = 0;
+        for (int i = url.indexOf('.'); i >= 0; i = url.indexOf('.', i + 1)) {
+            if (url.regionMatches(true, i, ".m3u8", 0, 5)
+                    || url.regionMatches(true, i, ".mpd", 0, 4)) {
+                return 1;
+            }
+            if (url.regionMatches(true, i, ".mp4", 0, 4)) kind = 2;
+        }
+        return kind;
+    }
+
     private void maybeRecordMedia(WebResourceRequest r) {
         String url = r.getUrl().toString();
-        String low = url.toLowerCase(Locale.ROOT);
-        LinkedHashMap<String, HashMap<String, String>> target;
-        int cap;
-        if (low.contains(".m3u8") || low.contains(".mpd")) {
-            target = mediaPlaylists;
-            cap = 15;
-        } else if (low.contains(".mp4")) {
-            target = mediaFiles;
-            cap = 10;
-        } else {
-            return;
-        }
+        int kind = mediaKind(url);
+        if (kind == 0) return;
+        LinkedHashMap<String, HashMap<String, String>> target =
+                kind == 1 ? mediaPlaylists : mediaFiles;
+        int cap = kind == 1 ? 15 : 10;
         HashMap<String, String> h = new HashMap<>();
         Map<String, String> rh = r.getRequestHeaders();
         if (rh != null) {
@@ -2452,7 +2683,7 @@ public class MainActivity extends Activity {
         root.removeCallbacks(statsTick);
         if (statsOn) {
             updateStats();
-            root.postDelayed(statsTick, 2000);
+            root.postDelayed(statsTick, 3000);
         }
     }
 
@@ -2463,16 +2694,30 @@ public class MainActivity extends Activity {
         am.getMemoryInfo(mi);
         long freeMb = mi.availMem / 1048576L;
         long totalMb = mi.totalMem / 1048576L;
-        long appMb = 0;
-        try {
-            android.os.Debug.MemoryInfo[] pm =
-                    am.getProcessMemoryInfo(new int[]{android.os.Process.myPid()});
-            if (pm != null && pm.length > 0) appMb = pm[0].getTotalPss() / 1024L;
-        } catch (Exception ignored) {
+        // Паметта на приложението (PSS) е скъпа за измерване: на заден план и на 10 секунди.
+        long now = SystemClock.uptimeMillis();
+        if (!statsPssBusy && (statsPssMb < 0 || now - statsPssAt > 10000)) {
+            statsPssBusy = true;
+            statsPssAt = now;
+            bg(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        statsPssMb = pssMb();
+                    } finally {
+                        statsPssBusy = false;
+                    }
+                }
+            });
         }
         statsView.setText("Свободна RAM: " + freeMb + " / " + totalMb + " МБ   Приложение: "
-                + appMb + " МБ   Заявки: " + reqTotal.get() + " (блок. " + reqBlocked.get() + ")");
+                + (statsPssMb < 0 ? "..." : statsPssMb + " МБ")
+                + "   Заявки: " + reqTotal.get() + " (блок. " + reqBlocked.get() + ")");
     }
+
+    private volatile long statsPssMb = -1;
+    private volatile boolean statsPssBusy;
+    private long statsPssAt;
 
     // ---------- Родно пускане (ExoPlayer) ----------
 
@@ -2533,11 +2778,12 @@ public class MainActivity extends Activity {
         String cookie = CookieManager.getInstance().getCookie(url);
         if (cookie != null && !props.containsKey("Cookie")) props.put("Cookie", cookie);
 
-        // Освобождаваме страницата, за да не товари бокса.
+        // Страницата се затваря напълно: паметта ѝ е нужна на плеъра, а при "Назад" се отваря пак.
+        String cur = web.getUrl();
+        resumeUrl = (cur != null && cur.startsWith("http")) ? cur : prefs.getString("lastUrl", null);
         if (customView != null && chromeClient != null) chromeClient.onHideCustomView();
-        resumeUrl = web.getUrl();
-        web.loadUrl("about:blank");
-        web.setVisibility(View.GONE);
+        root.removeCallbacks(cacheWatch);
+        destroyWeb();
 
         closeNative(false);
         nativeLayer.setVisibility(View.VISIBLE);
@@ -2549,7 +2795,12 @@ public class MainActivity extends Activity {
                 .setUserAgent(ua);
         http.setDefaultRequestProperties(props);
 
+        // По-малък буфер от стандартния (50 сек.): по-малко памет, а за телевизия 40 сек. стигат.
+        DefaultLoadControl load = new DefaultLoadControl.Builder()
+                .setBufferDurationsMs(20000, 40000, 2000, 4000)
+                .build();
         player = new ExoPlayer.Builder(this)
+                .setLoadControl(load)
                 .setMediaSourceFactory(new DefaultMediaSourceFactory(http))
                 .build();
         player.setVideoSurfaceView(nativeSurface);
@@ -2576,14 +2827,27 @@ public class MainActivity extends Activity {
         if (nativeStatus != null) nativeStatus.removeCallbacks(hideNativeStatus);
         boolean wasActive = nativeActive();
         if (nativeLayer != null) nativeLayer.setVisibility(View.GONE);
-        if (backToPage && wasActive && web != null) {
-            web.setVisibility(View.VISIBLE);
-            if (web.canGoBack()) web.goBack();
-            else if (resumeUrl != null) web.loadUrl(resumeUrl);
-            web.requestFocus();
-            pokeCursor();
-        }
+        if (backToPage && wasActive) resumePage();
         updateState();
+    }
+
+    // След родния плеър страницата се създава наново и се зарежда от мястото, откъдето е тръгнала.
+    private void resumePage() {
+        String u = resumeUrl;
+        if (u == null || u.isEmpty()) u = prefs.getString("lastUrl", null);
+        if (u == null) {
+            backToMenu();
+            return;
+        }
+        if (web == null) createWebView();
+        applyUserAgent();
+        menuHolder.setVisibility(View.GONE);
+        web.setVisibility(View.VISIBLE);
+        startWatch();
+        showSplash(prefs.getString("lastName", hostOf(u)), hostOf(u));
+        web.loadUrl(u);
+        web.requestFocus();
+        pokeCursor();
     }
 
     // ---------- Курсор, управляван от дистанционното ----------
@@ -2791,13 +3055,8 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 String text = et.getText().toString();
-                boolean ms = menuSearch;
                 dlg.dismiss();
-                if (ms) {
-                    chooseSearchSite(text.trim());
-                } else {
-                    applyText(text, isSearch);
-                }
+                applyText(text, isSearch);
             }
         };
         et.setOnEditorActionListener(new TextView.OnEditorActionListener() {
@@ -2845,7 +3104,6 @@ public class MainActivity extends Activity {
             @Override
             public void onDismiss(DialogInterface d) {
                 textDialog = null;
-                menuSearch = false;
                 hideSystemBars();
                 if (web != null) web.requestFocus();
             }
@@ -2861,60 +3119,6 @@ public class MainActivity extends Activity {
                 }
             }
         }, 250);
-    }
-
-    // ---------- Търсене на филм ----------
-
-    private boolean menuSearch = false;
-
-    // Шаблон за търсене по домейн; %s се заменя със заглавието (процентно кодирано).
-    private static String searchTemplate(String host) {
-        if (host == null) return null;
-        if (host.startsWith("www.")) host = host.substring(4);
-        switch (host) {
-            case "filmizip.com": return "https://filmizip.com/search/%s/";
-            case "filmi9.com": return "https://filmi9.com/search?term=%s";
-            case "zenoplay.to": return "https://zenoplay.to/?s=%s";
-            case "vsichkifilmi.net": return "https://vsichkifilmi.net/search?term=%s";
-            case "filmizt.com": return "https://filmizt.com/search/?q=%s";
-            case "filmifen.com":
-                return "https://filmifen.com/index.php?do=search&subaction=search&story=%s";
-            default: return null;
-        }
-    }
-
-    private ArrayList<String[]> searchableSites() {
-        ArrayList<String[]> r = new ArrayList<>();
-        for (String[] s : sites) {
-            if (searchTemplate(hostOf(s[1])) != null) r.add(s);
-        }
-        return r;
-    }
-
-    private void chooseSearchSite(final String query) {
-        if (query.isEmpty() || isFinishing()) return;
-        final ArrayList<String[]> list = searchableSites();
-        String[] names = new String[list.size()];
-        for (int i = 0; i < names.length; i++) names[i] = list.get(i)[0];
-        new AlertDialog.Builder(this)
-                .setTitle("Къде да търся „" + query + "“?")
-                .setItems(names, new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface d, int which) {
-                        String[] s = list.get(which);
-                        String enc;
-                        try {
-                            enc = java.net.URLEncoder.encode(query, "UTF-8").replace("+", "%20");
-                        } catch (Exception e) {
-                            enc = Uri.encode(query);
-                        }
-                        String url = searchTemplate(hostOf(s[1])).replace("%s", enc);
-                        openSite(new String[]{s[0], url, s.length > 2 ? s[2] : "",
-                                s.length > 3 ? s[3] : ""});
-                    }
-                })
-                .setNegativeButton("Отказ", null)
-                .show();
     }
 
     private void applyText(String text, boolean submit) {
@@ -3066,6 +3270,12 @@ public class MainActivity extends Activity {
         super.onResume();
         if (web != null) web.onResume();
         hideSystemBars();
+        // Менюто се подготвя при връщане, а не докато системата още сменя екрана.
+        if (menuStale) {
+            menuStale = false;
+            fillMenu();
+            scanCache(true);
+        }
         // Ако чакаме разрешение за инсталиране и вече е дадено, продължаваме.
         if (pendingApk != null && canInstallPackages()) {
             File f = pendingApk;
@@ -3079,10 +3289,13 @@ public class MainActivity extends Activity {
         super.onStop();
         // Когато излезеш (Home), всичко се спира и при връщане започваш от менюто.
         if (!exiting && !isFinishing() && !isChangingConfigurations()) {
-            logEvent("Приложението е скрито (Home, друго приложение или угаснал екран)");
-            backToMenu();
+            logEvent("Приложението е скрито (Home, друго приложение или угаснал екран)", true);
+            teardownSite();
+            menuStale = true; // менюто се обновява при връщане (onResume)
         }
     }
+
+    private boolean menuStale;
 
     @Override
     protected void onDestroy() {
@@ -3095,6 +3308,12 @@ public class MainActivity extends Activity {
         super.onDestroy();
         // При Изход прекратяваме и процеса, за да не остава нищо на заден фон.
         if (exiting) {
+            try {
+                // Последните записи на събитията се довършват преди края.
+                IO.shutdown();
+                IO.awaitTermination(500, TimeUnit.MILLISECONDS);
+            } catch (Throwable ignored) {
+            }
             android.os.Process.killProcess(android.os.Process.myPid());
         }
     }
