@@ -123,12 +123,12 @@ public class MainActivity extends Activity {
     //   "https://example.com/embed/tv/{tmdb}/{season}/{episode}"
     // Може и без редактиране на кода: бутон "Източници" в каталога.
     private static final String[] FILM_SOURCES = {
-            "https://vidcore.org/embed/movie/{tmdb}",  //Основен 
+            "https://vidcore.org/embed/movie/{tmdb}",   // основен за филми
             "",   // резервен 1
             ""    // резервен 2
     };
     private static final String[] TV_SOURCES = {
-            "https://vidcore.org/embed/tv/{tmdb}/{season}/{episode}",   //основен сер
+            "https://vidcore.org/embed/tv/{tmdb}/{season}/{episode}",   // основен за сериали
             "",   // резервен 1
             ""    // резервен 2
     };
@@ -4655,11 +4655,15 @@ public class MainActivity extends Activity {
     }
 
     private static ArrayList<CTitle> parseList(String json, boolean tv) {
+        return parseList(json, tv, 14);
+    }
+
+    private static ArrayList<CTitle> parseList(String json, boolean tv, int max) {
         ArrayList<CTitle> out = new ArrayList<>();
         try {
             JSONArray a = new JSONObject(json).optJSONArray("results");
             if (a == null) return out;
-            for (int i = 0; i < a.length() && out.size() < 14; i++) {
+            for (int i = 0; i < a.length() && out.size() < max; i++) {
                 JSONObject o = a.optJSONObject(i);
                 if (o == null) continue;
                 CTitle t = new CTitle();
@@ -4978,18 +4982,6 @@ public class MainActivity extends Activity {
         tx.addView(text(sub, 17, C_MUTED, tfMedium, true));
         h.addView(tx, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        TextView tag = text("В РАЗРАБОТКА", 14, Color.WHITE, Typeface.DEFAULT_BOLD, true);
-        tag.setGravity(Gravity.CENTER);
-        tag.setPadding(u(16), 0, u(16), 0);
-        GradientDrawable tb = new GradientDrawable();
-        tb.setColor(0xFFDC2626);
-        tb.setCornerRadius(u(17));
-        tag.setBackground(tb);
-        LinearLayout.LayoutParams tlp = lp(ViewGroup.LayoutParams.WRAP_CONTENT, u(34));
-        tlp.leftMargin = u(16);
-        tlp.rightMargin = u(20);
-        h.addView(tag, tlp);
-
         if (withSettings) {
             LinearLayout b = dockButton(IC_SLIDERS, false, "Източници", "Ключ и адреси",
                     new Runnable() {
@@ -5030,9 +5022,11 @@ public class MainActivity extends Activity {
         LinearLayout block = new LinearLayout(this);
         block.setOrientation(LinearLayout.VERTICAL);
         block.setClipChildren(false);
-        TextView h = text(title, 24, Color.WHITE, tfCondBold, true);
-        h.setPadding(u(6), 0, 0, u(8));
-        block.addView(h);
+        if (!title.isEmpty()) {
+            TextView h = text(title, 24, Color.WHITE, tfCondBold, true);
+            h.setPadding(u(6), 0, 0, u(8));
+            block.addView(h);
+        }
         HorizontalScrollView hs = new HorizontalScrollView(this);
         hs.setHorizontalScrollBarEnabled(false);
         hs.setClipChildren(false);
@@ -5113,6 +5107,7 @@ public class MainActivity extends Activity {
                 hideCatalog();
             }
         };
+        catParent = null;
         catBox.removeAllViews();
         catMain = null;
         catBox.addView(catHeader("Наши филми", "Филми и сериали с корици от TMDB", true));
@@ -5138,10 +5133,12 @@ public class MainActivity extends Activity {
             }
         } else {
             catRowsLeft = 4;
+            catActions(null);
             addCatRow("Популярни филми", "/movie/popular", false, gen);
             addCatRow("Най-добре оценени филми", "/movie/top_rated", false, gen);
             addCatRow("Популярни сериали", "/tv/popular", true, gen);
             addCatRow("Най-добре оценени сериали", "/tv/top_rated", true, gen);
+            if (catFocusKey == null && catMain != null) catMain.requestFocus();
         }
         catBox.addView(catFooter(), lpTop(u(30)));
         if (catFocusKey == null) catScroll.scrollTo(0, 0);
@@ -5160,7 +5157,7 @@ public class MainActivity extends Activity {
 
     private void catDetail(final CTitle t) {
         final int gen = ++catGen;
-        catUp = new Runnable() {
+        catUp = catParent != null ? catParent : new Runnable() {
             @Override
             public void run() {
                 catHome();
@@ -5402,6 +5399,281 @@ public class MainActivity extends Activity {
         return true;
     }
 
+    // ---- категории и търсене ----
+
+    private static final int[] MOVIE_GENRE_ID = {28, 12, 16, 35, 80, 99, 18, 10751, 14, 36, 27,
+            10402, 9648, 10749, 878, 53, 10752, 37};
+    private static final String[] MOVIE_GENRE_NAME = {"Екшън", "Приключенски", "Анимация",
+            "Комедия", "Криминален", "Документален", "Драма", "Семеен", "Фентъзи", "Исторически",
+            "Ужаси", "Музикален", "Мистерия", "Романтичен", "Фантастика", "Трилър", "Военен",
+            "Уестърн"};
+    private static final int[] TV_GENRE_ID = {10759, 16, 35, 80, 99, 18, 10751, 10762, 9648,
+            10765, 10768, 37};
+    private static final String[] TV_GENRE_NAME = {"Екшън и приключения", "Анимация", "Комедия",
+            "Криминални", "Документални", "Драма", "Семейни", "Детски", "Мистерия",
+            "Фантастика и фентъзи", "Война и политика", "Уестърн"};
+
+    private Runnable catParent; // екранът, от който е отворена страницата на заглавие
+
+    // Заглавия от резултат (търсене смесва филми и сериали; хората се пропускат).
+    private static ArrayList<CTitle> parseMixed(String json) {
+        ArrayList<CTitle> out = new ArrayList<>();
+        try {
+            JSONArray a = new JSONObject(json).optJSONArray("results");
+            if (a == null) return out;
+            for (int i = 0; i < a.length() && out.size() < 28; i++) {
+                JSONObject o = a.optJSONObject(i);
+                if (o == null) continue;
+                String mt = jstr(o, "media_type");
+                boolean tv = mt.equals("tv");
+                if (!tv && !mt.equals("movie")) continue;
+                CTitle t = new CTitle();
+                t.id = o.optInt("id");
+                t.tv = tv;
+                t.name = jstr(o, tv ? "name" : "title");
+                t.poster = jstr(o, "poster_path");
+                String d = jstr(o, tv ? "first_air_date" : "release_date");
+                t.year = d.length() >= 4 ? d.substring(0, 4) : "";
+                t.rating = o.optDouble("vote_average", 0);
+                t.overview = jstr(o, "overview");
+                if (t.id != 0 && !t.name.isEmpty()) out.add(t);
+            }
+        } catch (Exception ignored) {
+        }
+        return out;
+    }
+
+    private void catActions(final Runnable here) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setClipChildren(false);
+        LinearLayout s = dockButton(IC_SEARCH, false, "Търсене", "Име на филм или сериал",
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        showSearchDialog();
+                    }
+                });
+        LinearLayout c = dockButton(IC_SLIDERS, false, "Категории", "Жанрове",
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        catGenres();
+                    }
+                });
+        row.addView(s, lp(u(330), u(72)));
+        LinearLayout.LayoutParams clp = lp(u(330), u(72));
+        clp.leftMargin = u(14);
+        row.addView(c, clp);
+        catBox.addView(row, lpTop(u(22)));
+        catMain = s;
+    }
+
+    private void catGenres() {
+        final int gen = ++catGen;
+        catUp = new Runnable() {
+            @Override
+            public void run() {
+                catHome();
+            }
+        };
+        catParent = null;
+        catBox.removeAllViews();
+        catMain = null;
+        catBox.addView(catHeader("Категории", "Избери жанр", false));
+        View first = null;
+        for (int kind = 0; kind < 2; kind++) {
+            final boolean tv = kind == 1;
+            int[] ids = tv ? TV_GENRE_ID : MOVIE_GENRE_ID;
+            String[] names = tv ? TV_GENRE_NAME : MOVIE_GENRE_NAME;
+            TextView h = text(tv ? "Сериали" : "Филми", 24, Color.WHITE, tfCondBold, true);
+            h.setPadding(u(6), 0, 0, u(4));
+            catBox.addView(h, lpTop(u(24)));
+            LinearLayout row = null;
+            for (int i = 0; i < ids.length; i++) {
+                if (i % 5 == 0) {
+                    row = new LinearLayout(this);
+                    row.setOrientation(LinearLayout.HORIZONTAL);
+                    row.setClipChildren(false);
+                    catBox.addView(row, lpTop(u(10)));
+                }
+                final int gid = ids[i];
+                final String gname = names[i];
+                LinearLayout b = dockButton(tv ? IC_TV : IC_FILM, false, gname, "", new Runnable() {
+                    @Override
+                    public void run() {
+                        catFocusKey = null;
+                        catGenre(tv, gid, gname);
+                    }
+                });
+                if (first == null) first = b;
+                LinearLayout.LayoutParams blp = lp(u(214), u(66));
+                blp.rightMargin = u(10);
+                row.addView(b, blp);
+            }
+        }
+        catScroll.scrollTo(0, 0);
+        if (first != null) first.requestFocus();
+    }
+
+    private void catGenre(final boolean tv, int genreId, final String genreName) {
+        String path = "/discover/" + (tv ? "tv" : "movie") + "?language=bg-BG&sort_by=popularity.desc"
+                + "&vote_count.gte=50&with_genres=" + genreId + "&page=1";
+        catGrid(genreName, tv ? "Сериали" : "Филми", path, tv, new Runnable() {
+            @Override
+            public void run() {
+                catGenres();
+            }
+        });
+    }
+
+    // Екран с мрежа от корици (резултат от търсене или жанр).
+    private void catGrid(final String title, final String sub, final String path,
+                         final boolean tv, final Runnable up) {
+        final int gen = ++catGen;
+        final Runnable self = new Runnable() {
+            @Override
+            public void run() {
+                catGrid(title, sub, path, tv, up);
+            }
+        };
+        catUp = up;
+        catParent = self;
+        catBox.removeAllViews();
+        catMain = null;
+        catBox.addView(catHeader(title, sub, false));
+        final TextView wait = text("Зареждане...", 18, C_MUTED, tfMedium, false);
+        wait.setPadding(u(6), u(40), 0, 0);
+        catBox.addView(wait);
+        catScroll.scrollTo(0, 0);
+        tmdbFetch(path, new Done() {
+            @Override
+            public void run(String json, String err) {
+                if (gen != catGen) return;
+                catBox.removeView(wait);
+                ArrayList<CTitle> list = json == null ? null
+                        : (path.startsWith("/search") ? parseMixed(json) : parseList(json, tv, 28));
+                if (list == null || list.isEmpty()) {
+                    TextView e = text(err != null ? err : "Няма резултати.", 18,
+                            err != null ? C_RED_FG : C_MUTED, tfMedium, false);
+                    e.setPadding(u(6), u(40), 0, 0);
+                    catBox.addView(e);
+                    return;
+                }
+                LinearLayout strip = null;
+                View focus = null;
+                for (int i = 0; i < list.size(); i++) {
+                    if (i % 7 == 0) strip = addRowShell("");
+                    final CTitle t = list.get(i);
+                    View cell = posterCell(t, new Runnable() {
+                        @Override
+                        public void run() {
+                            catDetail(t);
+                        }
+                    });
+                    strip.addView(cell, cellLp2());
+                    if (focus == null) focus = cell.findViewWithTag("t" + t.id + (t.tv ? "t" : "m"));
+                    if (catFocusKey != null && catFocusKey.equals("t" + t.id + (t.tv ? "t" : "m"))) {
+                        focus = cell.findViewWithTag(catFocusKey);
+                    }
+                }
+                catFocusKey = null;
+                if (focus != null) focus.requestFocus();
+            }
+        });
+    }
+
+    private void showSearchDialog() {
+        if (isFinishing() || (srcDialog != null && srcDialog.isShowing())) return;
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(28), dp(22), dp(28), dp(22));
+        GradientDrawable pbg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{0xFF2A1B6B, 0xFF171C3F});
+        pbg.setCornerRadius(dp(24));
+        pbg.setStroke(dp(1), 0x44FFFFFF);
+        panel.setBackground(pbg);
+        TextView title = new TextView(this);
+        title.setText("Търсене");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(26);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        panel.addView(title);
+        final EditText et = srcField("Име на филм или сериал", "", false);
+        et.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        LinearLayout.LayoutParams elp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        elp.topMargin = dp(14);
+        panel.addView(et, elp);
+
+        final Dialog dlg = new Dialog(this);
+        final Runnable go = new Runnable() {
+            @Override
+            public void run() {
+                String q = et.getText().toString().trim();
+                if (q.isEmpty()) return;
+                dlg.dismiss();
+                catFocusKey = null;
+                String path;
+                try {
+                    path = "/search/multi?language=bg-BG&include_adult=false&query="
+                            + java.net.URLEncoder.encode(q, "UTF-8");
+                } catch (Exception e) {
+                    return;
+                }
+                catGrid("Търсене: " + q, "Резултати", path, false, new Runnable() {
+                    @Override
+                    public void run() {
+                        catHome();
+                    }
+                });
+            }
+        };
+        et.setOnEditorActionListener(new TextView.OnEditorActionListener() {
+            @Override
+            public boolean onEditorAction(TextView v, int actionId, KeyEvent ev) {
+                go.run();
+                return true;
+            }
+        });
+        LinearLayout btns = new LinearLayout(this);
+        btns.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams l1 = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        l1.setMargins(dp(6), dp(14), dp(6), 0);
+        LinearLayout.LayoutParams l2 = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        l2.setMargins(dp(6), dp(14), dp(6), 0);
+        btns.addView(makeButton("Търси", false, go), l1);
+        btns.addView(makeButton("Отказ", false, new Runnable() {
+            @Override
+            public void run() {
+                dlg.dismiss();
+            }
+        }), l2);
+        panel.addView(btns);
+
+        dlg.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dlg.setContentView(panel);
+        Window w = dlg.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            w.setLayout(dp(720), ViewGroup.LayoutParams.WRAP_CONTENT);
+            w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
+                    | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
+        }
+        dlg.setOnDismissListener(new DialogInterface.OnDismissListener() {
+            @Override
+            public void onDismiss(DialogInterface d) {
+                srcDialog = null;
+                hideSystemBars();
+            }
+        });
+        srcDialog = dlg;
+        dlg.show();
+        et.requestFocus();
+    }
+
     // ---- ключ и източници ----
 
     private EditText srcField(String hint, String value, boolean url) {
@@ -5542,7 +5814,7 @@ public class MainActivity extends Activity {
     // ---- плочката в менюто ----
 
     // Нарисувана картинка (без файлове): прожектор, голям "play" и филмова лента,
-    // а в горния ляв ъгъл червена лента "В РАЗРАБОТКА".
+    // (без ленти).
     private static class CatalogArt extends View {
         private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint tp = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -5594,27 +5866,6 @@ public class MainActivity extends Activity {
             path.lineTo(cx + r * 0.50f, cy);
             path.close();
             c.drawPath(path, p);
-            // червена лента в горния ляв ъгъл
-            float aIn = h * 0.46f;
-            float aOut = h * 0.98f;
-            path.reset();
-            path.moveTo(aIn, 0);
-            path.lineTo(aOut, 0);
-            path.lineTo(0, aOut);
-            path.lineTo(0, aIn);
-            path.close();
-            p.setColor(0xFFDC2626);
-            c.drawPath(path, p);
-            float ac = (aIn + aOut) / 2f;
-            float maxW = ac * 1.4142f * 0.80f;
-            tp.setTextSize(h * 0.135f);
-            String txt = "В РАЗРАБОТКА";
-            float tw = tp.measureText(txt);
-            if (tw > maxW) tp.setTextSize(tp.getTextSize() * maxW / tw);
-            c.save();
-            c.rotate(-45f, ac / 2f, ac / 2f);
-            c.drawText(txt, ac / 2f, ac / 2f + tp.getTextSize() * 0.35f, tp);
-            c.restore();
         }
     }
 
