@@ -160,6 +160,11 @@ private static final String[] FILM_SOURCES = {
             {"GledaiTV", "https://www.gledaitv.fan/", "", "Телевизия"},
             {"GledaiTV Live", "https://www.gledaitv.live/", "", "Телевизия"},
             {"IPTV-BG", "https://iptv-bg.com/", "", "Телевизия"},
+            {"BGTV Online", "https://www.bgtv-online.com/", "", "Телевизия"},
+            {"Seir Sanduk", "https://www.seirsanduk.online/", "", "Телевизия"},
+            {"Seir Sanduk .net", "https://seirsanduk.net/", "", "Телевизия"},
+            {"bTV Плюс", "https://btvplus.bg/live/", "", "Официални · телевизия"},
+            {"Nova", "https://nova.bg/live", "", "Официални · телевизия"},
             {"FilmiZip", "https://filmizip.com/", "", "Филми"},
             {"Filmi9", "https://filmi9.com/", "", "Филми"},
             {"ZenoPlay", "https://zenoplay.to/movies/", "", "Филми"},
@@ -567,7 +572,7 @@ private static final String[] FILM_SOURCES = {
 
         @Override
         public void onPlayerError(PlaybackException error) {
-            showNativeStatus("Не успя да се пусне този поток (" + error.getErrorCodeName()
+            showNativeStatus("Не успя да се пусне този поток (" + tvErrInfo(error)
                     + "). Назад = към страницата", 0);
         }
     };
@@ -9637,7 +9642,7 @@ private static final String[] FILM_SOURCES = {
                 @Override
                 public void onPlayerError(PlaybackException error) {
                     if (my != tvTryGen || !tvMode) return;
-                    tvTryFailed(error.getErrorCodeName());
+                    tvTryFailed(tvErrInfo(error));
                 }
 
                 @Override
@@ -9913,7 +9918,7 @@ private static final String[] FILM_SOURCES = {
         // Ако страницата не съобщи, че е готова (реклами, които висят), "буткането" започва пак.
         ui.removeCallbacks(tvPokeFallback);
         ui.postDelayed(tvPokeFallback, 8000);
-        tvArmStep(35000);
+        tvArmStep(25000);
     }
 
     private final Runnable tvPokeFallback = new Runnable() {
@@ -9956,6 +9961,18 @@ private static final String[] FILM_SOURCES = {
             if (n < 9) ui.postDelayed(this, n < 3 ? 2300 : 3500);
         }
     };
+
+    // Име на грешката на плеъра и, ако сървърът е отказал, кодът му (403, 404...).
+    private static String tvErrInfo(PlaybackException e) {
+        Throwable t = e;
+        for (int i = 0; t != null && i < 6; i++, t = t.getCause()) {
+            if (t instanceof androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
+                return e.getErrorCodeName() + ", HTTP "
+                        + ((androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) t).responseCode;
+            }
+        }
+        return e.getErrorCodeName();
+    }
 
     private boolean tvReloaded;
 
@@ -10167,7 +10184,7 @@ private static final String[] FILM_SOURCES = {
         tvWaitChips.setGravity(Gravity.CENTER);
         c.addView(tvWaitChips, lpTopW(MP, WC, u(34)));
         tvWait.addView(c, new FrameLayout.LayoutParams(MP, WC, Gravity.CENTER));
-        TextView hint = text("Назад — отказ", 17, T_TEXT3, tfMedium, true);
+        TextView hint = text("OK — отвори сайта  ·  ◀ ▶ друг източник  ·  Назад — отказ", 17, T_TEXT3, tfMedium, true);
         FrameLayout.LayoutParams hl = new FrameLayout.LayoutParams(WC, WC,
                 Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         hl.bottomMargin = u(44);
@@ -10578,7 +10595,15 @@ private static final String[] FILM_SOURCES = {
                 if (rep == 0) tvTogglePause();
                 break;
             default:
-                if (okKey && rep == 0) tvShowList();
+                if (okKey && rep == 0) {
+                    if (!tvPlaying && tvWait != null && tvWait.getVisibility() == View.VISIBLE) {
+                        // Чака се дълго: OK отваря самия сайт, там каналът може да се пусне на ръка.
+                        if (tvCapturing && tvCapSrc >= 0) tvFirstSrc = tvCapSrc;
+                        tvGiveUp();
+                    } else {
+                        tvShowList();
+                    }
+                }
                 break;
         }
         return true;
