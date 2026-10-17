@@ -166,6 +166,7 @@ private static final String[] TV_SOURCES = {
             {"GledaiTV Live", "https://www.gledaitv.live/", "", "Телевизия"},
             {"IPTV-BG", "https://iptv-bg.com/", "", "Телевизия"},
             {"Seir Sanduk", "https://www.seirsanduk.online/", "", "Телевизия"},
+            {"BGNow", "https://www.bgnow.tv/en/category/movie/", "", "Телевизия"},
             {"bTV Плюс", "https://btvplus.bg/live/", "", "Официални · телевизия"},
             {"FilmiZip", "https://filmizip.com/", "", "Филми"},
             {"Filmi9", "https://filmi9.com/", "", "Филми"},
@@ -173,7 +174,6 @@ private static final String[] TV_SOURCES = {
             {"Всички филми", "https://vsichkifilmi.net/", "", "Филми"},
             {"FilmiZT", "https://filmizt.com/", "", "Филми"},
             {"FilmiFen", "https://filmifen.com/", "", "Филми"},
-            {"BGNow", "https://www.bgnow.tv/en/category/movie/", "", "Филми"},
             {"BG Radio", "https://bg-radio.org/", "", "Радио"},
             {"RadiosBG", "https://www.radiosbg.com/", "", "Радио"},
     };
