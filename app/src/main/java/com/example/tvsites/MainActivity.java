@@ -152,7 +152,7 @@ private static final String[] FILM_SOURCES = {
         "https://vidspark.to/tv/{tmdb}/{season}/{episode}",
         "https://vidsrc.me/embed/tv/{tmdb}/{season}/{episode}"
     };
-    
+    // Ключ за TMDB: по-добре го въведи на кутията (репото е публично).
     private static final String TMDB_KEY = "d2c1e02ec9baf771e1ce6b4511a5aea8";
 
     // Сайтове по подразбиране: {етикет, адрес, режим, група}. Режим: "" | "mobile" | "desktop"
@@ -7994,7 +7994,7 @@ private static final String[] FILM_SOURCES = {
         String site = "", page = "", stream = "", ref = "", org = "", ua = "", mode = "";
         long ok;     // кога последно е тръгнал
         int fails;   // колко пъти поред запазеният поток не е тръгнал
-        // Резервни потоци на същата страница: {адрес, Referer, Origin, User-Agent}.
+        // Резервни потоци на същия сайт: {адрес, Referer, Origin, User-Agent, неуспехи поред}.
         final ArrayList<String[]> alts = new ArrayList<>();
     }
 
@@ -8044,7 +8044,7 @@ private static final String[] FILM_SOURCES = {
                                 String au = ao.optString("u");
                                 if (au.isEmpty()) continue;
                                 x.alts.add(new String[]{au, ao.optString("r"), ao.optString("o"),
-                                        ao.optString("g")});
+                                        ao.optString("g"), ao.optString("f", "0")});
                             }
                         }
                         c.srcs.add(x);
@@ -8085,6 +8085,7 @@ private static final String[] FILM_SOURCES = {
                             ao.put("r", al[1]);
                             ao.put("o", al[2]);
                             ao.put("g", al[3]);
+                            ao.put("f", al[4]);
                             xa.put(ao);
                         }
                         so.put("x", xa);
@@ -9279,7 +9280,7 @@ private static final String[] FILM_SOURCES = {
                     }
                     if (!have) {
                         if (old.alts.size() >= TV_MAX_ALTS) old.alts.remove(0);
-                        old.alts.add(new String[]{src.stream, src.ref, src.org, src.ua});
+                        old.alts.add(new String[]{src.stream, src.ref, src.org, src.ua, "0"});
                     }
                     extra = true;
                 } else {
@@ -9443,7 +9444,8 @@ private static final String[] FILM_SOURCES = {
                 final int kk = k;
                 String u = k < 0 ? s.stream : s.alts.get(k)[0];
                 LinearLayout row = tvChoice(null, (k < 0 ? "Основен: " : "Резервен " + (k + 1) + ": ")
-                        + shortName(u), null, first == null ? 1 : 0, new Runnable() {
+                        + shortName(u), tvStreamActive(c, i, k) ? "● пуска се" : null,
+                        first == null ? 1 : 0, new Runnable() {
                     @Override
                     public void run() {
                         tvStreamMenu(c, i, kk);
@@ -9493,6 +9495,10 @@ private static final String[] FILM_SOURCES = {
         tvDialogShow(card, 760, first);
     }
 
+    private boolean tvStreamActive(TvChan c, int i, int k) {
+        return tvMode && tvPlaying && tvCur == c && tvSrcNowIdx() == i && tvStreamNowIdx() == k + 1;
+    }
+
     // Един поток на източника: пускане, повишаване, изтриване.
     private void tvStreamMenu(final TvChan c, final int i, final int k) {
         if (i < 0 || i >= c.srcs.size()) return;
@@ -9519,7 +9525,7 @@ private static final String[] FILM_SOURCES = {
                 @Override
                 public void run() {
                     String[] al = s.alts.get(k);
-                    s.alts.set(k, new String[]{s.stream, s.ref, s.org, s.ua});
+                    s.alts.set(k, new String[]{s.stream, s.ref, s.org, s.ua, "0"});
                     s.stream = al[0];
                     s.ref = al[1];
                     s.org = al[2];
@@ -9642,7 +9648,10 @@ private static final String[] FILM_SOURCES = {
         if (c == null || c.srcs.isEmpty()) return "";
         int i = tvSrcNowIdx();
         if (i < 0 || i >= c.srcs.size()) i = 0;
-        return c.srcs.get(i).site + "  ·  източник " + (i + 1) + " от " + c.srcs.size();
+        String r = c.srcs.get(i).site + "  ·  сайт " + (i + 1) + " от " + c.srcs.size();
+        int m = tvStreamCount();
+        if (m > 1) r += "  ·  поток " + (tvStreamNowIdx() + 1) + " от " + m;
+        return r;
     }
 
     // Слоевете (курсор, родният слой и др.) се правят само веднъж. Нужни са и без страница.
@@ -9656,6 +9665,14 @@ private static final String[] FILM_SOURCES = {
         buildStatsView();
     }
 
+    private static int tvAltFails(String[] al) {
+        try {
+            return Integer.parseInt(al[4]);
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
     private int[] tvForce;   // {източник, -1 = основен поток | номер на резервния}
 
     // Пуска точно определен поток на източника (k = -1 основен, 0.. резервните).
@@ -9665,6 +9682,19 @@ private static final String[] FILM_SOURCES = {
     }
 
     // Потоците на текущия източник: основният и резервните.
+    // Кой поток на източника е в ход: 0 = основният, 1.. = резервните.
+    private int tvStreamNowIdx() {
+        if (tvCur == null) return 0;
+        int i = tvSrcNowIdx();
+        if (i < 0 || i >= tvCur.srcs.size()) return 0;
+        TvSrc s = tvCur.srcs.get(i);
+        String now = nz(tvTryUrl);
+        for (int k = 0; k < s.alts.size(); k++) {
+            if (s.alts.get(k)[0].equals(now)) return k + 1;
+        }
+        return 0;
+    }
+
     private int tvStreamCount() {
         if (tvCur == null) return 0;
         int i = tvSrcNowIdx();
@@ -10001,6 +10031,20 @@ private static final String[] FILM_SOURCES = {
             if (st[1] == TV_DIRECT && (st.length < 3 || st[2] < 0)) {
                 tvCur.srcs.get(st[0]).fails++;
                 tvSave();
+            } else if (st[1] == TV_DIRECT && st[2] >= 0) {
+                TvSrc fs = tvCur.srcs.get(st[0]);
+                if (st[2] < fs.alts.size()) {
+                    String[] al = fs.alts.get(st[2]);
+                    int f = tvAltFails(al) + 1;
+                    if (f >= 3) {
+                        // Резервен поток, който три пъти поред не тръгва, се маха.
+                        fs.alts.remove(st[2]);
+                        logEvent("ТВ: махнах счупен резервен поток от " + fs.site);
+                    } else {
+                        al[4] = String.valueOf(f);
+                    }
+                    tvSave();
+                }
             }
         }
         tvNextStep();
@@ -10040,7 +10084,7 @@ private static final String[] FILM_SOURCES = {
             for (int k = 0; k < s.alts.size(); k++) {
                 String[] al = s.alts.get(k);
                 if (al[0].equals(url)) {
-                    String[] oldMain = {s.stream, s.ref, s.org, s.ua};
+                    String[] oldMain = {s.stream, s.ref, s.org, s.ua, String.valueOf(s.fails)};
                     s.alts.set(k, oldMain);
                     s.stream = al[0];
                     s.ref = al[1];
@@ -10055,6 +10099,21 @@ private static final String[] FILM_SOURCES = {
             fresh = !s.stream.isEmpty() && !s.stream.equals(url);
             for (int k = s.alts.size() - 1; k >= 0; k--) {
                 if (s.alts.get(k)[0].equals(url)) s.alts.remove(k);
+            }
+            // Старият основен поток отива в резервните, освен ако е счупен (3 пъти поред).
+            if (fresh && s.fails < 3) {
+                s.alts.add(0, new String[]{s.stream, s.ref, s.org, s.ua, String.valueOf(s.fails)});
+            }
+            // Счупените резервни се махат; когато са повече от 3, отпада най-счупеният.
+            for (int k = s.alts.size() - 1; k >= 0; k--) {
+                if (tvAltFails(s.alts.get(k)) >= 3) s.alts.remove(k);
+            }
+            while (s.alts.size() > TV_MAX_ALTS) {
+                int worst = 0;
+                for (int k = 1; k < s.alts.size(); k++) {
+                    if (tvAltFails(s.alts.get(k)) >= tvAltFails(s.alts.get(worst))) worst = k;
+                }
+                s.alts.remove(worst);
             }
             s.stream = url;
             s.ref = nz(props.get("Referer"));
@@ -10425,7 +10484,7 @@ private static final String[] FILM_SOURCES = {
     private TextView tvWaitNo, tvWaitName, tvWaitMsg;
     private LinearLayout tvWaitChips;
     private LinearLayout tvBanner, tvKeys;
-    private View tvChipZap, tvChipSrc;
+    private View tvChipZap, tvChipSrc, tvChipStream;
     private TextView tvBnNo, tvBnName, tvBnSub;
     private FrameLayout tvListBox;
     private LinearLayout tvListCol;
@@ -10540,14 +10599,15 @@ private static final String[] FILM_SOURCES = {
         // Подсказка за бутоните над табелата.
         tvKeys = new LinearLayout(this);
         tvKeys.setOrientation(LinearLayout.HORIZONTAL);
-        String[][] ks = {{"▲▼", "канал"}, {"OK", "списък"}, {"◀▶", "друг източник"},
-                {"Назад", "към каналите"}};
+        String[][] ks = {{"▲▼", "канал"}, {"OK", "списък"}, {"◀", "друг поток"},
+                {"▶", "друг сайт"}, {"Назад", "към каналите"}};
         for (int i = 0; i < ks.length; i++) {
             LinearLayout.LayoutParams kl = lp(WC, u(38));
             kl.rightMargin = u(10);
             View chip = tvKeyChip(ks[i][0], ks[i][1]);
             if (i == 0) tvChipZap = chip;
-            if (i == 2) tvChipSrc = chip;
+            if (i == 2) tvChipStream = chip;
+            if (i == 3) tvChipSrc = chip;
             tvKeys.addView(chip, kl);
         }
         FrameLayout.LayoutParams kl2 = new FrameLayout.LayoutParams(WC, WC,
@@ -10635,7 +10695,69 @@ private static final String[] FILM_SOURCES = {
         tvWait.animate().cancel();
         tvWait.setAlpha(1f);
         tvWait.setVisibility(View.VISIBLE);
-        tvWaitNo.setText("Канал " + (tvChans.indexOf(c) + 1));
+        tvWaitNo.setText("Канал " + (tvChans.indexOf(package com.example.tvsites;
+
+import android.animation.ValueAnimator;
+import android.graphics.BitmapShader;
+import android.graphics.DashPathEffect;
+import android.graphics.LinearGradient;
+import android.graphics.Matrix;
+import android.graphics.RadialGradient;
+import android.graphics.Rect;
+import android.graphics.Shader;
+import android.text.Layout;
+import android.text.StaticLayout;
+import android.text.TextPaint;
+import android.app.Activity;
+import android.app.ActivityManager;
+import android.app.AlertDialog;
+import android.app.Dialog;
+import android.content.Context;
+import android.content.DialogInterface;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Outline;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.RectF;
+import android.graphics.PorterDuff;
+import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
+import android.provider.Settings;
+import android.text.InputType;
+import android.text.TextUtils;
+import android.util.LruCache;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.InputDevice;
+import android.view.KeyEvent;
+import android.view.MotionEvent;
+import android.view.SurfaceView;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.ViewOutlineProvider;
+import android.view.Window;
+import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
+import android.webkit.CookieManager;
+import android.webkit.ValueCallback;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
+c) + 1));
         tvWaitName.setText(c.name);
         ts(tvWaitName, c.name.length() > 22 ? 64 : c.name.length() > 14 ? 84 : 110);
         tvWaitMsg.setText("");
@@ -10722,9 +10844,8 @@ private static final String[] FILM_SOURCES = {
         if (tvBanner == null || tvCur == null) return;
         tvFillBanner(tvCur, status != null ? status : tvLine());
         // Подсказки само за това, което има смисъл: един канал не се сменя, един източник също.
-        int sc = tvStreamCount();
-        ((TextView) ((LinearLayout) tvChipZap).getChildAt(1)).setText(sc > 1 ? "друг поток" : "канал");
-        tvChipZap.setVisibility(tvChans.size() > 1 || sc > 1 ? View.VISIBLE : View.GONE);
+        tvChipZap.setVisibility(tvChans.size() > 1 ? View.VISIBLE : View.GONE);
+        tvChipStream.setVisibility(tvStreamCount() > 1 ? View.VISIBLE : View.GONE);
         tvChipSrc.setVisibility(tvCur.srcs.size() > 1 ? View.VISIBLE : View.GONE);
         tvFadeIn(tvBanner);
         tvFadeIn(tvKeys);
@@ -10869,31 +10990,19 @@ private static final String[] FILM_SOURCES = {
                 || code == KeyEvent.KEYCODE_NUMPAD_ENTER;
         switch (code) {
             case KeyEvent.KEYCODE_DPAD_UP:
-                if (tvStreamCount() > 1) {
-                    if (rep == 0) tvSwitchStream(1);
-                } else if (rep == 0 || rep % 5 == 0) {
-                    tvZap(1);
-                }
-                break;
-            case KeyEvent.KEYCODE_DPAD_DOWN:
-                if (tvStreamCount() > 1) {
-                    if (rep == 0) tvSwitchStream(-1);
-                } else if (rep == 0 || rep % 5 == 0) {
-                    tvZap(-1);
-                }
-                break;
             case KeyEvent.KEYCODE_CHANNEL_UP:
             case KeyEvent.KEYCODE_MEDIA_NEXT:
             case KeyEvent.KEYCODE_PAGE_UP:
                 if (rep == 0 || rep % 5 == 0) tvZap(1);
                 break;
+            case KeyEvent.KEYCODE_DPAD_DOWN:
             case KeyEvent.KEYCODE_CHANNEL_DOWN:
             case KeyEvent.KEYCODE_MEDIA_PREVIOUS:
             case KeyEvent.KEYCODE_PAGE_DOWN:
                 if (rep == 0 || rep % 5 == 0) tvZap(-1);
                 break;
             case KeyEvent.KEYCODE_DPAD_LEFT:
-                if (rep == 0) tvSwitchSource(-1);
+                if (rep == 0) tvSwitchStream(1);
                 break;
             case KeyEvent.KEYCODE_DPAD_RIGHT:
                 if (rep == 0) tvSwitchSource(1);
