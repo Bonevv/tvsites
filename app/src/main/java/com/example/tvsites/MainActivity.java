@@ -137,7 +137,7 @@ public class MainActivity extends Activity {
     //   "https://example.com/embed/movie/{tmdb}"
     //   "https://example.com/embed/tv/{tmdb}/{season}/{episode}"
     // Може и без редактиране на кода: бутон "Източници" в каталога.
-private static final String[] FILM_SOURCES = {
+    private static final String[] FILM_SOURCES = {
         "https://vidsrc.sh/embed/movie/{tmdb}",
         "https://vidcore.org/embed/movie/{tmdb}",
         "https://vidlink.pro/movie/{tmdb}",
@@ -9673,7 +9673,8 @@ private static final String[] FILM_SOURCES = {
         }
     }
 
-    private int[] tvForce;   // {източник, -1 = основен поток | номер на резервния}
+    private int[] tvForce;
+    private boolean tvPinned;   // {източник, -1 = основен поток | номер на резервния}
 
     // Пуска точно определен поток на източника (k = -1 основен, 0.. резервните).
     private void tvTuneStream(TvChan c, int src, int k) {
@@ -9770,6 +9771,8 @@ private static final String[] FILM_SOURCES = {
                 tvPlan.add(0, new int[]{tvForce[0], TV_DIRECT, tvForce[1]});
             }
         }
+        // Потокът е избран от потребителя: редът на потоците не се променя.
+        tvPinned = tvForce != null;
         tvForce = null;
         tvStep = -1;
         if (tvPanel != null) {
@@ -10079,7 +10082,7 @@ private static final String[] FILM_SOURCES = {
         TvSrc s = tvCur.srcs.get(si);
         long now = System.currentTimeMillis();
         boolean fresh = false;
-        if (!viaCapture && !s.stream.equals(url)) {
+        if (!viaCapture && !tvPinned && !s.stream.equals(url)) {
             // Тръгна резервен поток: става основен, старият основен отива в резервните.
             for (int k = 0; k < s.alts.size(); k++) {
                 String[] al = s.alts.get(k);
