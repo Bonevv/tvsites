@@ -11018,6 +11018,13 @@ private static final String[] TV_SOURCES = {
     private boolean tvKey(KeyEvent e) {
         int code = e.getKeyCode();
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
+        // Задържане на OK: избор на качество (първото натискане е отворило списъка с канали).
+        if (down && e.getRepeatCount() == 10 && (code == KeyEvent.KEYCODE_DPAD_CENTER
+                || code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_NUMPAD_ENTER)) {
+            tvHideListNow();
+            tvQualityDialog();
+            return true;
+        }
         if (tvListShown()) return super.dispatchKeyEvent(e);
         // Звукът се оправя от системата.
         if (code == KeyEvent.KEYCODE_VOLUME_UP || code == KeyEvent.KEYCODE_VOLUME_DOWN
