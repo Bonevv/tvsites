@@ -9651,6 +9651,7 @@ private static final String[] FILM_SOURCES = {
             String low = url.toLowerCase(Locale.ROOT);
             if (low.contains(".m3u8")) mib.setMimeType(MimeTypes.APPLICATION_M3U8);
             else if (low.contains(".mpd")) mib.setMimeType(MimeTypes.APPLICATION_MPD);
+            else if (viaCapture && !low.contains(".mp4")) mib.setMimeType(MimeTypes.APPLICATION_M3U8);
             player.setMediaSource(new DefaultMediaSourceFactory(http).createMediaSource(mib.build()));
             player.prepare();
             player.setPlayWhenReady(true);
@@ -9872,6 +9873,7 @@ private static final String[] FILM_SOURCES = {
 
     private void tvStartCapture(TvSrc s, int si) {
         tvCapturing = true;
+        tvReloaded = false;
         tvCapSrc = si;
         tvBad.clear();
         tvTrying = false;
@@ -9936,12 +9938,70 @@ private static final String[] FILM_SOURCES = {
             int n = tvPokeN++;
             if (!tvTrying) {
                 web.evaluateJavascript(TV_PLAY_JS, null);
+                tvScanResources();
+                // Страница, която виси или не е показала плеър: едно презареждане често я оправя.
+                if (n == 4 && !tvReloaded && !tvHasCandidate()) {
+                    tvReloaded = true;
+                    logEvent("ТВ: презареждам страницата (няма поток)");
+                    try {
+                        web.reload();
+                    } catch (Exception ignored) {
+                        // страницата не може да се презареди
+                    }
+                    tvPokeN = 1;
+                }
                 // Плеър в чужда рамка не се достига със скрипт: натискаме върху него като потребител.
                 if (n == 3 || n == 6) tvTapPlayer();
             }
             if (n < 9) ui.postDelayed(this, n < 3 ? 2300 : 3500);
         }
     };
+
+    private boolean tvReloaded;
+
+    private boolean tvHasCandidate() {
+        synchronized (mediaPlaylists) {
+            for (String u : mediaPlaylists.keySet()) {
+                if (!tvBad.contains(u)) return true;
+            }
+        }
+        return false;
+    }
+
+    // Адреси на плейлисти, които не завършват на .m3u8 (напр. playlist.php), се виждат в списъка на заредените ресурси.
+    private static final String TV_RES_JS =
+            "(function(){try{var o=[],e=performance.getEntriesByType('resource');"
+                    + "for(var i=0;i<e.length;i++){var n=e[i].name;"
+                    + "if(/\\.(js|css|png|jpe?g|gif|svg|webp|woff2?|ico|ts|m4s|aac|mp4)(\\?|$)/i.test(n))continue;"
+                    + "if(/m3u8|\\.mpd|playlist|manifest|chunklist|master|hls/i.test(n))o.push(n);}"
+                    + "return o.slice(-6).join('\\n');}catch(x){return '';}})()";
+
+    private void tvScanResources() {
+        final WebView w = web;
+        if (w == null) return;
+        w.evaluateJavascript(TV_RES_JS, new ValueCallback<String>() {
+            @Override
+            public void onReceiveValue(String v) {
+                if (!tvMode || !tvCapturing || web != w || v == null || v.length() < 6) return;
+                String t = v.substring(1, v.length() - 1).replace("\\n", "\n").replace("\\/", "/")
+                        .replace("\\u0026", "&");
+                boolean added = false;
+                for (String u : t.split("\n")) {
+                    u = u.trim();
+                    if (!u.startsWith("http")) continue;
+                    synchronized (mediaPlaylists) {
+                        if (mediaPlaylists.containsKey(u) || mediaPlaylists.size() >= 15) continue;
+                        HashMap<String, String> h = new HashMap<>();
+                        String pu = w.getUrl();
+                        if (pu != null) h.put("Referer", pu);
+                        mediaPlaylists.put(u, h);
+                        added = true;
+                    }
+                }
+                if (added) ui.postDelayed(tvCheckRun, 300);
+            }
+        });
+    }
 
     // Намира най-големия плеър (видео или рамка) и връща центъра му като дял от видимата част.
     private static final String TV_RECT_JS =
