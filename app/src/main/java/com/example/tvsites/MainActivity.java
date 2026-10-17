@@ -134,14 +134,11 @@ public class MainActivity extends Activity {
     //   "https://example.com/embed/movie/{tmdb}"
     //   "https://example.com/embed/tv/{tmdb}/{season}/{episode}"
     // Може и без редактиране на кода: бутон "Източници" в каталога.
-    private static final String[] FILM_SOURCES = {
-        // Твоите настоящи източници:
+private static final String[] FILM_SOURCES = {
         "https://vidsrc.sh/embed/movie/{tmdb}",
         "https://vidcore.org/embed/movie/{tmdb}",
         "https://vidlink.pro/movie/{tmdb}",
         "https://vidspark.to/movie/{tmdb}",
-        
-        // Нови добавени източници:
         "https://multiembed.mov/?video_id={tmdb}&tmdb=1",
         "https://embed.smashystream.com/playere.php?tmdb={tmdb}",
         "https://vidify.top/embed/movie/{tmdb}",
@@ -149,13 +146,10 @@ public class MainActivity extends Activity {
     };
 
     private static final String[] TV_SOURCES = {
-        // Твоите настоящи източници:
         "https://vidsrc.sh/embed/tv/{tmdb}/{season}/{episode}",
         "https://vidcore.org/embed/tv/{tmdb}/{season}/{episode}",
         "https://vidlink.pro/tv/{tmdb}/{season}/{episode}",
         "https://vidspark.to/tv/{tmdb}/{season}/{episode}",
-        
-        // Нови добавени източници:
         "https://multiembed.mov/?video_id={tmdb}&tmdb=1&s={season}&e={episode}",
         "https://embed.smashystream.com/playere.php?tmdb={tmdb}&season={season}&episode={episode}",
         "https://vidify.top/embed/tv/{tmdb}/{season}/{episode}",
@@ -4960,7 +4954,7 @@ public class MainActivity extends Activity {
         return s;
     }
 
-    private static final int SRC_SLOTS = 5; // основен + 4 резервни
+    private static final int SRC_SLOTS = 10; // основен + 9 резервни
 
     private int srcPref(boolean tv) {
         int p = prefs.getInt(tv ? "tvSrcPref" : "mvSrcPref", 0);
@@ -7021,6 +7015,16 @@ public class MainActivity extends Activity {
         return row;
     }
 
+    // Билетчетата в лента, която се върти настрани, когато са много.
+    private View tickScroll(LinearLayout row) {
+        HorizontalScrollView hs = new RowScroll(this);
+        hs.setHorizontalScrollBarEnabled(false);
+        hs.setClipChildren(false);
+        hs.setClipToPadding(false);
+        hs.addView(row, new ViewGroup.LayoutParams(WC, WC));
+        return hs;
+    }
+
     // Нищо за пускане: покана да се добави източник.
     private View noSourceBlock(boolean tv) {
         LinearLayout b = new LinearLayout(this);
@@ -7067,11 +7071,11 @@ public class MainActivity extends Activity {
                 band.addView(play, lpTopW(WC, u(72), 0));
             } else {
                 band.addView(text("Гледай от", 19, K_TEXT2, tfMedium, true));
-                band.addView(ticketRow(t, 232, 84, 16, true), lpTop(u(4)));
+                band.addView(tickScroll(ticketRow(t, 232, 84, 16, true)), lpTop(u(4)));
             }
         } else if (slots.length >= 2) {
             band.addView(text("Източник за епизодите", 19, K_TEXT2, tfMedium, true));
-            band.addView(ticketRow(t, 232, 84, 16, false), lpTop(u(4)));
+            band.addView(tickScroll(ticketRow(t, 232, 84, 16, false)), lpTop(u(4)));
         }
     }
 
@@ -7098,7 +7102,8 @@ public class MainActivity extends Activity {
             line.setPadding(u(64), 0, u(64), 0);
             TextView lab = text("Източник", 18, K_TEXT2, tfMedium, true);
             line.addView(lab, lp(u(104), WC));
-            line.addView(ticketRow(t, 196, 64, 12, false));
+            line.addView(tickScroll(ticketRow(t, 196, 64, 12, false)),
+                    new LinearLayout.LayoutParams(0, WC, 1f));
             catBox.addView(line, lpTop(u(2)));
         }
         final LinearLayout list = new LinearLayout(this);
@@ -7797,7 +7802,7 @@ public class MainActivity extends Activity {
         title.setTypeface(tfSerif);
         panel.addView(title);
         TextView sub = new TextView(this);
-        sub.setText("Ключ за TMDB и до пет адреса за филми и пет за сериали (основен и резервни). В адреса се слагат: "
+        sub.setText("Ключ за TMDB и до десет адреса за филми и десет за сериали (основен и резервни). В адреса се слагат: "
                 + "{tmdb} {imdb} {season} {episode}. Празно поле = не се ползва. "
                 + "Пример: https://example.com/embed/movie/{tmdb}");
         sub.setTextColor(K_TEXT2);
@@ -7812,7 +7817,8 @@ public class MainActivity extends Activity {
         addLabeled(col, "Ключ за TMDB", key);
         final EditText[] ff = new EditText[SRC_SLOTS];
         final EditText[] tf = new EditText[SRC_SLOTS];
-        String[] names = {"основен", "резервен 1", "резервен 2", "резервен 3", "резервен 4"};
+        String[] names = {"основен", "резервен 1", "резервен 2", "резервен 3", "резервен 4",
+                "резервен 5", "резервен 6", "резервен 7", "резервен 8", "резервен 9"};
         for (int i = 0; i < SRC_SLOTS; i++) {
             ff[i] = srcField("https://.../movie/{tmdb}", prefs.getString("fsrc" + i, ""), true);
             addLabeled(col, "Филми: " + names[i], ff[i]);
