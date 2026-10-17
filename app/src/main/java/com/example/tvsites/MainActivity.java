@@ -137,7 +137,7 @@ public class MainActivity extends Activity {
     //   "https://example.com/embed/movie/{tmdb}"
     //   "https://example.com/embed/tv/{tmdb}/{season}/{episode}"
     // Може и без редактиране на кода: бутон "Източници" в каталога.
-    private static final String[] FILM_SOURCES = {
+private static final String[] FILM_SOURCES = {
         "https://vidsrc.sh/embed/movie/{tmdb}",
         "https://vidcore.org/embed/movie/{tmdb}",
         "https://vidlink.pro/movie/{tmdb}",
@@ -152,7 +152,7 @@ public class MainActivity extends Activity {
         "https://vidspark.to/tv/{tmdb}/{season}/{episode}",
         "https://vidsrc.me/embed/tv/{tmdb}/{season}/{episode}"
     };
-    // Ключ за TMDB: по-добре го въведи на кутията (репото е публично).
+    
     private static final String TMDB_KEY = "d2c1e02ec9baf771e1ce6b4511a5aea8";
 
     // Сайтове по подразбиране: {етикет, адрес, режим, група}. Режим: "" | "mobile" | "desktop"
@@ -9438,8 +9438,23 @@ public class MainActivity extends Activity {
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         View first = null;
+        if (!s.stream.isEmpty()) {
+            for (int k = -1; k < s.alts.size(); k++) {
+                final int kk = k;
+                String u = k < 0 ? s.stream : s.alts.get(k)[0];
+                LinearLayout row = tvChoice(null, (k < 0 ? "Основен: " : "Резервен " + (k + 1) + ": ")
+                        + shortName(u), null, first == null ? 1 : 0, new Runnable() {
+                    @Override
+                    public void run() {
+                        tvStreamMenu(c, i, kk);
+                    }
+                });
+                list.addView(row, lpTopW(MP, u(62), first == null ? 0 : u(10)));
+                if (first == null) first = row;
+            }
+        }
         if (i > 0) {
-            first = tvChoice(null, "Направи основен", null, 1, new Runnable() {
+            LinearLayout mk = tvChoice(null, "Направи основен", null, 1, new Runnable() {
                 @Override
                 public void run() {
                     TvSrc x = c.srcs.remove(i);
@@ -9448,7 +9463,8 @@ public class MainActivity extends Activity {
                     tvSourcesDialog(c);
                 }
             });
-            list.addView(first, lp(MP, u(62)));
+            list.addView(mk, lpTopW(MP, u(62), first == null ? 0 : u(10)));
+            if (first == null) first = mk;
         }
         if (c.srcs.size() > 1) {
             LinearLayout del = tvChoice(null, "Изтрий източника", null, 2, new Runnable() {
@@ -9470,8 +9486,80 @@ public class MainActivity extends Activity {
         });
         if (first == null) first = back;
         list.addView(back, lpTopW(MP, u(62), first == back ? 0 : u(10)));
-        card.addView(list, lpTopW(MP, WC, u(24)));
+        ScrollView ssv = new ScrollView(this);
+        ssv.setVerticalScrollBarEnabled(false);
+        ssv.addView(list, new ViewGroup.LayoutParams(MP, WC));
+        card.addView(ssv, lpTopW(MP, Math.min(u(440), u(72) * (s.alts.size() + 4)), u(24)));
         tvDialogShow(card, 760, first);
+    }
+
+    // Един поток на източника: пускане, повишаване, изтриване.
+    private void tvStreamMenu(final TvChan c, final int i, final int k) {
+        if (i < 0 || i >= c.srcs.size()) return;
+        final TvSrc s = c.srcs.get(i);
+        if (k >= s.alts.size()) {
+            tvSourceMenu(c, i);
+            return;
+        }
+        String u = k < 0 ? s.stream : s.alts.get(k)[0];
+        LinearLayout card = tvCard(k < 0 ? "Основен поток" : "Резервен поток " + (k + 1),
+                s.site + "  ·  " + shortName(u));
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout play = tvChoice(null, "Пусни този поток", null, 1, new Runnable() {
+            @Override
+            public void run() {
+                tvDialogClose();
+                tvTuneStream(c, i, k);
+            }
+        });
+        list.addView(play, lp(MP, u(62)));
+        if (k >= 0) {
+            list.addView(tvChoice(null, "Направи основен", null, 0, new Runnable() {
+                @Override
+                public void run() {
+                    String[] al = s.alts.get(k);
+                    s.alts.set(k, new String[]{s.stream, s.ref, s.org, s.ua});
+                    s.stream = al[0];
+                    s.ref = al[1];
+                    s.org = al[2];
+                    s.ua = al[3];
+                    s.fails = 0;
+                    tvSave();
+                    tvSourceMenu(c, i);
+                }
+            }), lpTopW(MP, u(62), u(10)));
+        }
+        list.addView(tvChoice(null, "Изтрий този поток", null, 2, new Runnable() {
+            @Override
+            public void run() {
+                if (k >= 0) {
+                    s.alts.remove(k);
+                } else if (!s.alts.isEmpty()) {
+                    String[] al = s.alts.remove(0);
+                    s.stream = al[0];
+                    s.ref = al[1];
+                    s.org = al[2];
+                    s.ua = al[3];
+                } else {
+                    s.stream = "";
+                    s.ref = "";
+                    s.org = "";
+                    s.ua = "";
+                }
+                s.fails = 0;
+                tvSave();
+                tvSourceMenu(c, i);
+            }
+        }), lpTopW(MP, u(62), u(10)));
+        list.addView(tvChoice(null, "Назад", null, 0, new Runnable() {
+            @Override
+            public void run() {
+                tvSourceMenu(c, i);
+            }
+        }), lpTopW(MP, u(62), u(10)));
+        card.addView(list, lpTopW(MP, WC, u(24)));
+        tvDialogShow(card, 760, play);
     }
 
     // "Добави от сайт": избор на сайт, който да се отвори.
@@ -9568,6 +9656,43 @@ public class MainActivity extends Activity {
         buildStatsView();
     }
 
+    private int[] tvForce;   // {източник, -1 = основен поток | номер на резервния}
+
+    // Пуска точно определен поток на източника (k = -1 основен, 0.. резервните).
+    private void tvTuneStream(TvChan c, int src, int k) {
+        tvForce = new int[]{src, k};
+        tvTuneUser(c, src);
+    }
+
+    // Потоците на текущия източник: основният и резервните.
+    private int tvStreamCount() {
+        if (tvCur == null) return 0;
+        int i = tvSrcNowIdx();
+        if (i < 0 || i >= tvCur.srcs.size()) return 0;
+        TvSrc s = tvCur.srcs.get(i);
+        return s.stream.isEmpty() ? 0 : 1 + s.alts.size();
+    }
+
+    // ▲▼: следващ или предишен поток на същия сайт.
+    private void tvSwitchStream(int dir) {
+        TvChan c = tvCur;
+        int m = tvStreamCount();
+        if (c == null || m < 2) {
+            tvShowBanner(2500, "Няма друг поток на този сайт");
+            return;
+        }
+        int i = tvSrcNowIdx();
+        TvSrc s = c.srcs.get(i);
+        int idx = 0;
+        String now = nz(tvTryUrl);
+        for (int k = 0; k < s.alts.size(); k++) {
+            if (s.alts.get(k)[0].equals(now)) idx = k + 1;
+        }
+        int next = ((idx + dir) % m + m) % m;
+        tvShowBanner(2500, "Поток " + (next + 1) + " от " + m);
+        tvTuneStream(c, i, next - 1);
+    }
+
     // Избор на канал от потребителя (клик, смяна на източник): започва отначало.
     private void tvTuneUser(TvChan c, int firstSrc) {
         tvRestarts = 0;
@@ -9608,6 +9733,14 @@ public class MainActivity extends Activity {
             }
             if (cap) tvPlan.add(new int[]{i, TV_CAPTURE});
         }
+        if (tvForce != null && tvForce[0] >= 0 && tvForce[0] < n) {
+            // Избран поток (от менюто или със ▲▼): пробва се пръв, дори да е бил отбелязан за счупен.
+            TvSrc fs = c.srcs.get(tvForce[0]);
+            if (!fs.stream.isEmpty() && tvForce[1] < fs.alts.size()) {
+                tvPlan.add(0, new int[]{tvForce[0], TV_DIRECT, tvForce[1]});
+            }
+        }
+        tvForce = null;
         tvStep = -1;
         if (tvPanel != null) {
             // Докато се гледа, екранът със списъка не държи памет.
@@ -10589,7 +10722,9 @@ public class MainActivity extends Activity {
         if (tvBanner == null || tvCur == null) return;
         tvFillBanner(tvCur, status != null ? status : tvLine());
         // Подсказки само за това, което има смисъл: един канал не се сменя, един източник също.
-        tvChipZap.setVisibility(tvChans.size() > 1 ? View.VISIBLE : View.GONE);
+        int sc = tvStreamCount();
+        ((TextView) ((LinearLayout) tvChipZap).getChildAt(1)).setText(sc > 1 ? "друг поток" : "канал");
+        tvChipZap.setVisibility(tvChans.size() > 1 || sc > 1 ? View.VISIBLE : View.GONE);
         tvChipSrc.setVisibility(tvCur.srcs.size() > 1 ? View.VISIBLE : View.GONE);
         tvFadeIn(tvBanner);
         tvFadeIn(tvKeys);
@@ -10734,12 +10869,24 @@ public class MainActivity extends Activity {
                 || code == KeyEvent.KEYCODE_NUMPAD_ENTER;
         switch (code) {
             case KeyEvent.KEYCODE_DPAD_UP:
+                if (tvStreamCount() > 1) {
+                    if (rep == 0) tvSwitchStream(1);
+                } else if (rep == 0 || rep % 5 == 0) {
+                    tvZap(1);
+                }
+                break;
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                if (tvStreamCount() > 1) {
+                    if (rep == 0) tvSwitchStream(-1);
+                } else if (rep == 0 || rep % 5 == 0) {
+                    tvZap(-1);
+                }
+                break;
             case KeyEvent.KEYCODE_CHANNEL_UP:
             case KeyEvent.KEYCODE_MEDIA_NEXT:
             case KeyEvent.KEYCODE_PAGE_UP:
                 if (rep == 0 || rep % 5 == 0) tvZap(1);
                 break;
-            case KeyEvent.KEYCODE_DPAD_DOWN:
             case KeyEvent.KEYCODE_CHANNEL_DOWN:
             case KeyEvent.KEYCODE_MEDIA_PREVIOUS:
             case KeyEvent.KEYCODE_PAGE_DOWN:
