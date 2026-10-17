@@ -137,14 +137,12 @@ public class MainActivity extends Activity {
     private static final String[] FILM_SOURCES = {
     "https://vidsrc.sh/embed/movie/{tmdb}",
     "https://vidcore.org/embed/movie/{tmdb}",
-    "https://multiembed.mov/?video_id={tmdb}&tmdb=1",
     "https://vidlink.pro/movie/{tmdb}",
     "https://vidspark.to/movie/{tmdb}"
     };
     private static final String[] TV_SOURCES = {
     "https://vidsrc.sh/embed/tv/{tmdb}/{season}/{episode}",
     "https://vidcore.org/embed/tv/{tmdb}/{season}/{episode}",
-    "https://multiembed.mov/?video_id={tmdb}&tmdb=1&s={season}&e={episode}",
     "https://vidlink.pro/tv/{tmdb}/{season}/{episode}",
     "https://vidspark.to/tv/{tmdb}/{season}/{episode}"
     };
@@ -6795,8 +6793,45 @@ public class MainActivity extends Activity {
                 fillInfo(t, info, true);
                 fillBand(t, band);
                 if (catMain != null) catMain.requestFocus();
+                loadSimilar(t, gen, "recommendations");
             }
         });
+    }
+
+    // Ред "Подобни" под страницата; ако няма препоръки, пробва "similar".
+    private void loadSimilar(final CTitle t, final int gen, final String kind) {
+        tmdbFetch((t.tv ? "/tv/" : "/movie/") + t.id + "/" + kind + "?language=bg-BG&page=1",
+                new Done() {
+                    @Override
+                    public void run(String json, String err) {
+                        if (gen != catGen) return;
+                        ArrayList<CTitle> list = json == null ? null : parseList(json, t.tv, 20);
+                        if (list == null || list.isEmpty()) {
+                            if (kind.equals("recommendations") && err == null) {
+                                loadSimilar(t, gen, "similar");
+                            }
+                            return;
+                        }
+                        final Runnable up = catUp;
+                        LinearLayout strip = addRowShell(t.tv ? "Подобни сериали" : "Подобни филми");
+                        for (int i = 0; i < list.size(); i++) {
+                            final CTitle s = list.get(i);
+                            strip.addView(posterCard(s, rowSize(), new Runnable() {
+                                @Override
+                                public void run() {
+                                    catParent = new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            catParent = up;
+                                            catDetail(t);
+                                        }
+                                    };
+                                    catDetail(s);
+                                }
+                            }), posterLp(168, 252, 16));
+                        }
+                    }
+                });
     }
 
     // Дясната колона: данни, заглавие, жанрове, описание (и за сериал: бутон и сезони).
@@ -7018,8 +7053,6 @@ public class MainActivity extends Activity {
             } else {
                 band.addView(text("Гледай от", 19, K_TEXT2, tfMedium, true));
                 band.addView(ticketRow(t, 232, 84, 16, true), lpTop(u(4)));
-                band.addView(text("Ако един източник не се зареди, автоматично се пробва "
-                        + "следващият.", 16, K_TEXT3, tfMedium, false), lpTop(u(4)));
             }
         } else if (slots.length >= 2) {
             band.addView(text("Източник за епизодите", 19, K_TEXT2, tfMedium, true));
