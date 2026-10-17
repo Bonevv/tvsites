@@ -137,7 +137,7 @@ public class MainActivity extends Activity {
     //   "https://example.com/embed/movie/{tmdb}"
     //   "https://example.com/embed/tv/{tmdb}/{season}/{episode}"
     // Може и без редактиране на кода: бутон "Източници" в каталога.
-   private static final String[] FILM_SOURCES = {
+    private static final String[] FILM_SOURCES = {
         "https://vidsrc.sh/embed/movie/{tmdb}",
         "https://vidcore.org/embed/movie/{tmdb}",
         "https://vidlink.pro/movie/{tmdb}",
@@ -152,7 +152,7 @@ public class MainActivity extends Activity {
         "https://vidspark.to/tv/{tmdb}/{season}/{episode}",
         "https://vidsrc.me/embed/tv/{tmdb}/{season}/{episode}"
     };
-    
+    // Ключ за TMDB: по-добре го въведи на кутията (репото е публично).
     private static final String TMDB_KEY = "d2c1e02ec9baf771e1ce6b4511a5aea8";
 
     // Сайтове по подразбиране: {етикет, адрес, режим, група}. Режим: "" | "mobile" | "desktop"
@@ -9270,14 +9270,15 @@ public class MainActivity extends Activity {
         for (int i = 0; i < c.srcs.size(); i++) {
             TvSrc old = c.srcs.get(i);
             if (old.site.equalsIgnoreCase(src.site)) {
-                if (!old.stream.isEmpty() && !src.stream.isEmpty() && samePage(old.page, src.page)
+                if (!old.stream.isEmpty() && !src.stream.isEmpty()
                         && !old.stream.equals(src.stream)) {
                     // Същата страница, друг поток: пази се като резервен за този източник.
                     boolean have = false;
                     for (String[] al : old.alts) {
                         if (al[0].equals(src.stream)) have = true;
                     }
-                    if (!have && old.alts.size() < TV_MAX_ALTS) {
+                    if (!have) {
+                        if (old.alts.size() >= TV_MAX_ALTS) old.alts.remove(0);
                         old.alts.add(new String[]{src.stream, src.ref, src.org, src.ua});
                     }
                     extra = true;
