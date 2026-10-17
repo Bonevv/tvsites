@@ -126,13 +126,15 @@ public class MainActivity extends Activity {
     private static final String[] FILM_SOURCES = {
     "https://vidsrc.sh/embed/movie/{tmdb}",
     "https://vidcore.org/embed/movie/{tmdb}",
-    "https://www.2embed.cc/embed/{tmdb}",
+    "https://multiembed.mov/?video_id={tmdb}&tmdb=1",
+    "https://vidlink.pro/movie/{tmdb}",
     "https://vidspark.to/movie/{tmdb}"
     };
     private static final String[] TV_SOURCES = {
     "https://vidsrc.sh/embed/tv/{tmdb}/{season}/{episode}",
     "https://vidcore.org/embed/tv/{tmdb}/{season}/{episode}",
-    "https://www.2embed.cc/embedtv/{tmdb}&s={season}&e={episode}",
+    "https://multiembed.mov/?video_id={tmdb}&tmdb=1&s={season}&e={episode}",
+    "https://vidlink.pro/tv/{tmdb}/{season}/{episode}",
     "https://vidspark.to/tv/{tmdb}/{season}/{episode}"
     };
     // Ключ за TMDB: по-добре го въведи на кутията (репото е публично).
@@ -2305,6 +2307,7 @@ public class MainActivity extends Activity {
         cursorTemp = false;
         scrollMode = false;
         hovering = false;
+        cancelOk();
         curSiteName = site[0];
         // Личният избор на потребителя (от журнала) е по-важен от настройката по подразбиране.
         String chosen = prefs.getString("mode:" + allowedHost, null);
@@ -2499,6 +2502,7 @@ public class MainActivity extends Activity {
             @Override
             public void onHideCustomView() {
                 if (customView == null) return;
+                endSwipe(true);
                 root.removeView(customView);
                 customView = null;
                 web.setVisibility(View.VISIBLE);
@@ -2547,6 +2551,7 @@ public class MainActivity extends Activity {
     private void recoverFromRendererLoss(boolean crashed) {
         if (web == null) return; // страницата вече е затворена
         root.removeCallbacks(cacheWatch);
+        endSwipe(true);
         if (customView != null) {
             root.removeView(customView);
             customView = null;
@@ -2557,7 +2562,7 @@ public class MainActivity extends Activity {
         backToMenu();
         showInfo("Страницата беше спряна",
                 (crashed ? "Страницата се срина." : "Системата спря страницата, защото приставката остана без памет.")
-                        + "\n\nОтвори сайта отново. Ако се повтаря, в Опции (задръж Назад) смени "
+                        + "\n\nОтвори сайта отново. Ако се повтаря, в Опции (задръж OK) смени "
                         + "\"Версия на сайта\" на мобилна - тя е по-лека.");
     }
 
@@ -2585,7 +2590,8 @@ public class MainActivity extends Activity {
     // паметта се освобождава и всеки сайт започва на чисто.
     private void teardownSite() {
         if (catShown()) hideCatalog();
-        root.removeCallbacks(backLong);
+        endSwipe(true);
+        cancelOk();
         cursorTemp = false;
         scrollMode = false;
         hovering = false;
@@ -2647,6 +2653,7 @@ public class MainActivity extends Activity {
                     ? View.VISIBLE : View.GONE);
             if (!can && scrollMode) {
                 scrollMode = false;
+                endSwipe(true);
                 cursor.setScroll(false);
             }
         }
@@ -2771,10 +2778,10 @@ public class MainActivity extends Activity {
     private void maybeShowHint() {
         if (hintChip == null || web == null || web.getVisibility() != View.VISIBLE) return;
         if (menuHolder.getVisibility() == View.VISIBLE) return;
-        int n = prefs.getInt("hintCount", 0);
-        if (n >= 5) return;
-        prefs.edit().putInt("hintCount", n + 1).apply();
-        hintChip.setText("Назад — към менюто    •    Задръж Назад — опции    •    Задръж OK — превъртане");
+        int n = prefs.getInt("hintCount3", 0);
+        if (n >= 4) return;
+        prefs.edit().putInt("hintCount3", n + 1).apply();
+        hintChip.setText("Назад — към менюто    •    Задръж OK — опции    •    Двойно OK — превъртане");
         hintChip.animate().cancel();
         hintChip.setAlpha(0f);
         hintChip.setVisibility(View.VISIBLE);
@@ -4133,14 +4140,15 @@ public class MainActivity extends Activity {
         }, 60);
     }
 
-    // Режим превъртане: включва се със задържане на OK. Тогава стрелките нагоре и надолу
-    // въртят под курсора (списък или цялата страница), наляво и надясно движат курсора,
-    // а OK или Назад излизат от режима. Курсорът става оранжев.
+    // Режим превъртане: включва се с двойно OK там, където искаш да превъртиш (списък със
+    // субтитри, качество и т.н. или цялата страница). Тогава стрелките нагоре и надолу
+    // плъзгат под курсора като с пръст, наляво и надясно движат курсора, а едно OK или
+    // Назад излизат от режима. Курсорът става оранжев със стрелки.
     private boolean scrollMode;
-    // Курсор, включен временно със задържане на OK, когато сайтът е в режим без курсор.
+    // Курсор, включен временно с двойно OK, когато сайтът е в режим без курсор.
     private boolean cursorTemp;
     private boolean hovering;
-    private boolean backLongFired;
+    private long scrollExitAt;
     private final MotionEvent.PointerProperties[] mouseProps = {new MotionEvent.PointerProperties()};
     private final MotionEvent.PointerCoords[] mouseCoords = {new MotionEvent.PointerCoords()};
 
@@ -4149,8 +4157,8 @@ public class MainActivity extends Activity {
         return cursorEnabled || cursorTemp || customView != null;
     }
 
-    // Събитие от мишка (движение или колелце) към страница или цял екран.
-    private void mouseEvent(View target, int action, float x, float y, float vscroll) {
+    // Движение на мишка към страница или цял екран: плеърите показват лентата си.
+    private void mouseEvent(View target, int action, float x, float y) {
         if (target == null) return;
         long t = SystemClock.uptimeMillis();
         MotionEvent.PointerProperties pp = mouseProps[0];
@@ -4160,7 +4168,6 @@ public class MainActivity extends Activity {
         pc.clear();
         pc.x = x;
         pc.y = y;
-        if (vscroll != 0f) pc.setAxisValue(MotionEvent.AXIS_VSCROLL, vscroll);
         MotionEvent ev = MotionEvent.obtain(t, t, action, 1, mouseProps, mouseCoords,
                 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_MOUSE, 0);
         target.dispatchGenericMotionEvent(ev);
@@ -4169,41 +4176,129 @@ public class MainActivity extends Activity {
 
     private void hoverAt(View target, float x, float y) {
         mouseEvent(target, hovering ? MotionEvent.ACTION_HOVER_MOVE
-                : MotionEvent.ACTION_HOVER_ENTER, x, y, 0f);
+                : MotionEvent.ACTION_HOVER_ENTER, x, y);
         hovering = true;
     }
 
+    // ---- Превъртане като с пръст ----
+    // Докато държиш стрелката, един непрекъснат допир се плъзга по екрана на мястото на
+    // курсора (точно както при телефон), а когато я пуснеш, допирът се вдига.
+    private boolean swiping;
+    private View swipeTarget;
+    private long swipeDownAt;
+    private long swipeLastAt;
+    private long swipeEndAt;
+    private float swipeX;
+    private float swipeY;
+    private float swipeTravel;
+    private final Runnable swipeEnd = new Runnable() {
+        @Override
+        public void run() {
+            endSwipe(false);
+        }
+    };
+
+    private void touch(View target, int action, long downAt, long at, float x, float y) {
+        MotionEvent ev = MotionEvent.obtain(downAt, at, action, x, y, 0);
+        ev.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+        target.dispatchTouchEvent(ev);
+        ev.recycle();
+    }
+
+    // dir: 1 = стрелка надолу (съдържанието върви нагоре), -1 = стрелка нагоре.
+    private void swipeStep(View target, int dir, int rep) {
+        if (target == null || target.getHeight() <= 0) return;
+        if (swiping && (swipeTarget != target
+                || Math.abs(swipeTravel) > target.getHeight() * 0.7f)) {
+            endSwipe(false);
+        }
+        long now = SystemClock.uptimeMillis();
+        if (!swiping) {
+            // Първото плъзгане е дълго, за да надвиши прага на допира (иначе би станало клик).
+            // При продължително държане (rep > 0) е по-късо, за да няма голям скок.
+            swiping = true;
+            swipeTarget = target;
+            swipeX = cx;
+            swipeY = cy;
+            swipeTravel = 0;
+            swipeDownAt = Math.max(now - 70, swipeEndAt + 1); // времето само расте
+            swipeLastAt = swipeDownAt;
+            touch(target, MotionEvent.ACTION_DOWN, swipeDownAt, swipeLastAt, swipeX, swipeY);
+            int steps = rep == 0 ? 7 : 4;
+            for (int i = 0; i < steps; i++) {
+                float d = dir * 27f;
+                swipeY -= d;
+                swipeTravel -= d;
+                swipeLastAt += 10;
+                touch(target, MotionEvent.ACTION_MOVE, swipeDownAt, swipeLastAt, swipeX, swipeY);
+            }
+        } else {
+            // Колкото по-дълго държиш, толкова по-бързо върти.
+            float d = dir * (26f + Math.min(rep, 10) * 4f);
+            swipeY -= d;
+            swipeTravel -= d;
+            swipeLastAt = Math.max(now, swipeLastAt + 1);
+            touch(target, MotionEvent.ACTION_MOVE, swipeDownAt, swipeLastAt, swipeX, swipeY);
+        }
+        root.removeCallbacks(swipeEnd);
+        root.postDelayed(swipeEnd, 220);
+    }
+
+    // Вдига допира (или го отменя). Без движение в последните 220 мс няма инерция.
+    private void endSwipe(boolean cancel) {
+        root.removeCallbacks(swipeEnd);
+        if (!swiping) return;
+        swiping = false;
+        View t = swipeTarget;
+        swipeTarget = null;
+        if (t == null) return;
+        long at = Math.max(SystemClock.uptimeMillis(), swipeLastAt + 1);
+        swipeEndAt = at;
+        touch(t, cancel ? MotionEvent.ACTION_CANCEL : MotionEvent.ACTION_UP,
+                swipeDownAt, at, swipeX, swipeY);
+    }
+
     private void setScrollMode(boolean on) {
+        if (scrollMode == on) return;
         scrollMode = on;
+        if (!on) {
+            endSwipe(false);
+            scrollExitAt = SystemClock.uptimeMillis();
+        }
         if (cursor != null) cursor.setScroll(on);
-        Toast.makeText(this, on ? "Превъртане: нагоре и надолу. OK спира."
+        Toast.makeText(this, on ? "Превъртане: стрелки нагоре и надолу. Едно OK го спира."
                 : "Превъртането е спряно", Toast.LENGTH_SHORT).show();
         pokeCursor();
     }
 
-    // Задържане на OK: включва/изключва превъртането. Ако сайтът е без курсор, първо
-    // включва курсора временно (за тази страница).
-    private void longOk() {
+    // Двойно OK: включва превъртането. Ако сайтът е без курсор, първо включва курсора
+    // временно (до излизане от сайта), за да го сложиш на мястото.
+    private void doubleOk() {
         if (!cursorOn()) {
             cursorTemp = true;
             pokeCursor();
-            Toast.makeText(this, "Курсорът е включен. Задръж OK за превъртане.",
+            Toast.makeText(this, "Курсорът е включен. Сложи го на списъка и натисни OK два пъти.",
                     Toast.LENGTH_LONG).show();
             return;
         }
-        setScrollMode(!scrollMode);
+        setScrollMode(true);
+    }
+
+    // Задържане на OK: менюто с опции на страницата. От цял екран излизаме първо.
+    private void openOptions() {
+        endSwipe(true);
+        if (customView != null && chromeClient != null) chromeClient.onHideCustomView();
+        showLog();
     }
 
     private void cursorArrow(View target, int code, int rep) {
         boolean vert = code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN;
         if (scrollMode && vert) {
-            // Колкото по-дълго държиш, толкова по-бързо върти.
-            float amount = 1f + Math.min(rep, 10) * 0.25f;
-            mouseEvent(target, MotionEvent.ACTION_SCROLL, cx, cy,
-                    code == KeyEvent.KEYCODE_DPAD_UP ? amount : -amount);
+            swipeStep(target, code == KeyEvent.KEYCODE_DPAD_DOWN ? 1 : -1, rep);
             pokeCursor();
             return;
         }
+        if (swiping) endSwipe(false);
         moveCursor(code, rep);
     }
 
@@ -4437,6 +4532,9 @@ public class MainActivity extends Activity {
                 || code == KeyEvent.KEYCODE_ENTER
                 || code == KeyEvent.KEYCODE_NUMPAD_ENTER;
 
+        // Чакащ клик се изпълнява веднага, ако е натиснат друг бутон (на мястото на курсора).
+        if (okPending && down && !okKey) flushOk();
+
         // Родният плеър: OK = пауза/пускане, наляво/надясно = превъртане.
         if (nativeActive()) {
             if (code == KeyEvent.KEYCODE_BACK) return super.dispatchKeyEvent(e);
@@ -4458,34 +4556,19 @@ public class MainActivity extends Activity {
 
         // Видеото на страницата е на цял екран. Със стрелките се движи курсорът (за лентата
         // с времето, субтитрите и т.н.). Кратко OK: натиска там, където е курсорът, а при
-        // скрит курсор пуска/спира. Задържане на OK: превъртане на списък.
+        // скрит курсор пуска/спира. Двойно OK: превъртане на списък. Задържане на OK: опции.
         if (customView != null) {
+            if (code == KeyEvent.KEYCODE_MENU) {
+                if (down && e.getRepeatCount() == 0) openOptions();
+                return true;
+            }
             if (code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN
                     || code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT) {
                 if (down) cursorArrow(customView, code, e.getRepeatCount());
                 return true;
             }
             if (okKey) {
-                if (down) {
-                    if (e.getRepeatCount() == 0) {
-                        okLongHandled = false;
-                    } else if (!okLongHandled) {
-                        okLongHandled = true;
-                        longOk();
-                    }
-                } else {
-                    if (!okLongHandled && !e.isCanceled()) {
-                        if (scrollMode) {
-                            setScrollMode(false);
-                        } else if (!cursorIdle) {
-                            tapAt(customView, cx, cy);
-                            pokeCursor();
-                        } else {
-                            togglePlayback();
-                        }
-                    }
-                    okLongHandled = false;
-                }
+                handleOk(e);
                 return true;
             }
             if (playKey && !e.isCanceled()) {
@@ -4497,25 +4580,11 @@ public class MainActivity extends Activity {
 
         // Страницата е отворена. С курсор: стрелките го местят, OK е клик.
         // Без курсор: стрелките местят фокуса по страницата, OK натиска.
-        // Задържане на OK: превъртане (при сайт без курсор - първо временен курсор).
-        // Задържане на Назад (или бутон Menu): менюто на страницата.
+        // Двойно OK: превъртане (при сайт без курсор - първо временен курсор).
+        // Задържане на OK (или бутон Menu): менюто на страницата.
         if (webActive()) {
-            if (code == KeyEvent.KEYCODE_BACK) {
-                if (down) {
-                    if (e.getRepeatCount() == 0) {
-                        backLongFired = false;
-                        root.removeCallbacks(backLong);
-                        root.postDelayed(backLong, 700);
-                    }
-                } else {
-                    root.removeCallbacks(backLong);
-                    if (!backLongFired && !e.isCanceled()) handleBack();
-                    backLongFired = false;
-                }
-                return true;
-            }
             if (code == KeyEvent.KEYCODE_MENU) {
-                if (down && e.getRepeatCount() == 0) showLog();
+                if (down && e.getRepeatCount() == 0) openOptions();
                 return true;
             }
             if (cursorOn()) {
@@ -4531,32 +4600,7 @@ public class MainActivity extends Activity {
                 }
             }
             if (okKey) {
-                if (down) {
-                    int rc = e.getRepeatCount();
-                    if (rc == 0) {
-                        okLongHandled = false;
-                    } else if (!okLongHandled) {
-                        okLongHandled = true;
-                        longOk();
-                    }
-                } else {
-                    if (!okLongHandled && !e.isCanceled()) {
-                        if (!cursorOn()) {
-                            sendOkToWeb();
-                            checkEditableSoon();
-                        } else if (scrollMode) {
-                            setScrollMode(false);
-                        } else if (cursorIdle) {
-                            // Ако курсорът е скрит, първото натискане само го показва.
-                            pokeCursor();
-                        } else {
-                            tapAt(web, cx, cy);
-                            pokeCursor();
-                            checkEditableSoon();
-                        }
-                    }
-                    okLongHandled = false;
-                }
+                handleOk(e);
                 return true;
             }
             if (playKey) {
@@ -4567,15 +4611,93 @@ public class MainActivity extends Activity {
         return super.dispatchKeyEvent(e);
     }
 
-    // Отваря менюто на страницата след задържане на Назад.
-    private final Runnable backLong = new Runnable() {
+    // ---- OK: клик, двойно OK и задържане ----
+
+    private static final int DOUBLE_OK_MS = 350;
+    private boolean okPending;
+    private boolean okWasIdle;
+    private long okPassedAt;
+
+    // Кратко OK с курсор: клик на мястото на курсора. Изпълнява се след кратко изчакване,
+    // за да може второто натискане да се разпознае като двойно OK (иначе би кликнало два пъти).
+    private final Runnable okSingle = new Runnable() {
         @Override
         public void run() {
-            if (!webActive()) return;
-            backLongFired = true;
-            showLog();
+            okPending = false;
+            if (customView != null) {
+                if (!okWasIdle) {
+                    tapAt(customView, cx, cy);
+                    pokeCursor();
+                } else {
+                    togglePlayback();
+                }
+            } else if (webActive()) {
+                if (okWasIdle) {
+                    // Ако курсорът е бил скрит, първото натискане само го показва.
+                    pokeCursor();
+                } else {
+                    tapAt(web, cx, cy);
+                    pokeCursor();
+                    checkEditableSoon();
+                }
+            }
         }
     };
+
+    // Изпълнява чакащия клик веднага (когато веднага след него е натиснат друг бутон).
+    private void flushOk() {
+        if (!okPending) return;
+        root.removeCallbacks(okSingle);
+        okSingle.run();
+    }
+
+    private void cancelOk() {
+        okPending = false;
+        okPassedAt = 0;
+        root.removeCallbacks(okSingle);
+    }
+
+    // OK в страница или на цял екран:
+    //   кратко     - клик там, където е курсорът;
+    //   двойно     - превъртане (едно OK го спира);
+    //   задържане  - менюто с опции на страницата.
+    private void handleOk(KeyEvent e) {
+        long now = SystemClock.uptimeMillis();
+        if (e.getAction() == KeyEvent.ACTION_DOWN) {
+            if (e.getRepeatCount() == 0) {
+                okLongHandled = false;
+                // Второ натискане скоро след първото: двойно OK.
+                if (okPending || (!cursorOn() && now - okPassedAt < DOUBLE_OK_MS)) {
+                    cancelOk();
+                    okLongHandled = true; // при отпускане не е нито клик, нито задържане
+                    doubleOk();
+                }
+            } else if (!okLongHandled) {
+                okLongHandled = true;
+                cancelOk();
+                openOptions();
+            }
+            return;
+        }
+        // Отпускане на бутона.
+        boolean skip = okLongHandled || e.isCanceled();
+        okLongHandled = false;
+        if (skip) return;
+        if (scrollMode) {
+            setScrollMode(false);
+        } else if (now - scrollExitAt < 600) {
+            // Второ натискане веднага след спиране на превъртането: не е клик.
+            return;
+        } else if (!cursorOn()) {
+            sendOkToWeb();
+            checkEditableSoon();
+            okPassedAt = now;
+        } else {
+            okPending = true;
+            okWasIdle = cursorIdle;
+            root.postDelayed(okSingle, DOUBLE_OK_MS);
+        }
+    }
 
     private void handleBack() {
         if (scrollMode) {
@@ -4613,7 +4735,8 @@ public class MainActivity extends Activity {
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
-            handleBack();
+            // Задържането на Назад не трябва да връща няколко стъпки наведнъж.
+            if (event.getRepeatCount() == 0) handleBack();
             return true;
         }
         return super.onKeyDown(keyCode, event);
@@ -4630,6 +4753,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
+        endSwipe(true);
         if (web != null) web.onPause();
     }
 
@@ -6290,8 +6414,8 @@ public class MainActivity extends Activity {
 
     // ---- плочката в менюто ----
 
-    // Нарисувана картинка (без файлове): прожектор, голям "play" и филмова лента,
-    // (без ленти).
+    // Нарисувана картинка (без файлове): прожектор, голям "play", филмова лента
+    // и червена лента "В РАЗРАБОТКА" в ъгъла.
     private static class CatalogArt extends View {
         private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint tp = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -6343,6 +6467,27 @@ public class MainActivity extends Activity {
             path.lineTo(cx + r * 0.50f, cy);
             path.close();
             c.drawPath(path, p);
+            // червена лента в ъгъла: показва, че разделът още се доработва
+            float aIn = h * 0.46f;
+            float aOut = h * 0.98f;
+            path.reset();
+            path.moveTo(aIn, 0);
+            path.lineTo(aOut, 0);
+            path.lineTo(0, aOut);
+            path.lineTo(0, aIn);
+            path.close();
+            p.setColor(0xFFDC2626);
+            c.drawPath(path, p);
+            float ac = (aIn + aOut) / 2f;
+            float maxW = ac * 1.4142f * 0.80f;
+            tp.setTextSize(h * 0.135f);
+            String txt = "В РАЗРАБОТКА";
+            float tw = tp.measureText(txt);
+            if (tw > maxW) tp.setTextSize(tp.getTextSize() * maxW / tw);
+            c.save();
+            c.rotate(-45f, ac / 2f, ac / 2f);
+            c.drawText(txt, ac / 2f, ac / 2f + tp.getTextSize() * 0.35f, tp);
+            c.restore();
         }
     }
 
@@ -6411,8 +6556,13 @@ public class MainActivity extends Activity {
     private static class CursorView extends View {
         private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint dark = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path arrows = new Path();
+        private boolean scroll;
 
+        // В режим превъртане курсорът е оранжев със стрелки нагоре и надолу.
         void setScroll(boolean on) {
+            scroll = on;
             fill.setColor(on ? 0xFFF59E0B : 0xCCFFFFFF);
             invalidate();
         }
@@ -6423,6 +6573,8 @@ public class MainActivity extends Activity {
             stroke.setColor(Color.BLACK);
             stroke.setStyle(Paint.Style.STROKE);
             stroke.setStrokeWidth(4);
+            dark.setColor(0xFF1F1300);
+            dark.setStyle(Paint.Style.FILL);
         }
 
         @Override
@@ -6430,6 +6582,19 @@ public class MainActivity extends Activity {
             float r = getWidth() / 2f;
             canvas.drawCircle(r, r, r - 4, fill);
             canvas.drawCircle(r, r, r - 4, stroke);
+            if (scroll) {
+                float k = r / 20f;
+                arrows.reset();
+                arrows.moveTo(r, r - 13 * k);
+                arrows.lineTo(r - 7 * k, r - 3.5f * k);
+                arrows.lineTo(r + 7 * k, r - 3.5f * k);
+                arrows.close();
+                arrows.moveTo(r, r + 13 * k);
+                arrows.lineTo(r - 7 * k, r + 3.5f * k);
+                arrows.lineTo(r + 7 * k, r + 3.5f * k);
+                arrows.close();
+                canvas.drawPath(arrows, dark);
+            }
         }
     }
 }
