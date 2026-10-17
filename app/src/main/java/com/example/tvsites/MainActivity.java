@@ -158,10 +158,11 @@ private static final String[] TV_SOURCES = {
     "https://vidsrc.me/embed/tv/{tmdb}/{season}/{episode}",
     "https://vsembed.ru/embed/tv/{tmdb}/{season}/{episode}",
     "https://www.2embed.cc/embedtv/{tmdb}&s={season}&e={episode}",
-    "https://multiembed.mov/?video_id={tmdb}&tmdb=1&s={season}&e={episode}"
+    "https://multiembed.mov/?video_id={tmdb}&tmdb=1&s={season}&e={episode}",
     "https://yapgrid.com/embed/tv/{tmdb}/{season}/{episode}",
     "https://embedmaster.link/tv/{tmdb}/{season}/{episode}"
-    };
+};
+
     // Ключ за TMDB: по-добре го въведи на кутията (репото е публично).
     private static final String TMDB_KEY = "d2c1e02ec9baf771e1ce6b4511a5aea8";
 
