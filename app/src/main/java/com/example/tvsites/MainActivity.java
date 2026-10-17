@@ -137,22 +137,28 @@ public class MainActivity extends Activity {
     //   "https://example.com/embed/movie/{tmdb}"
     //   "https://example.com/embed/tv/{tmdb}/{season}/{episode}"
     // Може и без редактиране на кода: бутон "Източници" в каталога.
-    private static final String[] FILM_SOURCES = {
-        "https://vidsrc.sh/embed/movie/{tmdb}",
-        "https://vidcore.org/embed/movie/{tmdb}",
-        "https://vidlink.pro/movie/{tmdb}",
-        "https://vidspark.to/movie/{tmdb}",
-        "https://vidsrc.me/embed/movie/{tmdb}"
-    };
+private static final String[] FILM_SOURCES = {
+    "https://vidsrc.sh/embed/movie/{tmdb}",
+    "https://vidcore.org/embed/movie/{tmdb}",
+    "https://vidlink.pro/movie/{tmdb}",
+    "https://vidspark.to/movie/{tmdb}",
+    "https://vidsrc.me/embed/movie/{tmdb}",
+    "https://vsembed.ru/embed/movie/{tmdb}",
+    "https://www.2embed.cc/embed/{tmdb}",
+    "https://multiembed.mov/?video_id={tmdb}&tmdb=1"
+};
 
-    private static final String[] TV_SOURCES = {
-        "https://vidsrc.sh/embed/tv/{tmdb}/{season}/{episode}",
-        "https://vidcore.org/embed/tv/{tmdb}/{season}/{episode}",
-        "https://vidlink.pro/tv/{tmdb}/{season}/{episode}",
-        "https://vidspark.to/tv/{tmdb}/{season}/{episode}",
-        "https://vidsrc.me/embed/tv/{tmdb}/{season}/{episode}"
+private static final String[] TV_SOURCES = {
+    "https://vidsrc.sh/embed/tv/{tmdb}/{season}/{episode}",
+    "https://vidcore.org/embed/tv/{tmdb}/{season}/{episode}",
+    "https://vidlink.pro/tv/{tmdb}/{season}/{episode}",
+    "https://vidspark.to/tv/{tmdb}/{season}/{episode}",
+    "https://vidsrc.me/embed/tv/{tmdb}/{season}/{episode}",
+    "https://vsembed.ru/embed/tv/{tmdb}/{season}/{episode}",
+    "https://www.2embed.cc/embedtv/{tmdb}&s={season}&e={episode}",
+    "https://multiembed.mov/?video_id={tmdb}&tmdb=1&s={season}&e={episode}"
     };
-    // Ключ за TMDB: по-добре го въведи на кутията (репото е публично).
+    
     private static final String TMDB_KEY = "d2c1e02ec9baf771e1ce6b4511a5aea8";
 
     // Сайтове по подразбиране: {етикет, адрес, режим, група}. Режим: "" | "mobile" | "desktop"
@@ -168,6 +174,7 @@ public class MainActivity extends Activity {
             {"Всички филми", "https://vsichkifilmi.net/", "", "Филми"},
             {"FilmiZT", "https://filmizt.com/", "", "Филми"},
             {"FilmiFen", "https://filmifen.com/", "", "Филми"},
+            {"BGNow", "https://www.bgnow.tv/en/category/movie/", "", "Филми"},
             {"BG Radio", "https://bg-radio.org/", "", "Радио"},
             {"RadiosBG", "https://www.radiosbg.com/", "", "Радио"},
     };
@@ -3386,6 +3393,8 @@ public class MainActivity extends Activity {
         title.addView(text("Видео на страницата", 20, Color.WHITE, Typeface.DEFAULT_BOLD, true));
         p.addView(title);
 
+        p.addView(qualityRow());
+
         // Намерени видео потоци (най-новите най-отгоре), най-много 3.
         ArrayList<String> pl = new ArrayList<>();
         ArrayList<String> fl = new ArrayList<>();
@@ -3407,6 +3416,34 @@ public class MainActivity extends Activity {
                     17, C_MUTED, tfMedium, false));
         }
         return p;
+    }
+
+    // Ред в панела за видеото: качеството на родния плеър (отваря списък за избор).
+    private View qualityRow() {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setPadding(u(16), 0, u(16), 0);
+        r.setMinimumHeight(u(54));
+        r.setFocusable(true);
+        r.setClickable(true);
+        r.setTag("#quality");
+        r.setBackground(stateBg(0xFF1A2342, C_PANEL_FOCUS, Color.WHITE, u(18), 0));
+        r.addView(text("Качество на родния плеър", 18, Color.WHITE, tfMedium, true),
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        r.addView(text(qualityName(videoQuality()) + "  ▾", 17, 0xFF8FDBFF, Typeface.DEFAULT_BOLD, true));
+        LinearLayout.LayoutParams rlp = lp(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        rlp.topMargin = u(4);
+        r.setLayoutParams(rlp);
+        r.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                runOption("#quality");
+            }
+        });
+        r.setOnFocusChangeListener(focusAnim);
+        return r;
     }
 
     private View mediaRow(final String url, String label) {
@@ -3522,6 +3559,8 @@ public class MainActivity extends Activity {
         } else if (key.equals("#stats")) {
             toggleStats();
             refreshLog(0);
+        } else if (key.equals("#quality")) {
+            tvQualityDialog();
         } else if (key.equals("#domains")) {
             showDomains();
         } else if (key.startsWith("#media:")) {
@@ -4108,16 +4147,17 @@ public class MainActivity extends Activity {
         player.prepare();
         player.setPlayWhenReady(true);
 
-        showNativeStatus("Зареждане...  (OK = пауза, ◀ ▶ = превъртане, ▲▼ = качество, Назад = към страницата)", 5000);
+        showNativeStatus("Зареждане...  (OK = пауза, задръж OK = качество, ◀ ▶ = превъртане, Назад = към страницата)", 5000);
         updateState();
     }
 
     // Ограничение на качеството на видеото: 0 = оригинал, 1 = до 720p, 2 = до 576p.
     private androidx.media3.exoplayer.trackselection.DefaultTrackSelector vTrackSel;
+    private boolean okWasPlaying;
 
     private int videoQuality() {
         int q = prefs.getInt("vq", 0);
-        return q < 0 || q > 2 ? 0 : q;
+        return q < 0 || q > 3 ? 0 : q;
     }
 
     private void applyQuality() {
@@ -4128,6 +4168,7 @@ public class MainActivity extends Activity {
                     vTrackSel.buildUponParameters();
             if (q == 1) b.setMaxVideoSize(1280, 720);
             else if (q == 2) b.setMaxVideoSize(1024, 576);
+            else if (q == 3) b.setMaxVideoSize(854, 480);
             else b.clearVideoSizeConstraints();
             vTrackSel.setParameters(b);
         } catch (Exception ignored) {
@@ -4135,11 +4176,15 @@ public class MainActivity extends Activity {
         }
     }
 
+    private static String qualityName(int q) {
+        return q == 0 ? "оригинал" : q == 1 ? "до 720p" : q == 2 ? "до 576p" : "до 480p";
+    }
+
     private void cycleQuality() {
-        int q = (videoQuality() + 1) % 3;
+        int q = (videoQuality() + 1) % 4;
         prefs.edit().putInt("vq", q).apply();
         applyQuality();
-        showNativeStatus("Качество: " + (q == 0 ? "оригинал" : q == 1 ? "до 720p" : "до 576p"), 2200);
+        showNativeStatus("Качество: " + qualityName(q), 2200);
     }
 
     private void closeNative(boolean backToPage) {
@@ -4643,10 +4688,17 @@ public class MainActivity extends Activity {
             if (code == KeyEvent.KEYCODE_BACK) return super.dispatchKeyEvent(e);
             if (down && player != null) {
                 if ((okKey || playKey) && e.getRepeatCount() == 0) {
-                    boolean play = !player.getPlayWhenReady();
+                    okWasPlaying = player.getPlayWhenReady();
+                    boolean play = !okWasPlaying;
                     player.setPlayWhenReady(play);
                     showNativeStatus(play ? "▶" : "❚❚  Пауза", 1200);
-                } else if (code == KeyEvent.KEYCODE_MENU || code == KeyEvent.KEYCODE_DPAD_UP
+                } else if (okKey && e.getRepeatCount() == 10) {
+                    // Задържане на OK: избор на качество (паузата от първото натискане се връща).
+                    player.setPlayWhenReady(okWasPlaying);
+                    tvQualityDialog();
+                } else if (code == KeyEvent.KEYCODE_MENU) {
+                    if (e.getRepeatCount() == 0) tvQualityDialog();
+                } else if (code == KeyEvent.KEYCODE_DPAD_UP
                         || code == KeyEvent.KEYCODE_DPAD_DOWN) {
                     if (e.getRepeatCount() == 0) cycleQuality();
                 } else if (code == KeyEvent.KEYCODE_DPAD_LEFT
@@ -9244,6 +9296,37 @@ public class MainActivity extends Activity {
     }
 
     // Записва източника в канала. Същото име = същият канал; същият сайт = заменя стария източник.
+    // Избор на качество за родния плеър: оригинал или най-много 720p, 576p, 480p.
+    private void tvQualityDialog() {
+        LinearLayout card = tvCard("Качество на видеото",
+                "По-ниското качество е по-леко за кутията. Важи за всички канали и филми.");
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        View first = null;
+        int cur = videoQuality();
+        for (int q = 0; q < 4; q++) {
+            final int qq = q;
+            LinearLayout row = tvChoice(null, q == 0 ? "Оригинал" : "До " + (q == 1 ? "720p"
+                    : q == 2 ? "576p" : "480p"), q == cur ? "● избрано" : null,
+                    q == cur ? 1 : 0, new Runnable() {
+                        @Override
+                        public void run() {
+                            prefs.edit().putInt("vq", qq).apply();
+                            applyQuality();
+                            tvDialogClose();
+                            Toast.makeText(MainActivity.this, "Качество: " + qualityName(qq),
+                                    Toast.LENGTH_SHORT).show();
+                            if (optBox != null && logShown() && !domShown()) buildOptions();
+                        }
+                    });
+            list.addView(row, lpTopW(MP, u(62), q == 0 ? 0 : u(10)));
+            if (q == cur) first = row;
+        }
+        if (first == null) first = list.getChildAt(0);
+        card.addView(list, lpTopW(MP, WC, u(24)));
+        tvDialogShow(card, 700, first);
+    }
+
     private static boolean samePage(String a, String b) {
         return trimPage(a).equals(trimPage(b));
     }
@@ -10903,6 +10986,23 @@ public class MainActivity extends Activity {
             });
             tvListCol.addView(row, lpTopW(MP, u(66), i == 0 ? 0 : u(10)));
         }
+        LinearLayout qrow = new LinearLayout(this);
+        qrow.setOrientation(LinearLayout.HORIZONTAL);
+        qrow.setGravity(Gravity.CENTER_VERTICAL);
+        qrow.setPadding(u(24), 0, u(20), 0);
+        qrow.setFocusable(true);
+        qrow.setClickable(true);
+        qrow.setBackground(stateBg(0x0DFFFFFF, T_SURF2, T_SKY, u(18), 0x14FFFFFF));
+        qrow.addView(text("Качество", 24, T_TEXT2, tfCondBold, true),
+                new LinearLayout.LayoutParams(0, WC, 1f));
+        qrow.addView(text(qualityName(videoQuality()), 18, T_SKY2, Typeface.DEFAULT_BOLD, true));
+        qrow.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                tvQualityDialog();
+            }
+        });
+        tvListCol.addView(qrow, lpTopW(MP, u(58), u(18)));
         if (focus == null) focus = tvListCol.getChildAt(0);
         tvListBox.setAlpha(1f);
         tvListBox.setVisibility(View.VISIBLE);
