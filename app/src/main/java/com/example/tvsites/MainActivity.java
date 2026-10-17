@@ -135,16 +135,31 @@ public class MainActivity extends Activity {
     //   "https://example.com/embed/tv/{tmdb}/{season}/{episode}"
     // Може и без редактиране на кода: бутон "Източници" в каталога.
     private static final String[] FILM_SOURCES = {
-    "https://vidsrc.sh/embed/movie/{tmdb}",
-    "https://vidcore.org/embed/movie/{tmdb}",
-    "https://vidlink.pro/movie/{tmdb}",
-    "https://vidspark.to/movie/{tmdb}"
+        // Твоите настоящи източници:
+        "https://vidsrc.sh/embed/movie/{tmdb}",
+        "https://vidcore.org/embed/movie/{tmdb}",
+        "https://vidlink.pro/movie/{tmdb}",
+        "https://vidspark.to/movie/{tmdb}",
+        
+        // Нови добавени източници:
+        "https://multiembed.mov/?video_id={tmdb}&tmdb=1",
+        "https://embed.smashystream.com/playere.php?tmdb={tmdb}",
+        "https://vidify.top/embed/movie/{tmdb}",
+        "https://vidsrc.me/embed/movie/{tmdb}"
     };
+
     private static final String[] TV_SOURCES = {
-    "https://vidsrc.sh/embed/tv/{tmdb}/{season}/{episode}",
-    "https://vidcore.org/embed/tv/{tmdb}/{season}/{episode}",
-    "https://vidlink.pro/tv/{tmdb}/{season}/{episode}",
-    "https://vidspark.to/tv/{tmdb}/{season}/{episode}"
+        // Твоите настоящи източници:
+        "https://vidsrc.sh/embed/tv/{tmdb}/{season}/{episode}",
+        "https://vidcore.org/embed/tv/{tmdb}/{season}/{episode}",
+        "https://vidlink.pro/tv/{tmdb}/{season}/{episode}",
+        "https://vidspark.to/tv/{tmdb}/{season}/{episode}",
+        
+        // Нови добавени източници:
+        "https://multiembed.mov/?video_id={tmdb}&tmdb=1&s={season}&e={episode}",
+        "https://embed.smashystream.com/playere.php?tmdb={tmdb}&season={season}&episode={episode}",
+        "https://vidify.top/embed/tv/{tmdb}/{season}/{episode}",
+        "https://vidsrc.me/embed/tv/{tmdb}/{season}/{episode}"
     };
     // Ключ за TMDB: по-добре го въведи на кутията (репото е публично).
     private static final String TMDB_KEY = "d2c1e02ec9baf771e1ce6b4511a5aea8";
