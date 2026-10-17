@@ -124,15 +124,15 @@ public class MainActivity extends Activity {
     //   "https://example.com/embed/tv/{tmdb}/{season}/{episode}"
     // Може и без редактиране на кода: бутон "Източници" в каталога.
     private static final String[] FILM_SOURCES = {
-    "https://vidcore.org/embed/movie/{tmdb}",
-    "https://embedwave.cc/embed/movie/{tmdb}",
     "https://vidsrc.sh/embed/movie/{tmdb}",
+    "https://vidcore.org/embed/movie/{tmdb}",
+    "https://www.2embed.cc/embed/{tmdb}",
     "https://vidspark.to/movie/{tmdb}"
     };
     private static final String[] TV_SOURCES = {
-    "https://vidcore.org/embed/tv/{tmdb}/{season}/{episode}",
-    "https://embedwave.cc/embed/tv/{tmdb}/{season}/{episode}",
     "https://vidsrc.sh/embed/tv/{tmdb}/{season}/{episode}",
+    "https://vidcore.org/embed/tv/{tmdb}/{season}/{episode}",
+    "https://www.2embed.cc/embedtv/{tmdb}&s={season}&e={episode}",
     "https://vidspark.to/tv/{tmdb}/{season}/{episode}"
     };
     // Ключ за TMDB: по-добре го въведи на кутията (репото е публично).
@@ -745,6 +745,14 @@ public class MainActivity extends Activity {
     @Override
     public void onTrimMemory(int level) {
         super.onTrimMemory(level);
+        if (level >= TRIM_MEMORY_RUNNING_LOW) {
+            // Кориците и отговорите на каталога са само за удобство: при малко памет отиват първи.
+            POSTERS.evictAll();
+            synchronized (TMDB_JSON) {
+                TMDB_JSON.clear();
+                TMDB_AT.clear();
+            }
+        }
         if (level >= TRIM_MEMORY_RUNNING_LOW && web != null) {
             // Сигналите идват на серии: записваме най-много един на половин минута.
             long now = SystemClock.uptimeMillis();
@@ -808,6 +816,18 @@ public class MainActivity extends Activity {
     private void useDefaultSites() {
         sites.clear();
         for (String[] s : DEFAULT_SITES) sites.add(s);
+    }
+
+    private static byte[] readBytes(InputStream in, int limit) throws java.io.IOException {
+        java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream(32 * 1024);
+        byte[] buf = new byte[8192];
+        int n;
+        while ((n = in.read(buf)) > 0) {
+            bo.write(buf, 0, n);
+            if (bo.size() > limit) break;
+        }
+        in.close();
+        return bo.toByteArray();
     }
 
     private static String readAll(InputStream in) throws java.io.IOException {
@@ -2282,6 +2302,9 @@ public class MainActivity extends Activity {
         srcQueue = null;
         srcIdx = 0;
         catReturn = null;
+        cursorTemp = false;
+        scrollMode = false;
+        hovering = false;
         curSiteName = site[0];
         // Личният избор на потребителя (от журнала) е по-важен от настройката по подразбиране.
         String chosen = prefs.getString("mode:" + allowedHost, null);
@@ -2534,7 +2557,7 @@ public class MainActivity extends Activity {
         backToMenu();
         showInfo("Страницата беше спряна",
                 (crashed ? "Страницата се срина." : "Системата спря страницата, защото приставката остана без памет.")
-                        + "\n\nОтвори сайта отново. Ако се повтаря, в Опции (задръж OK) смени "
+                        + "\n\nОтвори сайта отново. Ако се повтаря, в Опции (задръж Назад) смени "
                         + "\"Версия на сайта\" на мобилна - тя е по-лека.");
     }
 
@@ -2562,6 +2585,11 @@ public class MainActivity extends Activity {
     // паметта се освобождава и всеки сайт започва на чисто.
     private void teardownSite() {
         if (catShown()) hideCatalog();
+        root.removeCallbacks(backLong);
+        cursorTemp = false;
+        scrollMode = false;
+        hovering = false;
+        if (cursor != null) cursor.setScroll(false);
         ui.removeCallbacks(rememberTick);
         rememberPage();
         root.removeCallbacks(cacheWatch);
@@ -2615,8 +2643,12 @@ public class MainActivity extends Activity {
     private void updateState() {
         if (cursor != null) {
             boolean can = webActive() || (customView != null && !logShown() && !nativeActive());
-            cursor.setVisibility(can && cursorEnabled && !cursorIdle
+            cursor.setVisibility(can && cursorOn() && (!cursorIdle || scrollMode)
                     ? View.VISIBLE : View.GONE);
+            if (!can && scrollMode) {
+                scrollMode = false;
+                cursor.setScroll(false);
+            }
         }
         // Докато гледаш, екранът не заспива.
         boolean inSite = customView != null || nativeActive()
@@ -2742,7 +2774,7 @@ public class MainActivity extends Activity {
         int n = prefs.getInt("hintCount", 0);
         if (n >= 5) return;
         prefs.edit().putInt("hintCount", n + 1).apply();
-        hintChip.setText("Назад — към менюто        •        Задръж OK — опции и търсене");
+        hintChip.setText("Назад — към менюто    •    Задръж Назад — опции    •    Задръж OK — превъртане");
         hintChip.animate().cancel();
         hintChip.setAlpha(0f);
         hintChip.setVisibility(View.VISIBLE);
@@ -2819,7 +2851,25 @@ public class MainActivity extends Activity {
     private boolean isOwnHost(String host) {
         if (allowedHost == null) return false;
         String base = stripWww(allowedHost);
-        return host.equals(base) || host.endsWith("." + base);
+        if (host.equals(base) || host.endsWith("." + base)) return true;
+        // Източник от каталога: същият сайт е позволен (api.пример.com -> player.пример.com),
+        // както и всеки от зададените източници (основен и резервни).
+        if (srcQueue != null) {
+            if (siteBase(host).equals(siteBase(base))) return true;
+            for (String u : srcQueue) {
+                String h = Uri.parse(u).getHost();
+                if (h != null && (host.equals(h) || siteBase(host).equals(siteBase(h)))) return true;
+            }
+        }
+        return false;
+    }
+
+    // Последните две части на адреса (пример.com), без да различава поддомейните.
+    private static String siteBase(String host) {
+        int last = host.lastIndexOf('.');
+        if (last <= 0) return host;
+        int prev = host.lastIndexOf('.', last - 1);
+        return prev < 0 ? host : host.substring(prev + 1);
     }
 
     private void loadLists() {
@@ -3178,6 +3228,7 @@ public class MainActivity extends Activity {
         // Плочки 4 x 2.
         String modeName = "mobile".equals(curMode) ? "Мобилна" : "desktop".equals(curMode)
                 ? "Десктоп" : "Нормална";
+        final boolean curOn = cursorEnabled || cursorTemp;
         View[] tiles = {
                 optTile("#reload", IC_REFRESH, C_ICON_BG, C_ICON_FG, "Презареди",
                         "Опитай страницата пак", null, 0),
@@ -3185,10 +3236,11 @@ public class MainActivity extends Activity {
                         "Отваря клавиатура", null, 0),
                 optTile("#mode", IC_MONITOR, C_ICON_BG, C_ICON_FG, "Версия на сайта",
                         "Мобилната е по-лека", modeName, 0),
-                optTile("#cursor", IC_CURSOR, cursorEnabled ? C_GREEN_BG : C_ICON_BG,
-                        cursorEnabled ? C_GREEN_FG : C_ICON_FG, "Курсор",
-                        cursorEnabled ? "Стрелките го движат" : "Стрелките движат фокуса",
-                        onOffWord(cursorEnabled, "Включен", "Изключен"), cursorEnabled ? 1 : 0),
+                optTile("#cursor", IC_CURSOR, curOn ? C_GREEN_BG : C_ICON_BG,
+                        curOn ? C_GREEN_FG : C_ICON_FG, "Курсор",
+                        curOn ? "Стрелките го движат" : "Стрелките движат фокуса",
+                        cursorTemp && !cursorEnabled ? "Временно"
+                                : onOffWord(cursorEnabled, "Включен", "Изключен"), curOn ? 1 : 0),
                 optTile("#sleep", IC_MOON, sleepAt != 0 ? C_AMBER_BG : C_ICON_BG,
                         sleepAt != 0 ? C_AMBER_FG : C_ICON_FG, "Таймер за заспиване",
                         "Спира всичко след време", sleepState(), sleepAt != 0 ? 2 : 0),
@@ -3381,7 +3433,13 @@ public class MainActivity extends Activity {
             hideLog();
             if (web != null) web.reload();
         } else if (key.equals("#cursor")) {
-            toggleCursor();
+            if (cursorTemp) {
+                cursorTemp = false;
+                Toast.makeText(this, "Временният курсор е изключен", Toast.LENGTH_SHORT).show();
+                updateState();
+            } else {
+                toggleCursor();
+            }
             refreshLog(0);
         } else if (key.equals("#sleep")) {
             chooseSleep();
@@ -4034,8 +4092,6 @@ public class MainActivity extends Activity {
         if (w <= 0 || h <= 0) return;
         // Колкото по-дълго държиш бутона, толкова по-бързо се движи.
         float step = 24 + Math.min(repeat, 15) * 8;
-        if (repeat == 0 && (keyCode == KeyEvent.KEYCODE_DPAD_UP
-                || keyCode == KeyEvent.KEYCODE_DPAD_DOWN)) step = 56;
         float nx = cx;
         float ny = cy;
         switch (keyCode) {
@@ -4053,6 +4109,8 @@ public class MainActivity extends Activity {
         cx = nx;
         cy = ny;
         updateCursor();
+        // Истинско движение на мишката към страницата: плеърите показват лентата си.
+        hoverAt(customView != null ? customView : web, cx, cy);
         pokeCursor();
     }
 
@@ -4075,30 +4133,74 @@ public class MainActivity extends Activity {
         }, 60);
     }
 
-    // Колелце на мишка на мястото на курсора: превърта списъци (например субтитри).
-    private void wheelAt(View target, float x, float y, float dir) {
+    // Режим превъртане: включва се със задържане на OK. Тогава стрелките нагоре и надолу
+    // въртят под курсора (списък или цялата страница), наляво и надясно движат курсора,
+    // а OK или Назад излизат от режима. Курсорът става оранжев.
+    private boolean scrollMode;
+    // Курсор, включен временно със задържане на OK, когато сайтът е в режим без курсор.
+    private boolean cursorTemp;
+    private boolean hovering;
+    private boolean backLongFired;
+    private final MotionEvent.PointerProperties[] mouseProps = {new MotionEvent.PointerProperties()};
+    private final MotionEvent.PointerCoords[] mouseCoords = {new MotionEvent.PointerCoords()};
+
+    // В цял екран курсорът е винаги на разположение (там няма какво друго да се управлява).
+    private boolean cursorOn() {
+        return cursorEnabled || cursorTemp || customView != null;
+    }
+
+    // Събитие от мишка (движение или колелце) към страница или цял екран.
+    private void mouseEvent(View target, int action, float x, float y, float vscroll) {
         if (target == null) return;
         long t = SystemClock.uptimeMillis();
-        MotionEvent.PointerProperties pp = new MotionEvent.PointerProperties();
+        MotionEvent.PointerProperties pp = mouseProps[0];
         pp.id = 0;
         pp.toolType = MotionEvent.TOOL_TYPE_MOUSE;
-        MotionEvent.PointerCoords pc = new MotionEvent.PointerCoords();
+        MotionEvent.PointerCoords pc = mouseCoords[0];
+        pc.clear();
         pc.x = x;
         pc.y = y;
-        pc.setAxisValue(MotionEvent.AXIS_VSCROLL, dir);
-        MotionEvent ev = MotionEvent.obtain(t, t, MotionEvent.ACTION_SCROLL, 1,
-                new MotionEvent.PointerProperties[]{pp}, new MotionEvent.PointerCoords[]{pc},
+        if (vscroll != 0f) pc.setAxisValue(MotionEvent.AXIS_VSCROLL, vscroll);
+        MotionEvent ev = MotionEvent.obtain(t, t, action, 1, mouseProps, mouseCoords,
                 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_MOUSE, 0);
         target.dispatchGenericMotionEvent(ev);
         ev.recycle();
     }
 
-    // Стрелка при курсор: кратко натискане мести курсора; задържане нагоре/надолу върти
-    // списъка под него (субтитри, качество), като колелце на мишка.
+    private void hoverAt(View target, float x, float y) {
+        mouseEvent(target, hovering ? MotionEvent.ACTION_HOVER_MOVE
+                : MotionEvent.ACTION_HOVER_ENTER, x, y, 0f);
+        hovering = true;
+    }
+
+    private void setScrollMode(boolean on) {
+        scrollMode = on;
+        if (cursor != null) cursor.setScroll(on);
+        Toast.makeText(this, on ? "Превъртане: нагоре и надолу. OK спира."
+                : "Превъртането е спряно", Toast.LENGTH_SHORT).show();
+        pokeCursor();
+    }
+
+    // Задържане на OK: включва/изключва превъртането. Ако сайтът е без курсор, първо
+    // включва курсора временно (за тази страница).
+    private void longOk() {
+        if (!cursorOn()) {
+            cursorTemp = true;
+            pokeCursor();
+            Toast.makeText(this, "Курсорът е включен. Задръж OK за превъртане.",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        setScrollMode(!scrollMode);
+    }
+
     private void cursorArrow(View target, int code, int rep) {
         boolean vert = code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN;
-        if (vert && rep >= 1) {
-            wheelAt(target, cx, cy, code == KeyEvent.KEYCODE_DPAD_UP ? 1f : -1f);
+        if (scrollMode && vert) {
+            // Колкото по-дълго държиш, толкова по-бързо върти.
+            float amount = 1f + Math.min(rep, 10) * 0.25f;
+            mouseEvent(target, MotionEvent.ACTION_SCROLL, cx, cy,
+                    code == KeyEvent.KEYCODE_DPAD_UP ? amount : -amount);
             pokeCursor();
             return;
         }
@@ -4354,28 +4456,35 @@ public class MainActivity extends Activity {
             return true;
         }
 
-        // Видеото на страницата е на цял екран: OK пуска или спира.
-        // Със стрелките се движи курсорът (за лентата с времето, субтитрите и т.н.).
-        // OK: ако курсорът се вижда, натиска къде е той; иначе пуска/спира.
+        // Видеото на страницата е на цял екран. Със стрелките се движи курсорът (за лентата
+        // с времето, субтитрите и т.н.). Кратко OK: натиска там, където е курсорът, а при
+        // скрит курсор пуска/спира. Задържане на OK: превъртане на списък.
         if (customView != null) {
-            if (cursorEnabled && (code == KeyEvent.KEYCODE_DPAD_UP
-                    || code == KeyEvent.KEYCODE_DPAD_DOWN
-                    || code == KeyEvent.KEYCODE_DPAD_LEFT
-                    || code == KeyEvent.KEYCODE_DPAD_RIGHT)) {
+            if (code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN
+                    || code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT) {
                 if (down) cursorArrow(customView, code, e.getRepeatCount());
                 return true;
             }
             if (okKey) {
-                // OK: натиска на мястото на курсора, а при скрит курсор пуска/спира.
                 if (down) {
                     if (e.getRepeatCount() == 0) {
-                        if (cursorEnabled && !cursorIdle) {
+                        okLongHandled = false;
+                    } else if (!okLongHandled) {
+                        okLongHandled = true;
+                        longOk();
+                    }
+                } else {
+                    if (!okLongHandled && !e.isCanceled()) {
+                        if (scrollMode) {
+                            setScrollMode(false);
+                        } else if (!cursorIdle) {
                             tapAt(customView, cx, cy);
                             pokeCursor();
                         } else {
                             togglePlayback();
                         }
                     }
+                    okLongHandled = false;
                 }
                 return true;
             }
@@ -4388,13 +4497,28 @@ public class MainActivity extends Activity {
 
         // Страницата е отворена. С курсор: стрелките го местят, OK е клик.
         // Без курсор: стрелките местят фокуса по страницата, OK натиска.
-        // Дълго задържане на OK (или бутон Menu) отваря менюто на страницата.
+        // Задържане на OK: превъртане (при сайт без курсор - първо временен курсор).
+        // Задържане на Назад (или бутон Menu): менюто на страницата.
         if (webActive()) {
+            if (code == KeyEvent.KEYCODE_BACK) {
+                if (down) {
+                    if (e.getRepeatCount() == 0) {
+                        backLongFired = false;
+                        root.removeCallbacks(backLong);
+                        root.postDelayed(backLong, 700);
+                    }
+                } else {
+                    root.removeCallbacks(backLong);
+                    if (!backLongFired && !e.isCanceled()) handleBack();
+                    backLongFired = false;
+                }
+                return true;
+            }
             if (code == KeyEvent.KEYCODE_MENU) {
                 if (down && e.getRepeatCount() == 0) showLog();
                 return true;
             }
-            if (cursorEnabled) {
+            if (cursorOn()) {
                 switch (code) {
                     case KeyEvent.KEYCODE_DPAD_UP:
                     case KeyEvent.KEYCODE_DPAD_DOWN:
@@ -4413,13 +4537,15 @@ public class MainActivity extends Activity {
                         okLongHandled = false;
                     } else if (!okLongHandled) {
                         okLongHandled = true;
-                        showLog();
+                        longOk();
                     }
                 } else {
                     if (!okLongHandled && !e.isCanceled()) {
-                        if (!cursorEnabled) {
+                        if (!cursorOn()) {
                             sendOkToWeb();
                             checkEditableSoon();
+                        } else if (scrollMode) {
+                            setScrollMode(false);
                         } else if (cursorIdle) {
                             // Ако курсорът е скрит, първото натискане само го показва.
                             pokeCursor();
@@ -4441,35 +4567,53 @@ public class MainActivity extends Activity {
         return super.dispatchKeyEvent(e);
     }
 
+    // Отваря менюто на страницата след задържане на Назад.
+    private final Runnable backLong = new Runnable() {
+        @Override
+        public void run() {
+            if (!webActive()) return;
+            backLongFired = true;
+            showLog();
+        }
+    };
+
+    private void handleBack() {
+        if (scrollMode) {
+            setScrollMode(false);
+            return;
+        }
+        if (catShown() && (web == null || web.getVisibility() != View.VISIBLE)) {
+            if (srcDialog != null && srcDialog.isShowing()) return;
+            if (catUp != null) catUp.run();
+            else hideCatalog();
+            return;
+        }
+        if (nativeActive()) {
+            closeNative(true);
+            return;
+        }
+        if (logShown()) {
+            if (domShown()) backToOptions();
+            else hideLog();
+            return;
+        }
+        if (customView != null) {
+            chromeClient.onHideCustomView();
+            return;
+        }
+        if (web != null && web.getVisibility() == View.VISIBLE) {
+            if (web.canGoBack()) web.goBack();
+            else backToMenu();
+            return;
+        }
+        // В менюто Назад затваря приложението напълно.
+        exitApp();
+    }
+
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
-            if (catShown() && (web == null || web.getVisibility() != View.VISIBLE)) {
-                if (srcDialog != null && srcDialog.isShowing()) return true;
-                if (catUp != null) catUp.run();
-                else hideCatalog();
-                return true;
-            }
-            if (nativeActive()) {
-                closeNative(true);
-                return true;
-            }
-            if (logShown()) {
-                if (domShown()) backToOptions();
-                else hideLog();
-                return true;
-            }
-            if (customView != null) {
-                chromeClient.onHideCustomView();
-                return true;
-            }
-            if (web != null && web.getVisibility() == View.VISIBLE) {
-                if (web.canGoBack()) web.goBack();
-                else backToMenu();
-                return true;
-            }
-            // В менюто Назад затваря приложението напълно.
-            exitApp();
+            handleBack();
             return true;
         }
         return super.onKeyDown(keyCode, event);
@@ -4585,7 +4729,7 @@ public class MainActivity extends Activity {
     private View catTile;        // плочката в менюто (за фокус при връщане)
     private View catMain;        // главният бутон на екрана
     private String catFocusKey;  // коя корица да е на фокус при връщане към списъка
-    private int catGen;          // номер на екрана: закъснели отговори се отхвърлят
+    private volatile int catGen;  // номер на екрана: закъснели отговори се отхвърлят
     private int catRowsLeft;
     private ArrayList<String> srcQueue; // адреси на източниците за отворения сайт
     private int srcIdx;
@@ -4641,15 +4785,7 @@ public class MainActivity extends Activity {
                 new Runnable() {
                     @Override
                     public void run() {
-                        int p = srcPref(tv);
-                        for (int k = 1; k <= SRC_SLOTS; k++) {
-                            int n = (p + k) % SRC_SLOTS;
-                            if (!sourceTpl(tv, n).isEmpty()) {
-                                p = n;
-                                break;
-                            }
-                        }
-                        prefs.edit().putInt(tv ? "tvSrcPref" : "mvSrcPref", p).apply();
+                        // кликът се слага по-долу, за да обновява и надписа
                     }
                 });
         final TextView sub = (TextView) b.getTag();
@@ -4731,6 +4867,7 @@ public class MainActivity extends Activity {
                 String json = null;
                 String err = null;
                 HttpURLConnection c = null;
+                boolean reuse = false;
                 try {
                     boolean bearer = key.length() > 60;
                     String url = "https://api.themoviedb.org/3" + path;
@@ -4746,6 +4883,7 @@ public class MainActivity extends Activity {
                     int rc = c.getResponseCode();
                     if (rc == 200) {
                         json = readAll(c.getInputStream());
+                        reuse = true; // връзката се връща в групата за следваща заявка
                     } else if (rc == 401) {
                         err = "TMDB не прие ключа (код 401). Провери го от бутона Източници.";
                     } else {
@@ -4754,7 +4892,7 @@ public class MainActivity extends Activity {
                 } catch (Exception e) {
                     err = "Няма връзка с TMDB";
                 } finally {
-                    if (c != null) c.disconnect();
+                    if (c != null && !reuse) c.disconnect();
                 }
                 if (json != null) {
                     synchronized (TMDB_JSON) {
@@ -4902,21 +5040,27 @@ public class MainActivity extends Activity {
         submit(NET, new Runnable() {
             @Override
             public void run() {
+                if (gen != catGen) return; // екранът вече е сменен: не свалям напразно
                 Bitmap b = null;
                 HttpURLConnection c = null;
+                boolean reuse = false;
                 try {
                     c = (HttpURLConnection) new URL("https://image.tmdb.org/t/p/" + size + path)
                             .openConnection();
                     c.setConnectTimeout(10000);
                     c.setReadTimeout(10000);
                     if (c.getResponseCode() == 200) {
+                        // Целият отговор се чете и потокът се затваря: връзката се използва
+                        // повторно за следващата корица (без ново договаряне на защитата).
+                        byte[] data = readBytes(c.getInputStream(), 600000);
+                        reuse = true;
                         BitmapFactory.Options o = new BitmapFactory.Options();
                         o.inPreferredConfig = Bitmap.Config.RGB_565; // наполовина памет
-                        b = BitmapFactory.decodeStream(c.getInputStream(), null, o);
+                        b = BitmapFactory.decodeByteArray(data, 0, data.length, o);
                     }
                 } catch (Exception ignored) {
                 } finally {
-                    if (c != null) c.disconnect();
+                    if (c != null && !reuse) c.disconnect();
                 }
                 if (b == null) return;
                 POSTERS.put(key, b);
@@ -5131,13 +5275,6 @@ public class MainActivity extends Activity {
         return h;
     }
 
-    private View catFooter() {
-        TextView f = text("This product uses the TMDB API but is not endorsed or certified by TMDB."
-                + "   Данните са от TMDB.", 14, 0xFF8E9ABD, tfMedium, false);
-        f.setGravity(Gravity.CENTER);
-        return f;
-    }
-
     private View catNoKey() {
         LinearLayout p = new LinearLayout(this);
         p.setOrientation(LinearLayout.VERTICAL);
@@ -5232,7 +5369,7 @@ public class MainActivity extends Activity {
                                 strip.addView(e);
                             }
                         } else {
-                            if (p >= 10) done[0] = true;
+                            if (p >= 5) done[0] = true; // най-много 100 заглавия на ред: пази паметта
                             int base = count[0];
                             for (int i = 0; i < list.size(); i++) {
                                 final CTitle t = list.get(i);
@@ -5891,7 +6028,7 @@ public class MainActivity extends Activity {
                             }
                             return;
                         }
-                        if (p >= 15) done[0] = true;
+                        if (p >= 8) done[0] = true; // най-много около 160 заглавия
                         View focus = null;
                         int base = count[0];
                         for (int i = 0; i < list.size(); i++) {
@@ -6274,6 +6411,11 @@ public class MainActivity extends Activity {
     private static class CursorView extends View {
         private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        void setScroll(boolean on) {
+            fill.setColor(on ? 0xFFF59E0B : 0xCCFFFFFF);
+            invalidate();
+        }
 
         CursorView(Context c) {
             super(c);
