@@ -137,7 +137,7 @@ public class MainActivity extends Activity {
     //   "https://example.com/embed/movie/{tmdb}"
     //   "https://example.com/embed/tv/{tmdb}/{season}/{episode}"
     // Може и без редактиране на кода: бутон "Източници" в каталога.
-private static final String[] FILM_SOURCES = {
+   private static final String[] FILM_SOURCES = {
         "https://vidsrc.sh/embed/movie/{tmdb}",
         "https://vidcore.org/embed/movie/{tmdb}",
         "https://vidlink.pro/movie/{tmdb}",
@@ -152,7 +152,7 @@ private static final String[] FILM_SOURCES = {
         "https://vidspark.to/tv/{tmdb}/{season}/{episode}",
         "https://vidsrc.me/embed/tv/{tmdb}/{season}/{episode}"
     };
-    // Ключ за TMDB: по-добре го въведи на кутията (репото е публично).
+    
     private static final String TMDB_KEY = "d2c1e02ec9baf771e1ce6b4511a5aea8";
 
     // Сайтове по подразбиране: {етикет, адрес, режим, група}. Режим: "" | "mobile" | "desktop"
@@ -4090,8 +4090,11 @@ private static final String[] FILM_SOURCES = {
         DefaultLoadControl load = new DefaultLoadControl.Builder()
                 .setBufferDurationsMs(20000, 40000, 2000, 4000)
                 .build();
+        vTrackSel = new androidx.media3.exoplayer.trackselection.DefaultTrackSelector(this);
+        applyQuality();
         player = new ExoPlayer.Builder(this)
                 .setLoadControl(load)
+                .setTrackSelector(vTrackSel)
                 .setMediaSourceFactory(new DefaultMediaSourceFactory(http))
                 .build();
         player.setVideoSurfaceView(nativeSurface);
@@ -4105,8 +4108,38 @@ private static final String[] FILM_SOURCES = {
         player.prepare();
         player.setPlayWhenReady(true);
 
-        showNativeStatus("Зареждане...  (OK = пауза, ◀ ▶ = превъртане, Назад = към страницата)", 5000);
+        showNativeStatus("Зареждане...  (OK = пауза, ◀ ▶ = превъртане, ▲▼ = качество, Назад = към страницата)", 5000);
         updateState();
+    }
+
+    // Ограничение на качеството на видеото: 0 = оригинал, 1 = до 720p, 2 = до 576p.
+    private androidx.media3.exoplayer.trackselection.DefaultTrackSelector vTrackSel;
+
+    private int videoQuality() {
+        int q = prefs.getInt("vq", 0);
+        return q < 0 || q > 2 ? 0 : q;
+    }
+
+    private void applyQuality() {
+        if (vTrackSel == null) return;
+        try {
+            int q = videoQuality();
+            androidx.media3.exoplayer.trackselection.DefaultTrackSelector.Parameters.Builder b =
+                    vTrackSel.buildUponParameters();
+            if (q == 1) b.setMaxVideoSize(1280, 720);
+            else if (q == 2) b.setMaxVideoSize(1024, 576);
+            else b.clearVideoSizeConstraints();
+            vTrackSel.setParameters(b);
+        } catch (Exception ignored) {
+            // качеството остава каквото е
+        }
+    }
+
+    private void cycleQuality() {
+        int q = (videoQuality() + 1) % 3;
+        prefs.edit().putInt("vq", q).apply();
+        applyQuality();
+        showNativeStatus("Качество: " + (q == 0 ? "оригинал" : q == 1 ? "до 720p" : "до 576p"), 2200);
     }
 
     private void closeNative(boolean backToPage) {
@@ -4613,6 +4646,9 @@ private static final String[] FILM_SOURCES = {
                     boolean play = !player.getPlayWhenReady();
                     player.setPlayWhenReady(play);
                     showNativeStatus(play ? "▶" : "❚❚  Пауза", 1200);
+                } else if (code == KeyEvent.KEYCODE_MENU || code == KeyEvent.KEYCODE_DPAD_UP
+                        || code == KeyEvent.KEYCODE_DPAD_DOWN) {
+                    if (e.getRepeatCount() == 0) cycleQuality();
                 } else if (code == KeyEvent.KEYCODE_DPAD_LEFT
                         || code == KeyEvent.KEYCODE_MEDIA_REWIND) {
                     player.seekBack();
@@ -7958,7 +7994,11 @@ private static final String[] FILM_SOURCES = {
         String site = "", page = "", stream = "", ref = "", org = "", ua = "", mode = "";
         long ok;     // кога последно е тръгнал
         int fails;   // колко пъти поред запазеният поток не е тръгнал
+        // Резервни потоци на същата страница: {адрес, Referer, Origin, User-Agent}.
+        final ArrayList<String[]> alts = new ArrayList<>();
     }
+
+    private static final int TV_MAX_ALTS = 3;
 
     private static class TvChan {
         String id = "", name = "";
@@ -7997,6 +8037,16 @@ private static final String[] FILM_SOURCES = {
                         x.mode = so.optString("m");
                         x.ok = so.optLong("k");
                         x.fails = so.optInt("f");
+                        JSONArray xa = so.optJSONArray("x");
+                        if (xa != null) {
+                            for (int k = 0; k < xa.length() && k < TV_MAX_ALTS; k++) {
+                                JSONObject ao = xa.getJSONObject(k);
+                                String au = ao.optString("u");
+                                if (au.isEmpty()) continue;
+                                x.alts.add(new String[]{au, ao.optString("r"), ao.optString("o"),
+                                        ao.optString("g")});
+                            }
+                        }
                         c.srcs.add(x);
                     }
                 }
@@ -8027,6 +8077,18 @@ private static final String[] FILM_SOURCES = {
                     so.put("m", x.mode);
                     so.put("k", x.ok);
                     so.put("f", x.fails);
+                    if (!x.alts.isEmpty()) {
+                        JSONArray xa = new JSONArray();
+                        for (String[] al : x.alts) {
+                            JSONObject ao = new JSONObject();
+                            ao.put("u", al[0]);
+                            ao.put("r", al[1]);
+                            ao.put("o", al[2]);
+                            ao.put("g", al[3]);
+                            xa.put(ao);
+                        }
+                        so.put("x", xa);
+                    }
                     s.put(so);
                 }
                 o.put("s", s);
@@ -8100,12 +8162,45 @@ private static final String[] FILM_SOURCES = {
             }
         }
         if (t.length() > 28) t = t.substring(0, 28).trim();
-        if (t.length() < 2) {
-            String seg = uri == null ? null : uri.getLastPathSegment();
-            t = seg == null ? "" : seg.replace('-', ' ').replace('_', ' ');
-            if (t.length() > 28) t = t.substring(0, 28).trim();
+        String slug = tvSlugName(uri);
+        String norm = t.toLowerCase(Locale.ROOT).replaceAll("[^a-zа-я0-9]", "");
+        String host = uri == null || uri.getHost() == null ? ""
+                : uri.getHost().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+        boolean generic = norm.length() < 2
+                || (!host.isEmpty() && (host.contains(norm) || norm.contains(host.replace("www", ""))))
+                || norm.contains("телевизия") || norm.contains("канали") || norm.contains("програма");
+        // Заглавието на много сайтове е общо (името на сайта): тогава името идва от адреса.
+        if (generic && !slug.isEmpty()) return slug;
+        return t.isEmpty() ? slug : t;
+    }
+
+    // "btv-comedy-online" -> "bTV Comedy"
+    private static String tvSlugName(Uri uri) {
+        String seg = uri == null ? null : uri.getLastPathSegment();
+        if (seg == null) return "";
+        int dot = seg.indexOf('.');
+        if (dot > 0) seg = seg.substring(0, dot);
+        StringBuilder sb = new StringBuilder();
+        for (String w : seg.toLowerCase(Locale.ROOT).split("[-_+ ]+")) {
+            if (w.isEmpty() || w.equals("online") || w.equals("live") || w.equals("tv")
+                    && sb.length() == 0 || w.equals("gledai") || w.equals("watch")
+                    || w.equals("live-stream") || w.equals("stream") || w.equals("kanal")
+                    || w.equals("channel") || w.equals("onlayn")) {
+                continue;
+            }
+            String out;
+            if (w.equals("btv")) out = "bTV";
+            else if (w.equals("tv") || w.equals("hd") || w.equals("bnt") || w.equals("hbo")
+                    || w.equals("cnn") || w.equals("mtv") || w.equals("rtl") || w.equals("axn")
+                    || w.equals("tlc") || w.equals("amc") || w.equals("bg") || w.equals("nat")
+                    || w.equals("ntv") || w.equals("rt")) out = w.toUpperCase(Locale.ROOT);
+            else out = Character.toUpperCase(w.charAt(0)) + w.substring(1);
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(out);
         }
-        return t;
+        String r = sb.toString().trim();
+        if (r.length() > 28) r = r.substring(0, 28).trim();
+        return r.length() < 2 ? "" : r;
     }
 
     // Страницата на канала може да се отваря сама само ако сочи точно към него
@@ -9148,6 +9243,18 @@ private static final String[] FILM_SOURCES = {
     }
 
     // Записва източника в канала. Същото име = същият канал; същият сайт = заменя стария източник.
+    private static boolean samePage(String a, String b) {
+        return trimPage(a).equals(trimPage(b));
+    }
+
+    private static String trimPage(String u) {
+        String s = u == null ? "" : u;
+        int h = s.indexOf('#');
+        if (h >= 0) s = s.substring(0, h);
+        while (s.endsWith("/")) s = s.substring(0, s.length() - 1);
+        return s.toLowerCase(Locale.ROOT);
+    }
+
     private void tvStoreSource(TvChan c, String name, TvSrc src) {
         if (c == null) c = tvFindByName(name);
         boolean created = false;
@@ -9159,9 +9266,26 @@ private static final String[] FILM_SOURCES = {
             created = true;
         }
         boolean replaced = false;
+        boolean extra = false;
         for (int i = 0; i < c.srcs.size(); i++) {
-            if (c.srcs.get(i).site.equalsIgnoreCase(src.site)) {
-                c.srcs.set(i, src);
+            TvSrc old = c.srcs.get(i);
+            if (old.site.equalsIgnoreCase(src.site)) {
+                if (!old.stream.isEmpty() && !src.stream.isEmpty() && samePage(old.page, src.page)
+                        && !old.stream.equals(src.stream)) {
+                    // Същата страница, друг поток: пази се като резервен за този източник.
+                    boolean have = false;
+                    for (String[] al : old.alts) {
+                        if (al[0].equals(src.stream)) have = true;
+                    }
+                    if (!have && old.alts.size() < TV_MAX_ALTS) {
+                        old.alts.add(new String[]{src.stream, src.ref, src.org, src.ua});
+                    }
+                    extra = true;
+                } else {
+                    src.alts.addAll(old.alts);
+                    src.alts.remove(null);
+                    c.srcs.set(i, src);
+                }
                 replaced = true;
                 break;
             }
@@ -9169,6 +9293,7 @@ private static final String[] FILM_SOURCES = {
         if (!replaced) c.srcs.add(src);
         tvSave();
         String msg = created ? "Запазено: „" + c.name + "“ е канал " + tvChans.size()
+                : extra ? "Добавен резервен поток към " + src.site + " на „" + c.name + "“"
                 : replaced ? "Обновен източник " + src.site + " на „" + c.name + "“"
                 : "Добавен източник " + src.site + " към „" + c.name + "“";
         Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
@@ -9307,7 +9432,8 @@ private static final String[] FILM_SOURCES = {
         if (i < 0 || i >= c.srcs.size()) return;
         TvSrc s = c.srcs.get(i);
         LinearLayout card = tvCard(s.site, s.stream.isEmpty() ? "Само страница, без записан поток"
-                : "Поток: " + shortName(s.stream));
+                : "Поток: " + shortName(s.stream)
+                + (s.alts.isEmpty() ? "" : "  ·  още " + s.alts.size() + " резервни"));
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         View first = null;
@@ -9474,7 +9600,11 @@ private static final String[] FILM_SOURCES = {
             TvSrc s = c.srcs.get(i);
             boolean cap = tvCapturable(s);
             // Поток, който няколко пъти поред не е тръгнал, вероятно е изтекъл: веднага към търсене.
-            if (!s.stream.isEmpty() && (s.fails < 3 || !cap)) tvPlan.add(new int[]{i, TV_DIRECT});
+            if (!s.stream.isEmpty() && (s.fails < 3 || !cap)) tvPlan.add(new int[]{i, TV_DIRECT, -1});
+            // Резервните потоци на същата страница се пробват, преди да се търси или смени сайтът.
+            if (!s.stream.isEmpty()) {
+                for (int k = 0; k < s.alts.size(); k++) tvPlan.add(new int[]{i, TV_DIRECT, k});
+            }
             if (cap) tvPlan.add(new int[]{i, TV_CAPTURE});
         }
         tvStep = -1;
@@ -9565,10 +9695,23 @@ private static final String[] FILM_SOURCES = {
         TvSrc s = tvCur.srcs.get(st[0]);
         tvRefreshWait();
         if (st[1] == TV_DIRECT) {
-            tvWaitText("Пускам запазения поток от " + s.site + "…");
-            tvTryUrl(s.stream, tvHeadersOf(s), tvUaOf(s), st[0], false);
+            int alt = st.length > 2 ? st[2] : -1;
+            if (alt >= 0 && alt < s.alts.size()) {
+                String[] al = s.alts.get(alt);
+                TvSrc t = new TvSrc();
+                t.stream = al[0];
+                t.ref = al[1];
+                t.org = al[2];
+                t.ua = al[3];
+                tvWaitText("Пробвам резервен поток от " + s.site + "…");
+                tvTryUrl(t.stream, tvHeadersOf(t), tvUaOf(t), st[0], false);
+            } else {
+                tvWaitText("Пускам запазения поток от " + s.site + "…");
+                tvTryUrl(s.stream, tvHeadersOf(s), tvUaOf(s), st[0], false);
+            }
         } else {
-            tvWaitText("Търся канала в " + s.site + "…");
+            tvWaitText(s.stream.isEmpty() ? "Търся канала в " + s.site + "…"
+                    : "Запазеният поток не тръгна. Търся нов в " + s.site + "…");
             tvStartCapture(s, st[0]);
         }
     }
@@ -9617,7 +9760,10 @@ private static final String[] FILM_SOURCES = {
                 DefaultLoadControl load = new DefaultLoadControl.Builder()
                         .setBufferDurationsMs(15000, 30000, 1500, 3000)
                         .build();
-                player = new ExoPlayer.Builder(this).setLoadControl(load).build();
+                vTrackSel = new androidx.media3.exoplayer.trackselection.DefaultTrackSelector(this);
+                applyQuality();
+                player = new ExoPlayer.Builder(this).setLoadControl(load)
+                        .setTrackSelector(vTrackSel).build();
                 player.setVideoSurfaceView(nativeSurface);
             }
             // Докато се проверява поток, намерен през страницата, плеърът е без звук:
@@ -9717,7 +9863,8 @@ private static final String[] FILM_SOURCES = {
         }
         if (tvStep >= 0 && tvStep < tvPlan.size() && tvCur != null) {
             int[] st = tvPlan.get(tvStep);
-            if (st[1] == TV_DIRECT) {
+            // Само основният поток се брои за счупен; резервните са допълнение.
+            if (st[1] == TV_DIRECT && (st.length < 3 || st[2] < 0)) {
                 tvCur.srcs.get(st[0]).fails++;
                 tvSave();
             }
@@ -9753,8 +9900,28 @@ private static final String[] FILM_SOURCES = {
         if (player != null) player.setVolume(1f);
         TvSrc s = tvCur.srcs.get(si);
         long now = System.currentTimeMillis();
+        boolean fresh = false;
+        if (!viaCapture && !s.stream.equals(url)) {
+            // Тръгна резервен поток: става основен, старият основен отива в резервните.
+            for (int k = 0; k < s.alts.size(); k++) {
+                String[] al = s.alts.get(k);
+                if (al[0].equals(url)) {
+                    String[] oldMain = {s.stream, s.ref, s.org, s.ua};
+                    s.alts.set(k, oldMain);
+                    s.stream = al[0];
+                    s.ref = al[1];
+                    s.org = al[2];
+                    s.ua = al[3];
+                    break;
+                }
+            }
+        }
         if (viaCapture) {
             // Новият поток се запомня: следващия път тръгва направо.
+            fresh = !s.stream.isEmpty() && !s.stream.equals(url);
+            for (int k = s.alts.size() - 1; k >= 0; k--) {
+                if (s.alts.get(k)[0].equals(url)) s.alts.remove(k);
+            }
             s.stream = url;
             s.ref = nz(props.get("Referer"));
             s.org = nz(props.get("Origin"));
@@ -9770,7 +9937,7 @@ private static final String[] FILM_SOURCES = {
         tvPlayedAt = SystemClock.uptimeMillis();
         logEvent("ТВ: тръгна " + tvCur.name + " от " + s.site + (viaCapture ? " (нов поток)" : ""), true);
         tvWaitHide();
-        tvShowBanner(5000, null);
+        tvShowBanner(5000, fresh ? "Запазеният поток не тръгна. Намерих нов и го записах." : null);
         updateState();
     }
 
