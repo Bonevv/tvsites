@@ -144,10 +144,7 @@ private static final String[] FILM_SOURCES = {
     "https://vidspark.to/movie/{tmdb}",
     "https://vidsrc.me/embed/movie/{tmdb}",
     "https://vsembed.ru/embed/movie/{tmdb}",
-    "https://www.2embed.cc/embed/{tmdb}",
-    "https://multiembed.mov/?video_id={tmdb}&tmdb=1",
     "https://yapgrid.com/embed/movie/{tmdb}",
-    "https://embedmaster.link/movie/{tmdb}"
 };
 
 private static final String[] TV_SOURCES = {
@@ -157,10 +154,7 @@ private static final String[] TV_SOURCES = {
     "https://vidspark.to/tv/{tmdb}/{season}/{episode}",
     "https://vidsrc.me/embed/tv/{tmdb}/{season}/{episode}",
     "https://vsembed.ru/embed/tv/{tmdb}/{season}/{episode}",
-    "https://www.2embed.cc/embedtv/{tmdb}&s={season}&e={episode}",
-    "https://multiembed.mov/?video_id={tmdb}&tmdb=1&s={season}&e={episode}",
     "https://yapgrid.com/embed/tv/{tmdb}/{season}/{episode}",
-    "https://embedmaster.link/tv/{tmdb}/{season}/{episode}"
 };
 
     // Ключ за TMDB: по-добре го въведи на кутията (репото е публично).
