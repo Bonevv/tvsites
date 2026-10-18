@@ -94,7 +94,9 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.AbstractMap;
@@ -103,6 +105,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
@@ -159,6 +162,13 @@ private static final String[] TV_SOURCES = {
 
     // Ключ за TMDB: по-добре го въведи на кутията (репото е публично).
     private static final String TMDB_KEY = "d2c1e02ec9baf771e1ce6b4511a5aea8";
+    // Ключове за субтитрите (по желание; може да се въведат и от бутона Източници).
+    // OpenSubtitles: ключ + потребител + парола; Subdl: ключ; SubSource: ключ. Subs.sab.bz не иска нищо.
+    private static final String SUB_OS_KEY = "";
+    private static final String SUB_OS_USER = "";
+    private static final String SUB_OS_PASS = "";
+    private static final String SUB_SUBDL_KEY = "";
+    private static final String SUB_SUBSOURCE_KEY = "";
 
     // Сайтове по подразбиране: {етикет, адрес, режим, група}. Режим: "" | "mobile" | "desktop"
     private static final String[][] DEFAULT_SITES = {
@@ -3026,7 +3036,7 @@ private static final String[] TV_SOURCES = {
             }
         }
         // Скритото търсене на канал: след кратко изчакване се проверява новият поток.
-        if (kind == 1 && tvCapturing) {
+        if ((kind == 1 || (kind == 2 && tvVod)) && tvCapturing) {
             ui.removeCallbacks(tvCheckRun);
             ui.postDelayed(tvCheckRun, 350);
         }
@@ -4862,7 +4872,8 @@ private static final String[] TV_SOURCES = {
             return;
         }
         if (tvMode) {
-            if (tvListShown()) tvHideListNow();
+            if (tvVod) vodBackPressed();
+            else if (tvListShown()) tvHideListNow();
             else tvLeave(true);
             return;
         }
@@ -4989,6 +5000,7 @@ private static final String[] TV_SOURCES = {
         int id;
         boolean tv;
         String name = "", poster = "", backdrop = "", year = "", overview = "", imdb = "", genres = "";
+        String orig = ""; // оригиналното заглавие (за търсене на субтитри)
         double rating;
         int runtime;
         final ArrayList<int[]> seasons = new ArrayList<>(); // {номер, брой епизоди}
@@ -5240,6 +5252,7 @@ private static final String[] TV_SOURCES = {
                 t.id = o.optInt("id");
                 t.tv = tv;
                 t.name = jstr(o, tv ? "name" : "title");
+                t.orig = jstr(o, tv ? "original_name" : "original_title");
                 t.poster = jstr(o, "poster_path");
                 t.backdrop = jstr(o, "backdrop_path");
                 String d = jstr(o, tv ? "first_air_date" : "release_date");
@@ -5259,6 +5272,8 @@ private static final String[] TV_SOURCES = {
             JSONObject o = new JSONObject(json);
             String ov = jstr(o, "overview");
             if (!ov.isEmpty()) t.overview = ov;
+            String og = jstr(o, t.tv ? "original_name" : "original_title");
+            if (!og.isEmpty()) t.orig = og;
             String p = jstr(o, "poster_path");
             if (!p.isEmpty()) t.poster = p;
             String bd = jstr(o, "backdrop_path");
@@ -5339,6 +5354,7 @@ private static final String[] TV_SOURCES = {
                 t.id = o.optInt("id");
                 t.tv = tv;
                 t.name = jstr(o, tv ? "name" : "title");
+                t.orig = jstr(o, tv ? "original_name" : "original_title");
                 t.poster = jstr(o, "poster_path");
                 t.backdrop = jstr(o, "backdrop_path");
                 String d = jstr(o, tv ? "first_air_date" : "release_date");
@@ -7374,6 +7390,8 @@ private static final String[] TV_SOURCES = {
         }
         if (t.tv) prefs.edit().putString("tvlast:" + t.id, season + ":" + episode).apply();
         String label = t.tv ? t.name + " (С" + season + " Е" + episode + ")" : t.name;
+        // Филмът се търси на заден план през скритата страница и тръгва в родния плеър.
+        if (vodStart(t, season, episode, back)) return;
         hideCatalog();
         openSite(new String[]{label, urls.get(0), "", "Наши филми"});
         srcQueue = urls;
@@ -7920,7 +7938,7 @@ private static final String[] TV_SOURCES = {
         panel.setBackground(pbg);
 
         TextView title = new TextView(this);
-        title.setText("Източници и ключ");
+        title.setText("Източници и ключове");
         title.setTextColor(K_TEXT);
         title.setTextSize(26);
         title.setTypeface(tfSerif);
@@ -7952,6 +7970,24 @@ private static final String[] TV_SOURCES = {
                     prefs.getString("tsrc" + i, ""), true);
             addLabeled(col, "Сериали: " + names[i], tf[i]);
         }
+        TextView subHead = new TextView(this);
+        subHead.setText("Субтитри (по желание). Subs.sab.bz работи без ключ; другите три искат безплатен ключ "
+                + "от сайта си. Празно поле = този източник не се ползва.");
+        subHead.setTextColor(K_TEXT2);
+        subHead.setTextSize(14);
+        subHead.setPadding(dp(4), dp(22), 0, dp(2));
+        col.addView(subHead);
+        final EditText osk = srcField("Api-Key от opensubtitles.com", prefs.getString("osKey", ""), false);
+        addLabeled(col, "OpenSubtitles: ключ (Api-Key)", osk);
+        final EditText osu = srcField("потребител в opensubtitles.com", prefs.getString("osUser", ""), false);
+        addLabeled(col, "OpenSubtitles: потребител", osu);
+        final EditText osp = srcField("парола", prefs.getString("osPass", ""), false);
+        osp.setTransformationMethod(android.text.method.PasswordTransformationMethod.getInstance());
+        addLabeled(col, "OpenSubtitles: парола", osp);
+        final EditText sdk = srcField("ключ от subdl.com", prefs.getString("subdlKey", ""), false);
+        addLabeled(col, "Subdl: ключ", sdk);
+        final EditText ssk = srcField("ключ от subsource.net", prefs.getString("ssKey", ""), false);
+        addLabeled(col, "SubSource: ключ", ssk);
         ScrollView sv = new ScrollView(this);
         sv.addView(col);
         panel.addView(sv, new LinearLayout.LayoutParams(
@@ -7963,6 +7999,11 @@ private static final String[] TV_SOURCES = {
             public void run() {
                 SharedPreferences.Editor ed = prefs.edit();
                 ed.putString("tmdbKey", key.getText().toString().trim());
+                ed.putString("osKey", osk.getText().toString().trim());
+                ed.putString("osUser", osu.getText().toString().trim());
+                ed.putString("osPass", osp.getText().toString().trim());
+                ed.putString("subdlKey", sdk.getText().toString().trim());
+                ed.putString("ssKey", ssk.getText().toString().trim());
                 for (int i = 0; i < SRC_SLOTS; i++) {
                     ed.putString("fsrc" + i, ff[i].getText().toString().trim());
                     ed.putString("tsrc" + i, tf[i].getText().toString().trim());
@@ -9867,9 +9908,13 @@ private static final String[] TV_SOURCES = {
         nativeLayer.setVisibility(View.VISIBLE);
         tvHideListNow();
         tvHideBannerNow();
+        if (tvVod) {
+            subHide();
+            tvDialogClose();
+        }
         tvWaitShow(c);
         updateState();
-        logEvent("ТВ: пускам " + c.name, true);
+        logEvent((tvVod ? "Филм: пускам " : "ТВ: пускам ") + c.name, true);
         tvNextStep();
     }
 
@@ -9959,7 +10004,7 @@ private static final String[] TV_SOURCES = {
                 tvTryUrl(s.stream, tvHeadersOf(s), tvUaOf(s), st[0], false);
             }
         } else {
-            tvWaitText(s.stream.isEmpty() ? "Търся канала в " + s.site + "…"
+            tvWaitText(s.stream.isEmpty() ? (tvVod ? "Търся филма в " : "Търся канала в ") + s.site + "…"
                     : "Запазеният поток не тръгна. Търся нов в " + s.site + "…");
             tvStartCapture(s, st[0]);
         }
@@ -9995,6 +10040,7 @@ private static final String[] TV_SOURCES = {
         final int my = ++tvTryGen;
         tvTrying = true;
         tvTryUrl = url;
+        vodSizeRetry = false;
         final HashMap<String, String> fprops = props;
         final String fua = ua;
         try {
@@ -10006,8 +10052,9 @@ private static final String[] TV_SOURCES = {
             http.setDefaultRequestProperties(props);
             if (player == null) {
                 // По-малък буфер: по-малко памет, а за телевизия няколко секунди стигат.
-                DefaultLoadControl load = new DefaultLoadControl.Builder()
-                        .setBufferDurationsMs(15000, 30000, 1500, 3000)
+                DefaultLoadControl load = (tvVod
+                        ? new DefaultLoadControl.Builder().setBufferDurationsMs(30000, 60000, 2500, 5000)
+                        : new DefaultLoadControl.Builder().setBufferDurationsMs(15000, 30000, 1500, 3000))
                         .build();
                 vTrackSel = new androidx.media3.exoplayer.trackselection.DefaultTrackSelector(this);
                 applyQuality();
@@ -10027,7 +10074,8 @@ private static final String[] TV_SOURCES = {
                     } else if (state == Player.STATE_BUFFERING) {
                         if (tvPlaying) tvBuffering();
                     } else if (state == Player.STATE_ENDED) {
-                        tvTryFailed("потокът свърши");
+                        if (tvVod && tvPlaying) vodEnded();
+                        else tvTryFailed("потокът свърши");
                     }
                 }
 
@@ -10053,7 +10101,7 @@ private static final String[] TV_SOURCES = {
             player.prepare();
             player.setPlayWhenReady(true);
             tvTryTimeoutGen = my;
-            ui.postDelayed(tvTryTimeout, 15000);
+            ui.postDelayed(tvTryTimeout, tvVod ? 25000 : 15000);
         } catch (Exception e) {
             tvTryFailed("грешка " + e.getClass().getSimpleName());
         }
@@ -10145,7 +10193,10 @@ private static final String[] TV_SOURCES = {
             return;
         }
         if (tvCur == null || si < 0 || si >= tvCur.srcs.size()) return;
-        if (viaCapture && player != null) {
+        if (tvVod) {
+            // Филмът е цял, не е на живо, има картина (рекламите и клиповете в страницата са кратки).
+            if (!vodAccept(url, props, ua, si, viaCapture)) return;
+        } else if (viaCapture && player != null) {
             // Рекламата или кратко клипче в страницата не е канал: каналът е на живо.
             boolean live = player.isCurrentMediaItemLive() || player.isCurrentMediaItemDynamic()
                     || player.getDuration() == C.TIME_UNSET;
@@ -10209,10 +10260,17 @@ private static final String[] TV_SOURCES = {
         }
         s.ok = now;
         s.fails = 0;
+        tvPlayedAt = SystemClock.uptimeMillis();
+        if (tvVod) {
+            logEvent("Филм: тръгна " + tvCur.name + " от " + s.site + (viaCapture ? " (хванат поток)" : ""), true);
+            tvWaitHide();
+            vodOnPlaying();
+            updateState();
+            return;
+        }
         tvCur.last = now;
         tvSave();
         prefs.edit().putString("tvlast", tvCur.id).apply();
-        tvPlayedAt = SystemClock.uptimeMillis();
         logEvent("ТВ: тръгна " + tvCur.name + " от " + s.site + (viaCapture ? " (нов поток)" : ""), true);
         tvWaitHide();
         tvShowBanner(5000, fresh ? "Запазеният поток не тръгна. Намерих нов и го записах." : null);
@@ -10243,6 +10301,10 @@ private static final String[] TV_SOURCES = {
         tvRestarts++;
         TvChan c = tvCur;
         if (c == null) return;
+        if (tvVod && player != null) {
+            long p = player.getCurrentPosition();
+            if (p > 0) vodResume = p;
+        }
         int cur = tvSrcNowIdx();
         logEvent("ТВ: връзката се скъса (" + why + "), опит " + tvRestarts);
         if (tvRestarts <= 3) {
@@ -10256,6 +10318,10 @@ private static final String[] TV_SOURCES = {
 
     // Нищо не тръгна: чак сега се отваря самият сайт на основния източник.
     private void tvGiveUp() {
+        if (tvVod) {
+            vodGiveUp(tvFirstSrc);
+            return;
+        }
         final TvChan c = tvCur;
         int idx = tvFirstSrc;
         tvLeave(false);
@@ -10293,6 +10359,7 @@ private static final String[] TV_SOURCES = {
     // Излиза от гледането: спира всичко. showPanel връща към списъка с канали.
     private void tvLeave(boolean showPanel) {
         boolean was = tvMode;
+        vodCleanup(); // преди плеърът да се затвори: пази се мястото във филма
         tvMode = false;
         ui.removeCallbacks(tvZapGo);
         ui.removeCallbacks(tvBannerHideRun);
@@ -10360,7 +10427,7 @@ private static final String[] TV_SOURCES = {
         // Ако страницата не съобщи, че е готова (реклами, които висят), "буткането" започва пак.
         ui.removeCallbacks(tvPokeFallback);
         ui.postDelayed(tvPokeFallback, 8000);
-        tvArmStep(25000);
+        tvArmStep(tvVod ? 32000 : 25000);
     }
 
     private final Runnable tvPokeFallback = new Runnable() {
@@ -10542,6 +10609,16 @@ private static final String[] TV_SOURCES = {
             if (cand == null) {
                 cand = first;
                 h = firstH;
+            }
+        }
+        if (cand == null && tvVod) {
+            synchronized (mediaFiles) {
+                for (Map.Entry<String, HashMap<String, String>> en : mediaFiles.entrySet()) {
+                    if (tvBad.contains(en.getKey())) continue;
+                    cand = en.getKey();
+                    h = en.getValue();
+                    break;
+                }
             }
         }
         if (cand == null) return;
@@ -10765,6 +10842,7 @@ private static final String[] TV_SOURCES = {
         ui.removeCallbacks(tvBannerHideRun);
         tvHideNow(tvBanner);
         tvHideNow(tvKeys);
+        vodHideBarNow();
     }
 
     private void tvHideListNow() {
@@ -10780,7 +10858,11 @@ private static final String[] TV_SOURCES = {
         tvWait.animate().cancel();
         tvWait.setAlpha(1f);
         tvWait.setVisibility(View.VISIBLE);
-        tvWaitNo.setText("Канал " + (tvChans.indexOf(c) + 1));
+        if (tvVod && vodT != null) {
+            tvWaitNo.setText(vodT.tv ? "Сезон " + vodSeason + "  ·  Епизод " + vodEpisode : "Филм");
+        } else {
+            tvWaitNo.setText("Канал " + (tvChans.indexOf(c) + 1));
+        }
         tvWaitName.setText(c.name);
         ts(tvWaitName, c.name.length() > 22 ? 64 : c.name.length() > 14 ? 84 : 110);
         tvWaitMsg.setText("");
@@ -10798,6 +10880,10 @@ private static final String[] TV_SOURCES = {
     // По един етикет за всеки източник: чака, търси или не е тръгнал.
     private void tvRefreshWait() {
         if (tvWaitChips == null || tvCur == null) return;
+        if (tvVod) {
+            vodRefreshWait();
+            return;
+        }
         tvWaitChips.removeAllViews();
         int n = tvCur.srcs.size();
         int cur = tvStep >= 0 && tvStep < tvPlan.size() ? tvPlan.get(tvStep)[0] : -1;
@@ -10864,6 +10950,10 @@ private static final String[] TV_SOURCES = {
 
     // Табелата с номера и името на канала (и бутоните за управление над нея).
     private void tvShowBanner(long hideMs, String status) {
+        if (tvVod) {
+            vodShowBar(hideMs, status);
+            return;
+        }
         if (tvBanner == null || tvCur == null) return;
         tvFillBanner(tvCur, status != null ? status : tvLine());
         // Подсказки само за това, което има смисъл: един канал не се сменя, един източник също.
@@ -10887,6 +10977,7 @@ private static final String[] TV_SOURCES = {
         ui.removeCallbacks(tvBannerHideRun);
         tvFadeOut(tvBanner);
         tvFadeOut(tvKeys);
+        if (tvVod) vodHideBar();
     }
 
     // Смяна на канала със стрелките: табелата показва избрания веднага, а пускането
@@ -11016,6 +11107,7 @@ private static final String[] TV_SOURCES = {
 
     // Клавиши, докато се гледа канал (списъкът върху видеото сам си взима стрелките и OK).
     private boolean tvKey(KeyEvent e) {
+        if (tvVod) return vodKey(e);
         int code = e.getKeyCode();
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
         // Задържане на OK: избор на качество (първото натискане е отворило списъка с канали).
@@ -11077,6 +11169,2284 @@ private static final String[] TV_SOURCES = {
         return true;
     }
 
+
+    // ====================== НАШИ ФИЛМИ ПРЕЗ СКРИТАТА СТРАНИЦА ======================
+    // Филмът или епизодът се търси на заден план в адресите от „Източници“ (същата скрита страница
+    // като при каналите), хваща се истинският поток и тръгва в родния плеър - без реклами.
+    // Ако един източник не даде поток, се пробва следващият; чак накрая се отваря самият сайт.
+
+    private static final long VOD_MIN_MS = 8 * 60 * 1000L; // по-кратко от това е реклама или клип
+
+    private boolean tvVod;                  // гледа се филм (а не канал)
+    private CTitle vodT;
+    private int vodSeason, vodEpisode;
+    private ArrayList<String> vodUrls = new ArrayList<>();
+    private Runnable vodBack;               // връща към каталога
+    private long vodResume;                 // откъде да продължи след скъсване или смяна на източника
+    private String vodKey = "";             // ключ за запомненото място
+    private long vodBackAt;
+    private boolean vodSizeRetry;
+    private long vodSaveAt;
+    private long vodPending = -1;           // къде е насочено превъртането (докато не се изпълни)
+    private boolean vodOkWasPlaying;
+    private boolean vodDone;                // филмът е изгледан до края
+    private String vodStatus;
+
+    private FrameLayout vodBar;
+    private TextView vodBarTitle, vodBarStatus, vodBarTime;
+    private VodProgress vodProg;
+    private View vodChipSubs;
+
+    // Лента за напредъка: пътека, заредено и изиграно.
+    private static class VodProgress extends View {
+        private float frac, buf;
+        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        VodProgress(Context c) {
+            super(c);
+        }
+
+        void set(float f, float b) {
+            frac = Math.max(0f, Math.min(1f, f));
+            buf = Math.max(frac, Math.min(1f, b));
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(Canvas c) {
+            float w = getWidth();
+            float h = getHeight();
+            float th = h * 0.36f;
+            float top = (h - th) / 2f;
+            float r = th / 2f;
+            p.setColor(0x33FFFFFF);
+            c.drawRoundRect(0, top, w, top + th, r, r, p);
+            p.setColor(0x66FFFFFF);
+            c.drawRoundRect(0, top, Math.max(th, w * buf), top + th, r, r, p);
+            p.setColor(T_SKY);
+            c.drawRoundRect(0, top, Math.max(th, w * frac), top + th, r, r, p);
+            p.setColor(Color.WHITE);
+            c.drawCircle(Math.max(h * 0.3f, Math.min(w - h * 0.3f, w * frac)), h / 2f, h * 0.3f, p);
+        }
+    }
+
+    // Пуска филма или епизода. false = не може (няма адреси): тогава се продължава постарому.
+    private boolean vodStart(CTitle t, int season, int episode, Runnable back) {
+        if (isFinishing()) return false;
+        ArrayList<String> urls = sourceUrls(t, season, episode);
+        if (urls.isEmpty()) return false;
+        TvChan c = new TvChan();
+        c.id = "vod";
+        c.name = t.name;
+        for (String u : urls) {
+            TvSrc s = new TvSrc();
+            s.site = hostOf(u);
+            s.page = u;
+            c.srcs.add(s);
+        }
+        vodT = t;
+        vodSeason = season;
+        vodEpisode = episode;
+        vodUrls = urls;
+        vodBack = back;
+        vodKey = "vp:" + (t.tv ? "t" : "m") + t.id + (t.tv ? ":" + season + ":" + episode : "");
+        vodResume = prefs.getLong(vodKey, 0);
+        vodBackAt = 0;
+        vodDone = false;
+        vodPending = -1;
+        vodSizeRetry = false;
+        vodStatus = null;
+        hideCatalog();
+        tvVod = true;
+        subReset();
+        tvTuneUser(c, 0);
+        return true;
+    }
+
+    private String vodTitleLine() {
+        if (vodT == null) return "";
+        return vodT.tv ? vodT.name + "  ·  С" + vodSeason + " Е" + vodEpisode : vodT.name;
+    }
+
+    // Приключва гледането на филма: чисти всичко (вика се от tvLeave, преди плеърът да се затвори).
+    private void vodCleanup() {
+        if (!tvVod) return;
+        if (tvPlaying && player != null) vodSavePos(player.getCurrentPosition());
+        tvVod = false;
+        ui.removeCallbacks(vodTickRun);
+        ui.removeCallbacks(vodSeekGo);
+        ui.removeCallbacks(vodBarHideRun);
+        vodPending = -1;
+        vodT = null;
+        vodUrls = new ArrayList<>();
+        vodBack = null;
+        vodStatus = null;
+        vodHideBarNow();
+        subCleanup();
+    }
+
+    // Нищо не тръгна: чак сега се отваря самият сайт на избрания източник (както преди).
+    private void vodGiveUp(int idx) {
+        final ArrayList<String> urls = vodUrls;
+        final Runnable back = vodBack;
+        final String label = vodT != null && vodT.tv
+                ? vodT.name + " (С" + vodSeason + " Е" + vodEpisode + ")"
+                : (vodT != null ? vodT.name : "Филм");
+        tvLeave(false);
+        if (urls == null || urls.isEmpty()) {
+            if (back != null) back.run();
+            else backToMenu();
+            return;
+        }
+        if (idx < 0 || idx >= urls.size()) idx = 0;
+        logEvent("Филм: не успях да го намеря сам, отварям сайта " + hostOf(urls.get(idx)), true);
+        Toast.makeText(this, "„" + label + "“ не тръгна сам. Отварям сайта.", Toast.LENGTH_LONG).show();
+        openSite(new String[]{label, urls.get(idx), "", "Наши филми"});
+        srcQueue = urls;
+        srcIdx = idx;
+        catReturn = back;
+        srcArm();
+    }
+
+    // Излиза от филма и се връща в каталога.
+    private void vodExit() {
+        Runnable b = vodBack;
+        tvLeave(false);
+        if (b != null) b.run();
+        else backToMenu();
+    }
+
+    private void vodBackPressed() {
+        if (!tvPlaying || vodDone) {
+            vodExit();
+            return;
+        }
+        long now = SystemClock.uptimeMillis();
+        if (now - vodBackAt < 3000) {
+            vodExit();
+            return;
+        }
+        vodBackAt = now;
+        vodShowBar(3000, "Натисни „Назад“ още веднъж за изход");
+    }
+
+    // Изречение върху екрана: върху лентата, докато върви филмът, иначе върху екрана за чакане.
+    private void vodSay(String msg) {
+        if (tvPlaying) vodShowBar(3000, msg);
+        else tvWaitText(msg);
+    }
+
+    // ---- проверка на намерения поток, продължаване, край ----
+
+    // Дали намереният поток прилича на цял филм: не е на живо, има дължина и картина.
+    private boolean vodAccept(final String url, final HashMap<String, String> props, final String ua,
+                              final int si, final boolean viaCapture) {
+        if (player == null) return false;
+        long d = player.getDuration();
+        if (player.isCurrentMediaItemLive() || player.isCurrentMediaItemDynamic()) {
+            tvTryFailed("на живо, а не филм");
+            return false;
+        }
+        if (d == C.TIME_UNSET || d < VOD_MIN_MS) {
+            tvTryFailed(d == C.TIME_UNSET ? "без дължина" : "кратко видео (" + (d / 1000) + " сек.)");
+            return false;
+        }
+        VideoSize vs = player.getVideoSize();
+        if (vs == null || vs.width <= 0) {
+            if (!vodSizeRetry) {
+                // Размерът на картината може да се получи малко след готовността.
+                vodSizeRetry = true;
+                final int my = tvTryGen;
+                ui.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (my != tvTryGen || !tvVod || tvPlaying) return;
+                        tvReady(url, props, ua, si, viaCapture);
+                    }
+                }, 1200);
+                return false;
+            }
+            tvTryFailed("няма картина");
+            return false;
+        }
+        return true;
+    }
+
+    // Картината на филма тръгна.
+    private void vodOnPlaying() {
+        String note = null;
+        long dur = player != null ? player.getDuration() : C.TIME_UNSET;
+        if (player != null && vodResume > 20000
+                && (dur == C.TIME_UNSET || vodResume < dur - 90000)) {
+            player.seekTo(vodResume);
+            note = "Продължавам от " + vodFmt(vodResume) + "  ·  меню → „От началото“";
+        }
+        vodResume = 0;
+        vodSizeRetry = false;
+        ui.removeCallbacks(vodTickRun);
+        vodSaveAt = SystemClock.uptimeMillis();
+        ui.postDelayed(vodTickRun, 250);
+        subOnPlaying();
+        vodShowBar(note != null ? 6000 : 5000, note);
+    }
+
+    // Потокът свърши. Ако е близо до края - филмът е гледан; иначе е скъсване.
+    private void vodEnded() {
+        long dur = player != null ? player.getDuration() : C.TIME_UNSET;
+        long pos = player != null ? player.getCurrentPosition() : 0;
+        if (dur != C.TIME_UNSET && dur - pos > 90000) {
+            tvDropped("потокът прекъсна");
+            return;
+        }
+        if (!vodKey.isEmpty()) prefs.edit().remove(vodKey).apply();
+        ui.removeCallbacks(vodTickRun);
+        vodDone = true;
+        subHide();
+        int[] nx = vodNextEp();
+        if (nx != null) {
+            vodNextDialog(nx);
+        } else {
+            vodShowBar(0, "Край  ·  Назад — към каталога");
+        }
+    }
+
+    // Кой е следващият епизод (в същия сезон или първият на следващия), или null.
+    private int[] vodNextEp() {
+        if (vodT == null || !vodT.tv) return null;
+        for (int[] se : vodT.seasons) {
+            if (se[0] == vodSeason && vodEpisode < se[1]) return new int[]{vodSeason, vodEpisode + 1};
+        }
+        int best = -1;
+        for (int[] se : vodT.seasons) {
+            if (se[0] > vodSeason && se[1] > 0 && (best < 0 || se[0] < best)) best = se[0];
+        }
+        return best > 0 ? new int[]{best, 1} : null;
+    }
+
+    private void vodNextDialog(final int[] nx) {
+        LinearLayout card = tvCard("Край на епизода",
+                "Следва сезон " + nx[0] + ", епизод " + nx[1] + ".");
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout first = tvChoice(null, "Пусни следващия", "С" + nx[0] + " Е" + nx[1], 1, new Runnable() {
+            @Override
+            public void run() {
+                tvDialogClose();
+                vodPlayNext(nx);
+            }
+        });
+        list.addView(first, lpTopW(MP, u(62), 0));
+        list.addView(tvChoice(null, "Към каталога", null, 0, new Runnable() {
+            @Override
+            public void run() {
+                tvDialogClose();
+                vodExit();
+            }
+        }), lpTopW(MP, u(62), u(10)));
+        card.addView(list, lpTopW(MP, WC, u(24)));
+        tvDialogShow(card, 700, first);
+    }
+
+    private void vodPlayNext(int[] nx) {
+        final CTitle t = vodT;
+        final Runnable back = vodBack;
+        tvLeave(false);
+        if (t == null) return;
+        prefs.edit().putString("tvlast:" + t.id, nx[0] + ":" + nx[1]).apply();
+        if (!vodStart(t, nx[0], nx[1], back)) {
+            if (back != null) back.run();
+            else backToMenu();
+        }
+    }
+
+    private void vodSavePos(long pos) {
+        if (vodKey.isEmpty() || player == null) return;
+        long dur = player.getDuration();
+        SharedPreferences.Editor ed = prefs.edit();
+        if (dur != C.TIME_UNSET && dur > 0 && pos > dur - 180000) ed.remove(vodKey);
+        else if (pos > 90000) ed.putLong(vodKey, pos);
+        else return;
+        ed.apply();
+    }
+
+    private final Runnable vodTickRun = new Runnable() {
+        @Override
+        public void run() {
+            if (!tvVod || !tvPlaying || player == null) return;
+            long pos = player.getCurrentPosition();
+            subTick(pos);
+            if (vodBar != null && vodBar.getVisibility() == View.VISIBLE) vodUpdateBar(vodPending >= 0 ? vodPending : pos);
+            long now = SystemClock.uptimeMillis();
+            if (now - vodSaveAt > 20000) {
+                vodSaveAt = now;
+                vodSavePos(pos);
+            }
+            ui.postDelayed(this, 250);
+        }
+    };
+
+    // ---- превъртане, пауза ----
+
+    private void vodSeekBy(long delta) {
+        if (player == null || !tvPlaying) return;
+        long dur = player.getDuration();
+        long base = vodPending >= 0 ? vodPending : player.getCurrentPosition();
+        long t = base + delta;
+        if (t < 0) t = 0;
+        if (dur != C.TIME_UNSET && dur > 0 && t > dur - 2000) t = Math.max(0, dur - 2000);
+        vodPending = t;
+        vodShowBar(4000, null);
+        vodUpdateBar(t);
+        ui.removeCallbacks(vodSeekGo);
+        ui.postDelayed(vodSeekGo, 450);
+    }
+
+    private final Runnable vodSeekGo = new Runnable() {
+        @Override
+        public void run() {
+            long t = vodPending;
+            vodPending = -1;
+            if (t >= 0 && player != null && tvVod && tvPlaying) {
+                player.seekTo(t);
+                subSeeked();
+                if (vodDone) {
+                    // Превъртяно е след края: следенето на времето започва наново.
+                    vodDone = false;
+                    ui.removeCallbacks(vodTickRun);
+                    ui.postDelayed(vodTickRun, 250);
+                }
+            }
+        }
+    };
+
+    private void vodTogglePause() {
+        if (player == null || !tvPlaying) return;
+        boolean play = !player.getPlayWhenReady();
+        player.setPlayWhenReady(play);
+        vodShowBar(play ? 2500 : 0, play ? null : "❚❚  Пауза");
+    }
+
+    // Следващ (1) или предишен (-1) източник. Мястото във филма се запазва.
+    private void vodSkipSource(int dir) {
+        TvChan c = tvCur;
+        if (c == null) return;
+        int n = c.srcs.size();
+        if (n < 2) {
+            vodSay("Има само един източник");
+            return;
+        }
+        if (tvPlaying && player != null) {
+            long p = player.getCurrentPosition();
+            if (p > 0) vodResume = p;
+        }
+        int next = ((tvSrcNowIdx() + dir) % n + n) % n;
+        tvTuneUser(c, next);
+    }
+
+    // Клавиши, докато върви или се чака филм.
+    private boolean vodKey(KeyEvent e) {
+        int code = e.getKeyCode();
+        boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
+        if (code == KeyEvent.KEYCODE_VOLUME_UP || code == KeyEvent.KEYCODE_VOLUME_DOWN
+                || code == KeyEvent.KEYCODE_VOLUME_MUTE) {
+            return super.dispatchKeyEvent(e);
+        }
+        if (!down) return true;
+        int rep = e.getRepeatCount();
+        boolean okKey = code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER
+                || code == KeyEvent.KEYCODE_NUMPAD_ENTER;
+        if (!tvPlaying || player == null) {
+            // Чака се: OK отваря самия сайт, ◀ ▶ сменят източника.
+            if (rep != 0) return true;
+            if (okKey) {
+                if (tvCapturing && tvCapSrc >= 0) tvFirstSrc = tvCapSrc;
+                tvGiveUp();
+            } else if (code == KeyEvent.KEYCODE_DPAD_LEFT) {
+                vodSkipSource(-1);
+            } else if (code == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                vodSkipSource(1);
+            }
+            return true;
+        }
+        if (okKey) {
+            if (rep == 0) {
+                vodOkWasPlaying = player.getPlayWhenReady();
+                vodTogglePause();
+            } else if (rep == 10) {
+                // Задържане на OK: меню (паузата от първото натискане се връща).
+                player.setPlayWhenReady(vodOkWasPlaying);
+                vodMenu();
+            }
+            return true;
+        }
+        switch (code) {
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+            case KeyEvent.KEYCODE_DPAD_RIGHT: {
+                if (rep != 0 && rep % 6 != 0) break;
+                long step = rep < 12 ? 10000 : rep < 36 ? 30000 : 60000;
+                vodSeekBy(code == KeyEvent.KEYCODE_DPAD_LEFT ? -step : step);
+                break;
+            }
+            case KeyEvent.KEYCODE_MEDIA_REWIND:
+                vodSeekBy(-30000);
+                break;
+            case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
+                vodSeekBy(30000);
+                break;
+            case KeyEvent.KEYCODE_DPAD_UP:
+                if (rep == 0) subDialog();
+                break;
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+            case KeyEvent.KEYCODE_MENU:
+                if (rep == 0) vodMenu();
+                break;
+            case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
+            case KeyEvent.KEYCODE_MEDIA_PLAY:
+            case KeyEvent.KEYCODE_MEDIA_PAUSE:
+                if (rep == 0) vodTogglePause();
+                break;
+            default:
+                break;
+        }
+        return true;
+    }
+
+    // ---- меню по време на филма ----
+
+    private void vodMenu() {
+        if (!tvVod || player == null || vodT == null) return;
+        vodHideBarNow();
+        LinearLayout card = tvCard(vodT.name, vodT.tv ? "Сезон " + vodSeason + "  ·  епизод " + vodEpisode : null);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout first = tvChoice(null, "Субтитри", subShort(), 1, new Runnable() {
+            @Override
+            public void run() {
+                subDialog();
+            }
+        });
+        list.addView(first, lpTopW(MP, u(62), 0));
+        list.addView(tvChoice(null, "Синхрон на субтитрите", subShiftText(), 0, new Runnable() {
+            @Override
+            public void run() {
+                subSyncDialog();
+            }
+        }), lpTopW(MP, u(62), u(10)));
+        list.addView(tvChoice(null, "Размер на субтитрите", subSizeName(), 0, new Runnable() {
+            @Override
+            public void run() {
+                subCycleSize();
+                vodMenu();
+            }
+        }), lpTopW(MP, u(62), u(10)));
+        list.addView(tvChoice(null, "Качество на видеото", qualityName(videoQuality()), 0, new Runnable() {
+            @Override
+            public void run() {
+                tvQualityDialog();
+            }
+        }), lpTopW(MP, u(62), u(10)));
+        int n = tvCur != null ? tvCur.srcs.size() : 0;
+        if (n > 1) {
+            list.addView(tvChoice(null, "Друг източник", (tvSrcNowIdx() + 1) + " от " + n, 0, new Runnable() {
+                @Override
+                public void run() {
+                    tvDialogClose();
+                    vodSkipSource(1);
+                }
+            }), lpTopW(MP, u(62), u(10)));
+        }
+        list.addView(tvChoice(null, "От началото", null, 0, new Runnable() {
+            @Override
+            public void run() {
+                tvDialogClose();
+                if (player != null) {
+                    player.seekTo(0);
+                    subSeeked();
+                }
+                if (!vodKey.isEmpty()) prefs.edit().remove(vodKey).apply();
+            }
+        }), lpTopW(MP, u(62), u(10)));
+        list.addView(tvChoice(null, "Затвори", null, 0, new Runnable() {
+            @Override
+            public void run() {
+                tvDialogClose();
+            }
+        }), lpTopW(MP, u(62), u(10)));
+        card.addView(list, lpTopW(MP, WC, u(24)));
+        tvDialogShow(card, 760, first);
+    }
+
+    // ---- лентата долу: заглавие, време, бутони ----
+
+    private static String vodFmt(long ms) {
+        if (ms < 0 || ms == C.TIME_UNSET) return "--:--";
+        long s = ms / 1000;
+        long h = s / 3600;
+        long m = s / 60 % 60;
+        long ss = s % 60;
+        return h > 0 ? String.format(Locale.US, "%d:%02d:%02d", h, m, ss)
+                : String.format(Locale.US, "%02d:%02d", m, ss);
+    }
+
+    private void vodBuildBar() {
+        if (vodBar != null || nativeLayer == null) return;
+        vodBar = new FrameLayout(this);
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(u(34), u(24), u(34), u(22));
+        GradientDrawable bb = new GradientDrawable();
+        bb.setColor(0xDB050A18);
+        bb.setCornerRadius(u(26));
+        bb.setStroke(Math.max(1, u(1)), 0x24FFFFFF);
+        col.setBackground(bb);
+
+        LinearLayout r1 = new LinearLayout(this);
+        r1.setOrientation(LinearLayout.HORIZONTAL);
+        r1.setGravity(Gravity.CENTER_VERTICAL);
+        vodBarTitle = text("", 38, T_TEXT, tfCondBold, true);
+        r1.addView(vodBarTitle, new LinearLayout.LayoutParams(0, WC, 1f));
+        vodBarStatus = text("", 19, T_SKY2, tfMedium, true);
+        LinearLayout.LayoutParams stl = lp(WC, WC);
+        stl.leftMargin = u(20);
+        r1.addView(vodBarStatus, stl);
+        col.addView(r1, lp(MP, WC));
+
+        vodProg = new VodProgress(this);
+        col.addView(vodProg, lpTopW(MP, u(30), u(10)));
+
+        LinearLayout r3 = new LinearLayout(this);
+        r3.setOrientation(LinearLayout.HORIZONTAL);
+        r3.setGravity(Gravity.CENTER_VERTICAL);
+        vodBarTime = text("", 24, T_TEXT, tfCondBold, true);
+        r3.addView(vodBarTime, new LinearLayout.LayoutParams(0, WC, 1f));
+        String[][] ks = {{"OK", "пауза"}, {"◀ ▶", "превърти"}, {"▲", "субтитри"}, {"▼", "меню"}};
+        for (int i = 0; i < ks.length; i++) {
+            LinearLayout.LayoutParams kl = lp(WC, u(38));
+            kl.leftMargin = u(10);
+            View chip = tvKeyChip(ks[i][0], ks[i][1]);
+            if (i == 2) vodChipSubs = chip;
+            r3.addView(chip, kl);
+        }
+        col.addView(r3, lpTopW(MP, WC, u(8)));
+
+        vodBar.addView(col, new FrameLayout.LayoutParams(MP, WC));
+        FrameLayout.LayoutParams bl = new FrameLayout.LayoutParams(MP, WC, Gravity.BOTTOM);
+        bl.leftMargin = u(56);
+        bl.rightMargin = u(56);
+        bl.bottomMargin = u(44);
+        vodBar.setVisibility(View.GONE);
+        nativeLayer.addView(vodBar, bl);
+    }
+
+    private void vodFillBar() {
+        if (vodBar == null) return;
+        vodBarTitle.setText(vodTitleLine());
+        boolean paused = player != null && !player.getPlayWhenReady();
+        String st = vodStatus;
+        if (st == null || st.isEmpty()) st = paused ? "❚❚  Пауза" : subStatus();
+        vodBarStatus.setText(st);
+        if (player != null) vodUpdateBar(vodPending >= 0 ? vodPending : player.getCurrentPosition());
+    }
+
+    private void vodUpdateBar(long pos) {
+        if (vodBar == null || player == null) return;
+        long dur = player.getDuration();
+        float f = 0f;
+        float b = 0f;
+        if (dur != C.TIME_UNSET && dur > 0) {
+            f = pos / (float) dur;
+            b = player.getBufferedPosition() / (float) dur;
+        }
+        vodProg.set(f, b);
+        vodBarTime.setText(vodFmt(pos) + "  /  " + vodFmt(dur));
+    }
+
+    private final Runnable vodBarHideRun = new Runnable() {
+        @Override
+        public void run() {
+            if (player != null && !player.getPlayWhenReady() && tvPlaying) return; // на пауза лентата стои
+            vodHideBar();
+        }
+    };
+
+    // Показва лентата. hideMs = 0: стои, докато не бъде скрита (пауза, зареждане).
+    private void vodShowBar(long hideMs, String status) {
+        if (!tvVod || isFinishing()) return;
+        vodBuildBar();
+        if (vodBar == null) return;
+        vodStatus = status;
+        vodFillBar();
+        tvFadeIn(vodBar);
+        subLift(true);
+        ui.removeCallbacks(vodBarHideRun);
+        if (hideMs > 0) ui.postDelayed(vodBarHideRun, hideMs);
+    }
+
+    private void vodHideBar() {
+        ui.removeCallbacks(vodBarHideRun);
+        vodStatus = null;
+        if (vodBar != null) tvFadeOut(vodBar);
+        subLift(false);
+    }
+
+    private void vodHideBarNow() {
+        ui.removeCallbacks(vodBarHideRun);
+        if (vodBar != null) tvHideNow(vodBar);
+        subLift(false);
+    }
+
+    // Екранът за чакане на филма: един етикет за източника, който се пробва, и броячът.
+    private void vodRefreshWait() {
+        if (tvWaitChips == null || tvCur == null) return;
+        tvWaitChips.removeAllViews();
+        int n = tvCur.srcs.size();
+        int cur = tvStep >= 0 && tvStep < tvPlan.size() ? tvPlan.get(tvStep)[0] : 0;
+        if (cur < 0 || cur >= n) cur = 0;
+        String[] words = {tvCur.srcs.get(cur).site + "  ·  търся потока",
+                "източник " + (cur + 1) + " от " + n};
+        for (int i = 0; i < words.length; i++) {
+            LinearLayout chip = new LinearLayout(this);
+            chip.setOrientation(LinearLayout.HORIZONTAL);
+            chip.setGravity(Gravity.CENTER_VERTICAL);
+            chip.setPadding(u(20), 0, u(22), 0);
+            GradientDrawable g = new GradientDrawable();
+            g.setCornerRadius(u(22));
+            if (i == 0) {
+                g.setColor(0x1F38BDF8);
+                g.setStroke(Math.max(1, u(1.5f)), T_SKY);
+            } else {
+                g.setColor(0x12FFFFFF);
+                g.setStroke(Math.max(1, u(1.5f)), 0x1FFFFFFF);
+            }
+            chip.setBackground(g);
+            chip.addView(text(words[i], 18, i == 0 ? T_TEXT : T_TEXT3, tfMedium, true));
+            LinearLayout.LayoutParams cl = lp(WC, u(44));
+            if (i > 0) cl.leftMargin = u(12);
+            tvWaitChips.addView(chip, cl);
+        }
+    }
+
+    // ====================== СУБТИТРИ ======================
+    // Четири източника (OpenSubtitles, Subdl, SubSource, Subs.sab.bz) се питат едновременно. Субтитрите
+    // се свалят, превръщат се в текст (кирилицата често е в windows-1251), разчитат се (SRT, VTT, ASS) и
+    // се рисуват върху видеото. Синхронът (изместването във времето) се променя по всяко време.
+
+    private static final ExecutorService SUBNET = newSubPool();
+
+    private static ExecutorService newSubPool() {
+        ThreadPoolExecutor p = new ThreadPoolExecutor(4, 4, 20, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<Runnable>(), lowPriority("tvs-sub"));
+        p.allowCoreThreadTimeOut(true);
+        return p;
+    }
+
+    private static class SubQuery {
+        boolean tv;
+        String title = "", orig = "", year = "", imdb = "";
+        int tmdb, season, episode;
+        final ArrayList<String> langs = new ArrayList<>();
+
+        // Заглавие за търсене по име: оригиналното, ако е с латински букви.
+        String latin() {
+            if (!orig.isEmpty()) {
+                int ok = 0;
+                for (int i = 0; i < orig.length(); i++) {
+                    if (orig.charAt(i) < 0x250) ok++;
+                }
+                if (ok * 10 >= orig.length() * 8) return orig;
+            }
+            return title;
+        }
+
+        String key() {
+            StringBuilder sb = new StringBuilder();
+            sb.append(tv ? "t" : "m").append(tmdb).append('|').append(season).append('|').append(episode);
+            for (String l : langs) sb.append('|').append(l);
+            return sb.toString();
+        }
+    }
+
+    private static class SubItem {
+        String provider = "", providerName = "", lang = "", release = "", ref = "";
+        int downloads;
+        boolean trusted, hearing;
+
+        String uid() {
+            return provider + "|" + ref;
+        }
+    }
+
+    private static class SubFile {
+        final String name;
+        final byte[] bytes;
+
+        SubFile(String n, byte[] b) {
+            name = n;
+            bytes = b;
+        }
+    }
+
+    private static class SubCues {
+        long[] from = new long[0], to = new long[0];
+        String[] txt = new String[0];
+        long end;
+    }
+
+    private static class SubHttpErr extends IOException {
+        final int code;
+
+        SubHttpErr(int code, String msg) {
+            super(msg);
+            this.code = code;
+        }
+    }
+
+    // ---- настройки ----
+
+    private String subCfg(String prefKey, String codeValue) {
+        String v = prefs.getString(prefKey, "").trim();
+        return v.isEmpty() ? codeValue.trim() : v;
+    }
+
+    private String subOsKey() {
+        return subCfg("osKey", SUB_OS_KEY);
+    }
+
+    private String subOsUser() {
+        return subCfg("osUser", SUB_OS_USER);
+    }
+
+    private String subOsPass() {
+        return subCfg("osPass", SUB_OS_PASS);
+    }
+
+    private String subSubdlKey() {
+        return subCfg("subdlKey", SUB_SUBDL_KEY);
+    }
+
+    private String subSsKey() {
+        return subCfg("ssKey", SUB_SUBSOURCE_KEY);
+    }
+
+    private static final String[] SUB_IDS = {"sabbz", "opensubtitles", "subdl", "subsource"};
+
+    private static String subProviderName(String id) {
+        if (id.equals("opensubtitles")) return "OpenSubtitles";
+        if (id.equals("subdl")) return "Subdl";
+        if (id.equals("subsource")) return "SubSource";
+        return "Subs.sab.bz";
+    }
+
+    private boolean subConfigured(String id, SubQuery q) {
+        if (id.equals("opensubtitles")) {
+            return !subOsKey().isEmpty() && !subOsUser().isEmpty() && !subOsPass().isEmpty();
+        }
+        if (id.equals("subdl")) return !subSubdlKey().isEmpty();
+        if (id.equals("subsource")) return !subSsKey().isEmpty();
+        return q == null || q.langs.contains("bg");
+    }
+
+    private static final String[][] SUB_LANG_SETS = {
+            {"bg"}, {"bg", "en"}, {"en"}, {"en", "bg"}};
+    private static final String[] SUB_LANG_NAMES = {"Български", "Български, после English",
+            "English", "English, после български"};
+    private static final String[] SUB_SIZE_NAMES = {"малък", "среден", "голям"};
+    private static final float[] SUB_SIZE_UNITS = {30f, 38f, 48f};
+
+    private int subLangSet() {
+        int i = prefs.getInt("subLang", 1);
+        return i < 0 || i >= SUB_LANG_SETS.length ? 1 : i;
+    }
+
+    private int subSizeIdx() {
+        int i = prefs.getInt("subSize", 1);
+        return i < 0 || i >= SUB_SIZE_UNITS.length ? 1 : i;
+    }
+
+    private String subSizeName() {
+        return SUB_SIZE_NAMES[subSizeIdx()];
+    }
+
+    private void subCycleSize() {
+        prefs.edit().putInt("subSize", (subSizeIdx() + 1) % SUB_SIZE_UNITS.length).apply();
+        subApplyStyle();
+    }
+
+    // ---- състояние ----
+
+    private SubQuery subQ;
+    private final ArrayList<SubItem> subResults = new ArrayList<>();
+    private final ArrayList<String> subNotes = new ArrayList<>();
+    private int subPending;
+    private int subGen;
+    private boolean subSearched;
+    private boolean subAutoDone;
+    private boolean subWantAuto;
+    private boolean subLoading;
+    private boolean subSearching;
+    private String subSavedUid = "";
+    private long subSavedShift;
+    private boolean subOff;
+    private long[] subFrom = new long[0];
+    private long[] subTo = new long[0];
+    private String[] subTxt = new String[0];
+    private long subShift;
+    private SubItem subCur;
+    private String subShown = "";
+    private TextView subView;
+    private Dialog subDlg;
+
+    // Нов филм: всичко от предишния се чисти.
+    private void subReset() {
+        subGen++;
+        ui.removeCallbacks(subWatchRun);
+        subResults.clear();
+        subNotes.clear();
+        subPending = 0;
+        subSearched = false;
+        subAutoDone = false;
+        subWantAuto = false;
+        subLoading = false;
+        subSearching = false;
+        subSavedUid = "";
+        subSavedShift = 0;
+        subOff = false;
+        subFrom = new long[0];
+        subTo = new long[0];
+        subTxt = new String[0];
+        subShift = 0;
+        subCur = null;
+        subShown = "";
+        subQ = null;
+        if (subView != null) subView.setVisibility(View.GONE);
+    }
+
+    private void subCleanup() {
+        subReset();
+        subDlg = null;
+        if (subView != null && nativeLayer != null) {
+            try {
+                nativeLayer.removeView(subView);
+            } catch (Exception ignored) {
+            }
+        }
+        subView = null;
+    }
+
+    private SubQuery subBuildQuery() {
+        SubQuery q = new SubQuery();
+        q.tv = vodT.tv;
+        q.tmdb = vodT.id;
+        q.title = vodT.name;
+        q.orig = vodT.orig;
+        q.year = vodT.year;
+        q.imdb = vodT.imdb;
+        q.season = vodSeason;
+        q.episode = vodEpisode;
+        for (String l : SUB_LANG_SETS[subLangSet()]) q.langs.add(l);
+        return q;
+    }
+
+    // ---- мрежа ----
+
+    private static final String SUB_UA = "tvsites v1.0";
+
+    private static byte[] subHttp(String url, String method, Map<String, String> headers, String body)
+            throws IOException {
+        String cur = url;
+        String m = method;
+        String b = body;
+        for (int hop = 0; hop < 6; hop++) {
+            HttpURLConnection c = (HttpURLConnection) new URL(cur).openConnection();
+            try {
+                c.setConnectTimeout(12000);
+                c.setReadTimeout(15000);
+                c.setInstanceFollowRedirects(false);
+                c.setRequestMethod(m);
+                c.setRequestProperty("User-Agent", SUB_UA);
+                if (headers != null) {
+                    for (Map.Entry<String, String> en : headers.entrySet()) {
+                        c.setRequestProperty(en.getKey(), en.getValue());
+                    }
+                }
+                if (b != null) {
+                    byte[] bb = b.getBytes("UTF-8");
+                    c.setDoOutput(true);
+                    c.setFixedLengthStreamingMode(bb.length);
+                    OutputStream os = c.getOutputStream();
+                    os.write(bb);
+                    os.close();
+                }
+                int rc = c.getResponseCode();
+                if (rc >= 300 && rc < 400) {
+                    String loc = c.getHeaderField("Location");
+                    if (loc == null || loc.isEmpty()) throw new IOException("пренасочване без адрес");
+                    cur = new URL(new URL(cur), loc).toString();
+                    if (rc != 307 && rc != 308) {
+                        m = "GET";
+                        b = null;
+                    }
+                    continue;
+                }
+                InputStream in = rc >= 400 ? c.getErrorStream() : c.getInputStream();
+                byte[] data = subReadAll(in, 12 * 1024 * 1024);
+                if (rc >= 400) {
+                    String msg = "HTTP " + rc;
+                    try {
+                        String t = new String(data, "UTF-8").trim();
+                        if (t.startsWith("{")) {
+                            JSONObject o = new JSONObject(t);
+                            String mm = jstr(o, "message");
+                            if (mm.isEmpty()) mm = jstr(o, "error");
+                            if (!mm.isEmpty()) msg += ": " + mm;
+                        }
+                    } catch (Exception ignored) {
+                        // тялото не е JSON
+                    }
+                    throw new SubHttpErr(rc, msg);
+                }
+                return data;
+            } finally {
+                c.disconnect();
+            }
+        }
+        throw new IOException("твърде много пренасочвания");
+    }
+
+    private static byte[] subReadAll(InputStream in, int max) throws IOException {
+        if (in == null) return new byte[0];
+        try {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[16384];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                out.write(buf, 0, n);
+                if (out.size() > max) throw new IOException("файлът е твърде голям");
+            }
+            return out.toByteArray();
+        } finally {
+            try {
+                in.close();
+            } catch (IOException ignored) {
+            }
+        }
+    }
+
+    private static String subStr(byte[] b) throws IOException {
+        return new String(b, "UTF-8");
+    }
+
+    private static String subEnc(String s) {
+        try {
+            return java.net.URLEncoder.encode(s, "UTF-8");
+        } catch (Exception e) {
+            return s;
+        }
+    }
+
+    private static String subLangNorm(String raw) {
+        String s = raw == null ? "" : raw.trim().toLowerCase(Locale.US);
+        if (s.equals("bulgarian")) return "bg";
+        if (s.equals("english")) return "en";
+        if (s.equals("russian")) return "ru";
+        if (s.equals("turkish")) return "tr";
+        if (s.equals("greek")) return "el";
+        if (s.equals("romanian")) return "ro";
+        if (s.equals("serbian")) return "sr";
+        if (s.equals("german")) return "de";
+        int k = s.indexOf('-');
+        if (k > 0) s = s.substring(0, k);
+        k = s.indexOf('_');
+        if (k > 0) s = s.substring(0, k);
+        return s.length() > 2 ? s.substring(0, 2) : s;
+    }
+
+    private static String subJoin(List<String> l, String sep) {
+        StringBuilder sb = new StringBuilder();
+        for (String s : l) {
+            if (sb.length() > 0) sb.append(sep);
+            sb.append(s);
+        }
+        return sb.toString();
+    }
+
+    // ---- доставчици: търсене ----
+
+    private List<SubItem> subSearchOne(String id, SubQuery q) throws Exception {
+        if (id.equals("opensubtitles")) return subOsSearch(q);
+        if (id.equals("subdl")) return subSubdlSearch(q);
+        if (id.equals("subsource")) return subSsSearch(q);
+        return subSabSearch(q);
+    }
+
+    private String osHost = "api.opensubtitles.com";
+    private String osToken;
+    private long osTokenAt;
+
+    private HashMap<String, String> osHeaders() {
+        HashMap<String, String> h = new HashMap<>();
+        h.put("Api-Key", subOsKey());
+        h.put("User-Agent", SUB_UA);
+        h.put("Accept", "application/json");
+        h.put("Content-Type", "application/json");
+        return h;
+    }
+
+    private synchronized String osLogin(boolean force) throws Exception {
+        String user = subOsUser();
+        String pass = subOsPass();
+        if (user.isEmpty() || pass.isEmpty()) return null;
+        if (!force && osToken != null && System.currentTimeMillis() - osTokenAt < 20L * 3600 * 1000) {
+            return osToken;
+        }
+        JSONObject body = new JSONObject().put("username", user).put("password", pass);
+        JSONObject resp = new JSONObject(subStr(subHttp("https://api.opensubtitles.com/api/v1/login",
+                "POST", osHeaders(), body.toString())));
+        String bu = jstr(resp, "base_url");
+        if (!bu.isEmpty()) {
+            bu = bu.replace("https://", "").replace("http://", "");
+            while (bu.endsWith("/")) bu = bu.substring(0, bu.length() - 1);
+            if (!bu.isEmpty()) osHost = bu;
+        }
+        osToken = jstr(resp, "token");
+        osTokenAt = System.currentTimeMillis();
+        return osToken.isEmpty() ? null : osToken;
+    }
+
+    private List<SubItem> subOsSearch(SubQuery q) throws Exception {
+        String imdb = q.imdb.startsWith("tt") ? q.imdb.substring(2) : q.imdb;
+        java.util.TreeMap<String, String> p = new java.util.TreeMap<>();
+        p.put("languages", subJoin(q.langs, ","));
+        p.put("order_by", "download_count");
+        p.put("order_direction", "desc");
+        if (q.tv) {
+            p.put("type", "episode");
+            if (!imdb.isEmpty()) p.put("parent_imdb_id", imdb);
+            else p.put("query", q.latin());
+            p.put("season_number", String.valueOf(q.season));
+            p.put("episode_number", String.valueOf(q.episode));
+        } else {
+            p.put("type", "movie");
+            if (!imdb.isEmpty()) {
+                p.put("imdb_id", imdb);
+            } else {
+                p.put("query", q.latin());
+                if (!q.year.isEmpty()) p.put("year", q.year);
+            }
+        }
+        StringBuilder qs = new StringBuilder();
+        for (Map.Entry<String, String> en : p.entrySet()) {
+            if (qs.length() > 0) qs.append('&');
+            qs.append(en.getKey()).append('=').append(subEnc(en.getValue()));
+        }
+        String url = "https://" + osHost + "/api/v1/subtitles?" + qs;
+        JSONObject j = new JSONObject(subStr(subHttp(url, "GET", osHeaders(), null)));
+        JSONArray data = j.optJSONArray("data");
+        ArrayList<SubItem> out = new ArrayList<>();
+        if (data == null) return out;
+        for (int i = 0; i < data.length(); i++) {
+            JSONObject o = data.optJSONObject(i);
+            if (o == null) continue;
+            JSONObject a = o.optJSONObject("attributes");
+            if (a == null) continue;
+            JSONArray files = a.optJSONArray("files");
+            if (files == null || files.length() == 0) continue;
+            JSONObject f0 = files.optJSONObject(0);
+            if (f0 == null) continue;
+            long fileId = f0.optLong("file_id");
+            if (fileId <= 0) continue;
+            SubItem it = new SubItem();
+            it.provider = "opensubtitles";
+            it.providerName = "OpenSubtitles";
+            it.lang = subLangNorm(jstr(a, "language"));
+            it.release = jstr(a, "release");
+            if (it.release.isEmpty()) it.release = jstr(f0, "file_name");
+            it.ref = String.valueOf(fileId);
+            it.downloads = a.optInt("download_count");
+            it.trusted = a.optBoolean("from_trusted", false);
+            it.hearing = a.optBoolean("hearing_impaired", false);
+            out.add(it);
+        }
+        return out;
+    }
+
+    private List<SubFile> subOsDownload(SubItem r) throws Exception {
+        String tk = osLogin(false);
+        if (tk == null) throw new IOException("въведи потребител и парола за OpenSubtitles");
+        String body = new JSONObject().put("file_id", Long.parseLong(r.ref)).put("sub_format", "srt").toString();
+        String resp;
+        try {
+            resp = subOsCall(body, tk);
+        } catch (SubHttpErr e) {
+            if (e.code != 401) throw e;
+            tk = osLogin(true);
+            if (tk == null) throw e;
+            resp = subOsCall(body, tk);
+        }
+        JSONObject j = new JSONObject(resp);
+        String link = jstr(j, "link");
+        if (link.isEmpty()) {
+            String m = jstr(j, "message");
+            throw new IOException(m.isEmpty() ? "няма адрес за сваляне" : m);
+        }
+        ArrayList<SubFile> out = new ArrayList<>();
+        String fn = jstr(j, "file_name");
+        out.add(new SubFile(fn.isEmpty() ? "sub.srt" : fn, subHttp(link, "GET", null, null)));
+        return out;
+    }
+
+    private String subOsCall(String body, String token) throws Exception {
+        HashMap<String, String> h = osHeaders();
+        h.put("Authorization", "Bearer " + token);
+        return subStr(subHttp("https://" + osHost + "/api/v1/download", "POST", h, body));
+    }
+
+    private List<SubItem> subSubdlSearch(SubQuery q) throws Exception {
+        StringBuilder sb = new StringBuilder("https://api.subdl.com/api/v1/subtitles?api_key=");
+        sb.append(subEnc(subSubdlKey())).append("&subs_per_page=30&languages=");
+        StringBuilder ls = new StringBuilder();
+        for (String l : q.langs) {
+            if (ls.length() > 0) ls.append(',');
+            ls.append(l.toUpperCase(Locale.US));
+        }
+        sb.append(ls);
+        if (!q.imdb.isEmpty()) sb.append("&imdb_id=").append(subEnc(q.imdb));
+        else sb.append("&film_name=").append(subEnc(q.latin()));
+        sb.append("&type=").append(q.tv ? "tv" : "movie");
+        if (q.tv) sb.append("&season_number=").append(q.season).append("&episode_number=").append(q.episode);
+        JSONObject j = new JSONObject(subStr(subHttp(sb.toString(), "GET", null, null)));
+        if (!j.optBoolean("status", true)) {
+            String e = jstr(j, "error");
+            throw new IOException(e.isEmpty() ? "грешка" : e);
+        }
+        JSONArray arr = j.optJSONArray("subtitles");
+        ArrayList<SubItem> out = new ArrayList<>();
+        if (arr == null) return out;
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject o = arr.optJSONObject(i);
+            if (o == null) continue;
+            String url = jstr(o, "url");
+            if (url.isEmpty()) continue;
+            SubItem it = new SubItem();
+            it.provider = "subdl";
+            it.providerName = "Subdl";
+            String lg = jstr(o, "language");
+            if (lg.isEmpty()) lg = jstr(o, "lang");
+            it.lang = subLangNorm(lg);
+            it.release = jstr(o, "release_name");
+            if (it.release.isEmpty()) it.release = jstr(o, "name");
+            it.ref = url;
+            it.hearing = o.optBoolean("hi", false);
+            out.add(it);
+        }
+        return out;
+    }
+
+    private List<SubFile> subSubdlDownload(SubItem r) throws Exception {
+        String url = r.ref.startsWith("http") ? r.ref : "https://dl.subdl.com" + r.ref;
+        return subExtract(subHttp(url, "GET", null, null));
+    }
+
+    // SubSource: схемата на отговорите не е напълно известна - работи „най-добро усилие“.
+    private static final String SS_BASE = "https://api.subsource.net/api/v1";
+
+    private HashMap<String, String> ssHeaders() {
+        HashMap<String, String> h = new HashMap<>();
+        h.put("X-API-Key", subSsKey());
+        h.put("Accept", "application/json");
+        return h;
+    }
+
+    private static JSONArray subListOf(JSONObject j) {
+        JSONArray a = j.optJSONArray("data");
+        if (a == null) a = j.optJSONArray("results");
+        if (a == null) a = j.optJSONArray("subtitles");
+        if (a == null) a = j.optJSONArray("movies");
+        return a == null ? new JSONArray() : a;
+    }
+
+    private static String subFlat(JSONObject o, String name) {
+        Object v = o.opt(name);
+        if (v == null || v == JSONObject.NULL) return "";
+        if (v instanceof JSONArray) {
+            JSONArray a = (JSONArray) v;
+            return a.length() > 0 ? a.optString(0, "") : "";
+        }
+        return v.toString();
+    }
+
+    private List<SubItem> subSsSearch(SubQuery q) throws Exception {
+        String murl = !q.imdb.isEmpty()
+                ? SS_BASE + "/movies/search?searchType=imdb&imdb=" + subEnc(q.imdb)
+                : SS_BASE + "/movies/search?searchType=text&q=" + subEnc(q.latin());
+        JSONArray found = subListOf(new JSONObject(subStr(subHttp(murl, "GET", ssHeaders(), null))));
+        ArrayList<SubItem> out = new ArrayList<>();
+        if (found.length() == 0) return out;
+        JSONObject first = found.optJSONObject(0);
+        if (first == null) return out;
+        String movieId = jstr(first, "movieId");
+        if (movieId.isEmpty()) movieId = jstr(first, "id");
+        if (movieId.isEmpty()) return out;
+        String[][] names = {{"bg", "bulgarian"}, {"en", "english"}, {"ru", "russian"}, {"tr", "turkish"},
+                {"el", "greek"}, {"ro", "romanian"}, {"sr", "serbian"}, {"de", "german"}};
+        for (String lang : q.langs) {
+            String full = null;
+            for (String[] n : names) {
+                if (n[0].equals(lang)) full = n[1];
+            }
+            if (full == null) continue;
+            JSONArray arr = subListOf(new JSONObject(subStr(subHttp(
+                    SS_BASE + "/subtitles?movieId=" + subEnc(movieId) + "&language=" + subEnc(full),
+                    "GET", ssHeaders(), null))));
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject o = arr.optJSONObject(i);
+                if (o == null) continue;
+                String sid = jstr(o, "subtitleId");
+                if (sid.isEmpty()) sid = jstr(o, "id");
+                if (sid.isEmpty()) continue;
+                String release = subFlat(o, "releaseInfo");
+                if (release.isEmpty()) release = subFlat(o, "release_info");
+                if (release.isEmpty()) release = subFlat(o, "releases");
+                if (release.isEmpty()) release = jstr(o, "name");
+                if (q.tv) {
+                    java.util.regex.Pattern ep = java.util.regex.Pattern.compile("(?i)s0*" + q.season
+                            + " ?e0*" + q.episode + "(?!\\d)|\\b" + q.season + "x0*" + q.episode + "(?!\\d)");
+                    java.util.regex.Pattern pack = java.util.regex.Pattern.compile("(?i)\\bs0*" + q.season
+                            + "\\b(?! ?e\\d)|season ?0*" + q.season + "\\b");
+                    if (!ep.matcher(release).find() && !pack.matcher(release).find()) continue;
+                }
+                SubItem it = new SubItem();
+                it.provider = "subsource";
+                it.providerName = "SubSource";
+                it.lang = lang;
+                it.release = release;
+                it.ref = sid;
+                it.downloads = o.optInt("downloads");
+                it.hearing = o.optBoolean("hearingImpaired", false);
+                out.add(it);
+            }
+        }
+        return out;
+    }
+
+    private List<SubFile> subSsDownload(SubItem r) throws Exception {
+        return subExtract(subHttp(SS_BASE + "/subtitles/" + r.ref + "/download", "GET", ssHeaders(), null));
+    }
+
+    // Subs.sab.bz: български субтитри, няма API - чете се страницата с резултатите (windows-1251).
+    private static final String SAB = "http://subs.sab.bz";
+
+    private List<SubItem> subSabSearch(SubQuery q) throws Exception {
+        if (!q.langs.contains("bg")) return new ArrayList<>();
+        String name = q.latin();
+        if (q.tv) name += String.format(Locale.US, " S%02dE%02d", q.season, q.episode);
+        String url = SAB + "/index.php?act=search&movie=" + subEnc(name) + "&select-language=2&upl=&yr="
+                + subEnc(q.year);
+        HashMap<String, String> h = new HashMap<>();
+        h.put("Referer", SAB + "/");
+        String html = new String(subHttp(url, "GET", h, null), java.nio.charset.Charset.forName("windows-1251"));
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+                "<a\\b[^>]*?href\\s*=\\s*[\"']([^\"']*attach_id=(\\d+)[^\"']*)[\"'][^>]*>(.*?)</a>",
+                java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.DOTALL).matcher(html);
+        LinkedHashMap<String, String> labels = new LinkedHashMap<>();
+        while (m.find() && labels.size() < 30) {
+            String id = m.group(2);
+            String label = subCleanHtml(m.group(3));
+            if (label.isEmpty()) {
+                // Няма текст в връзката: взема се редът от таблицата.
+                int a = html.lastIndexOf("<tr", m.start());
+                int b = html.indexOf("</tr>", m.end());
+                if (a >= 0 && b > a && b - a < 3000) label = subCleanHtml(html.substring(a, b));
+            }
+            String old = labels.get(id);
+            if (old == null || (label.length() > old.length() && label.length() < 160)) {
+                labels.put(id, label.length() > 140 ? label.substring(0, 140) : label);
+            }
+        }
+        ArrayList<SubItem> out = new ArrayList<>();
+        for (Map.Entry<String, String> en : labels.entrySet()) {
+            if (out.size() >= 15) break;
+            SubItem it = new SubItem();
+            it.provider = "sabbz";
+            it.providerName = "Subs.sab.bz";
+            it.lang = "bg";
+            it.release = en.getValue().isEmpty() ? "Субтитри " + en.getKey() : en.getValue();
+            it.ref = en.getKey();
+            out.add(it);
+        }
+        return out;
+    }
+
+    private List<SubFile> subSabDownload(SubItem r) throws Exception {
+        HashMap<String, String> h = new HashMap<>();
+        h.put("Referer", SAB + "/");
+        return subExtract(subHttp(SAB + "/index.php?act=download&attach_id=" + r.ref, "GET", h, null));
+    }
+
+    private static String subCleanHtml(String s) {
+        String t = s.replaceAll("(?s)<[^>]*>", " ");
+        t = t.replace("&nbsp;", " ").replace("&amp;", "&").replace("&quot;", "\"")
+                .replace("&lt;", "<").replace("&gt;", ">").replace("&#39;", "'");
+        return t.replaceAll("\\s+", " ").trim();
+    }
+
+    private List<SubFile> subDownloadOne(SubItem r) throws Exception {
+        if (r.provider.equals("opensubtitles")) return subOsDownload(r);
+        if (r.provider.equals("subdl")) return subSubdlDownload(r);
+        if (r.provider.equals("subsource")) return subSsDownload(r);
+        return subSabDownload(r);
+    }
+
+    // ---- архиви, текст, разчитане ----
+
+    private static boolean subIsSubExt(String name) {
+        String n = name.toLowerCase(Locale.ROOT);
+        return n.endsWith(".srt") || n.endsWith(".ass") || n.endsWith(".ssa") || n.endsWith(".vtt");
+    }
+
+    private List<SubFile> subExtract(byte[] b) throws Exception {
+        ArrayList<SubFile> out = new ArrayList<>();
+        if (b.length > 4 && b[0] == 'P' && b[1] == 'K') {
+            java.util.zip.ZipInputStream z = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(b));
+            try {
+                java.util.zip.ZipEntry e;
+                while ((e = z.getNextEntry()) != null) {
+                    if (e.isDirectory() || !subIsSubExt(e.getName())) continue;
+                    byte[] d = subReadZipEntry(z);
+                    String nm = e.getName();
+                    int k = nm.lastIndexOf('/');
+                    if (d.length > 0) out.add(new SubFile(k >= 0 ? nm.substring(k + 1) : nm, d));
+                }
+            } finally {
+                z.close();
+            }
+            return out;
+        }
+        if (b.length > 7 && b[0] == 'R' && b[1] == 'a' && b[2] == 'r') return subUnrar(b);
+        out.add(new SubFile("sub.srt", b));
+        return out;
+    }
+
+    private static byte[] subReadZipEntry(java.util.zip.ZipInputStream z) throws IOException {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        int n;
+        while ((n = z.read(buf)) > 0) {
+            out.write(buf, 0, n);
+            if (out.size() > 6 * 1024 * 1024) break;
+        }
+        return out.toByteArray();
+    }
+
+    // RAR се разархивира с библиотеката junrar, ако е добавена към приложението (иначе се съобщава).
+    private List<SubFile> subUnrar(byte[] b) throws Exception {
+        Class<?> c;
+        try {
+            c = Class.forName("com.github.junrar.Junrar");
+        } catch (ClassNotFoundException e) {
+            throw new IOException("архивът е RAR, а тази версия не го чете (избери друг субтитър)");
+        }
+        File dir = new File(getCacheDir(), "sub" + System.nanoTime());
+        File rar = new File(dir, "a.rar");
+        File dest = new File(dir, "out");
+        ArrayList<SubFile> out = new ArrayList<>();
+        try {
+            dest.mkdirs();
+            java.io.FileOutputStream fo = new java.io.FileOutputStream(rar);
+            fo.write(b);
+            fo.close();
+            c.getMethod("extract", File.class, File.class).invoke(null, rar, dest);
+            subCollect(dest, out);
+        } finally {
+            subDelete(dir);
+        }
+        return out;
+    }
+
+    private static void subCollect(File d, ArrayList<SubFile> out) throws IOException {
+        File[] fs = d.listFiles();
+        if (fs == null) return;
+        for (File f : fs) {
+            if (f.isDirectory()) {
+                subCollect(f, out);
+            } else if (subIsSubExt(f.getName()) && f.length() > 0 && f.length() < 6L * 1024 * 1024) {
+                java.io.FileInputStream in = new java.io.FileInputStream(f);
+                out.add(new SubFile(f.getName(), subReadAll(in, 7 * 1024 * 1024)));
+            }
+        }
+    }
+
+    private static void subDelete(File f) {
+        File[] fs = f.listFiles();
+        if (fs != null) {
+            for (File x : fs) subDelete(x);
+        }
+        f.delete();
+    }
+
+    // Ако в архива има няколко файла: за сериал - този за епизода, иначе най-големият.
+    private static SubFile subPick(List<SubFile> files, boolean tv, int season, int episode) {
+        if (files.isEmpty()) return null;
+        if (files.size() == 1) return files.get(0);
+        if (tv) {
+            java.util.regex.Pattern re = java.util.regex.Pattern.compile("(?i)s0*" + season + " ?e0*" + episode
+                    + "(?!\\d)|\\b" + season + "x0*" + episode + "(?!\\d)|[ ._-]0*" + episode + "[ ._-]");
+            for (SubFile f : files) {
+                if (re.matcher(f.name).find()) return f;
+            }
+        }
+        SubFile best = files.get(0);
+        for (SubFile f : files) {
+            if (f.bytes.length > best.bytes.length) best = f;
+        }
+        return best;
+    }
+
+    // Субтитрите често са в windows-1251: всичко се превръща в обикновен текст.
+    private static String subDecode(byte[] b, String lang) {
+        try {
+            if (b.length >= 3 && (b[0] & 0xFF) == 0xEF && (b[1] & 0xFF) == 0xBB && (b[2] & 0xFF) == 0xBF) {
+                return new String(b, 3, b.length - 3, "UTF-8");
+            }
+            if (b.length >= 2 && (b[0] & 0xFF) == 0xFF && (b[1] & 0xFF) == 0xFE) {
+                return new String(b, 2, b.length - 2, "UTF-16LE");
+            }
+            if (b.length >= 2 && (b[0] & 0xFF) == 0xFE && (b[1] & 0xFF) == 0xFF) {
+                return new String(b, 2, b.length - 2, "UTF-16BE");
+            }
+            try {
+                java.nio.charset.CharsetDecoder dec = java.nio.charset.Charset.forName("UTF-8").newDecoder()
+                        .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                        .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT);
+                return dec.decode(java.nio.ByteBuffer.wrap(b)).toString();
+            } catch (java.nio.charset.CharacterCodingException e) {
+                // не е UTF-8: следва кодовата таблица според езика
+            }
+            String cs;
+            if (lang.equals("bg") || lang.equals("ru") || lang.equals("sr") || lang.equals("mk")
+                    || lang.equals("uk")) cs = "windows-1251";
+            else if (lang.equals("el")) cs = "windows-1253";
+            else if (lang.equals("tr")) cs = "windows-1254";
+            else if (lang.equals("ro") || lang.equals("pl") || lang.equals("cs") || lang.equals("hu")) cs = "windows-1250";
+            else cs = "windows-1252";
+            return new String(b, cs);
+        } catch (Exception e) {
+            return new String(b);
+        }
+    }
+
+    private static long subStamp(String s) {
+        // 00:01:02,345  |  01:02.345  |  1:02:03.45
+        String[] p = s.trim().split("[:.,]");
+        try {
+            long h = 0, m, sec, ms;
+            if (p.length >= 4) {
+                h = Long.parseLong(p[0]);
+                m = Long.parseLong(p[1]);
+                sec = Long.parseLong(p[2]);
+                ms = subFrac(p[3]);
+            } else if (p.length == 3) {
+                m = Long.parseLong(p[0]);
+                sec = Long.parseLong(p[1]);
+                ms = subFrac(p[2]);
+            } else {
+                return -1;
+            }
+            return ((h * 60 + m) * 60 + sec) * 1000 + ms;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    private static long subFrac(String f) {
+        String t = f.length() > 3 ? f.substring(0, 3) : f;
+        while (t.length() < 3) t += "0";
+        return Long.parseLong(t);
+    }
+
+    private static String subCleanText(String s) {
+        String t = s.replace("\\N", "\n").replace("\\n", "\n").replace("\\h", " ");
+        t = t.replaceAll("(?s)\\{[^}]*\\}", "").replaceAll("(?s)<[^>]*>", "");
+        t = t.replace("&nbsp;", " ").replace("&amp;", "&").replace("&quot;", "\"")
+                .replace("&lt;", "<").replace("&gt;", ">").replace("&#39;", "'");
+        StringBuilder sb = new StringBuilder();
+        int lines = 0;
+        for (String ln : t.split("\n")) {
+            String x = ln.replace('\r', ' ').trim();
+            if (x.isEmpty()) continue;
+            if (lines >= 4) break;
+            if (sb.length() > 0) sb.append('\n');
+            sb.append(x);
+            lines++;
+        }
+        return sb.toString();
+    }
+
+    private static class SubCue {
+        long a, b;
+        String t;
+    }
+
+    private static SubCues subParse(String text) {
+        ArrayList<SubCue> list = new ArrayList<>();
+        String norm = text.replace("\r\n", "\n").replace('\r', '\n');
+        if (norm.contains("[Script Info]") || norm.contains("\nDialogue:") || norm.startsWith("Dialogue:")) {
+            subParseAss(norm, list);
+        } else {
+            subParseSrt(norm, list);
+        }
+        java.util.Collections.sort(list, new java.util.Comparator<SubCue>() {
+            @Override
+            public int compare(SubCue x, SubCue y) {
+                return x.a < y.a ? -1 : x.a > y.a ? 1 : 0;
+            }
+        });
+        SubCues c = new SubCues();
+        int n = list.size();
+        c.from = new long[n];
+        c.to = new long[n];
+        c.txt = new String[n];
+        for (int i = 0; i < n; i++) {
+            SubCue x = list.get(i);
+            c.from[i] = x.a;
+            c.to[i] = x.b;
+            c.txt[i] = x.t;
+            if (x.b > c.end) c.end = x.b;
+        }
+        return c;
+    }
+
+    private static void subParseSrt(String norm, ArrayList<SubCue> list) {
+        java.util.regex.Pattern tp = java.util.regex.Pattern.compile(
+                "((?:\\d{1,3}:)?\\d{1,2}:\\d{2}[.,:]\\d{1,3})\\s*-->\\s*((?:\\d{1,3}:)?\\d{1,2}:\\d{2}[.,:]\\d{1,3})");
+        String[] lines = norm.split("\n");
+        int i = 0;
+        while (i < lines.length && list.size() < 12000) {
+            java.util.regex.Matcher m = tp.matcher(lines[i]);
+            if (!m.find()) {
+                i++;
+                continue;
+            }
+            long a = subStamp(m.group(1));
+            long b = subStamp(m.group(2));
+            i++;
+            StringBuilder sb = new StringBuilder();
+            while (i < lines.length && !lines[i].trim().isEmpty() && !tp.matcher(lines[i]).find()) {
+                sb.append(lines[i]).append('\n');
+                i++;
+            }
+            String t = subCleanText(sb.toString());
+            if (a >= 0 && b > a && !t.isEmpty()) {
+                SubCue c = new SubCue();
+                c.a = a;
+                c.b = b;
+                c.t = t;
+                list.add(c);
+            }
+        }
+    }
+
+    private static void subParseAss(String norm, ArrayList<SubCue> list) {
+        int iStart = 1, iEnd = 2, iText = 9, nCols = 10;
+        for (String ln : norm.split("\n")) {
+            String s = ln.trim();
+            if (s.startsWith("Format:") && s.contains("Start") && s.contains("Text")) {
+                String[] cols = s.substring(7).split(",");
+                nCols = cols.length;
+                for (int k = 0; k < cols.length; k++) {
+                    String c = cols[k].trim();
+                    if (c.equalsIgnoreCase("Start")) iStart = k;
+                    else if (c.equalsIgnoreCase("End")) iEnd = k;
+                    else if (c.equalsIgnoreCase("Text")) iText = k;
+                }
+            } else if (s.startsWith("Dialogue:") && list.size() < 12000) {
+                String[] p = s.substring(9).trim().split(",", nCols);
+                if (p.length <= Math.max(iText, Math.max(iStart, iEnd))) continue;
+                long a = subStamp(p[iStart]);
+                long b = subStamp(p[iEnd]);
+                String t = subCleanText(p[iText]);
+                if (a >= 0 && b > a && !t.isEmpty()) {
+                    SubCue c = new SubCue();
+                    c.a = a;
+                    c.b = b;
+                    c.t = t;
+                    list.add(c);
+                }
+            }
+        }
+    }
+
+    // ---- търсене: ход ----
+
+    private final Runnable subWatchRun = new Runnable() {
+        @Override
+        public void run() {
+            if (!tvVod || !subSearching) return;
+            subPending = 0;
+            subSearchFinished();
+        }
+    };
+
+    private static final HashMap<String, Object[]> SUB_CACHE = new HashMap<>();
+
+    private void subStartSearch(boolean auto) {
+        if (!tvVod || vodT == null) return;
+        final SubQuery q = subBuildQuery();
+        subQ = q;
+        subGen++;
+        final int gen = subGen;
+        subResults.clear();
+        subNotes.clear();
+        subSearched = true;
+        subWantAuto = auto;
+        // Същото търсене до 10 минути пази отговора (за да не се хабят заявките на доставчиците).
+        Object[] hit;
+        synchronized (SUB_CACHE) {
+            hit = SUB_CACHE.get(q.key());
+        }
+        if (hit != null && System.currentTimeMillis() - (Long) hit[0] < 10 * 60 * 1000L) {
+            @SuppressWarnings("unchecked")
+            ArrayList<SubItem> cached = (ArrayList<SubItem>) hit[1];
+            subResults.addAll(cached);
+            subNotes.add("от паметта");
+            subPending = 0;
+            subSearching = true;
+            subSearchFinished();
+            return;
+        }
+        ArrayList<String> ids = new ArrayList<>();
+        for (String id : SUB_IDS) {
+            if (subConfigured(id, q)) ids.add(id);
+        }
+        subPending = ids.size();
+        subSearching = subPending > 0;
+        if (subPending == 0) {
+            subSearchFinished();
+            return;
+        }
+        ui.removeCallbacks(subWatchRun);
+        ui.postDelayed(subWatchRun, 24000);
+        for (final String id : ids) {
+            SUBNET.execute(new Runnable() {
+                @Override
+                public void run() {
+                    List<SubItem> res = null;
+                    String err = null;
+                    try {
+                        res = subSearchOne(id, q);
+                    } catch (Exception e) {
+                        err = subErrText(e);
+                    }
+                    final List<SubItem> fres = res;
+                    final String ferr = err;
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            subGot(gen, id, fres, ferr);
+                        }
+                    });
+                }
+            });
+        }
+    }
+
+    private static String subErrText(Exception e) {
+        String m = e.getMessage();
+        if (m == null || m.isEmpty()) {
+            m = e instanceof java.net.UnknownHostException ? "няма връзка" : e.getClass().getSimpleName();
+        }
+        if (e instanceof java.net.SocketTimeoutException) m = "времето изтече";
+        if (e instanceof SubHttpErr && ((SubHttpErr) e).code == 401) m = "ключът не е приет (401)";
+        return m.length() > 70 ? m.substring(0, 70) : m;
+    }
+
+    private void subGot(int gen, String id, List<SubItem> res, String err) {
+        if (gen != subGen || !tvVod) return;
+        subPending--;
+        String name = subProviderName(id);
+        if (err != null) {
+            subNotes.add(name + ": " + err);
+        } else if (res != null) {
+            int add = 0;
+            for (SubItem it : res) {
+                if (add >= 25) break;
+                subResults.add(it);
+                add++;
+            }
+            subNotes.add(name + ": " + add);
+        }
+        subSort();
+        if (subPending <= 0) subSearchFinished();
+        else subRefreshDialog();
+    }
+
+    private int subLangRank(String lang) {
+        String[] set = SUB_LANG_SETS[subLangSet()];
+        for (int i = 0; i < set.length; i++) {
+            if (set[i].equals(lang)) return i;
+        }
+        return 99;
+    }
+
+    private int subScore(SubItem r) {
+        int sc = Math.min(r.downloads, 5000) / 100 + (r.trusted ? 20 : 0) - (r.hearing ? 10 : 0);
+        if (r.provider.equals("sabbz")) sc += 25;
+        return sc;
+    }
+
+    private void subSort() {
+        java.util.Collections.sort(subResults, new java.util.Comparator<SubItem>() {
+            @Override
+            public int compare(SubItem x, SubItem y) {
+                int a = subLangRank(x.lang);
+                int b = subLangRank(y.lang);
+                if (a != b) return a < b ? -1 : 1;
+                return subScore(y) - subScore(x);
+            }
+        });
+    }
+
+    private void subSearchFinished() {
+        ui.removeCallbacks(subWatchRun);
+        boolean wasSearching = subSearching;
+        subSearching = false;
+        if (wasSearching && subQ != null) {
+            boolean errors = false;
+            for (String n : subNotes) {
+                if (n.contains(": ") && !n.matches(".*: \\d+")) errors = true;
+            }
+            if (!errors && !subResults.isEmpty() && !subNotes.contains("от паметта")) {
+                synchronized (SUB_CACHE) {
+                    if (SUB_CACHE.size() > 12) SUB_CACHE.clear();
+                    SUB_CACHE.put(subQ.key(), new Object[]{System.currentTimeMillis(),
+                            new ArrayList<SubItem>(subResults)});
+                }
+            }
+        }
+        subSort();
+        subRefreshDialog();
+        if (subWantAuto) {
+            subWantAuto = false;
+            subAutoPick();
+        } else {
+            subStatusChanged();
+        }
+    }
+
+    // Автоматичният избор: най-добрите от най-предпочитания наличен език; запомненият избор е пръв.
+    private void subAutoPick() {
+        if (!tvVod) return;
+        if (subResults.isEmpty()) {
+            subStatusChanged();
+            vodShowBar(5000, "Не намерих субтитри  ·  ▲ за ръчно търсене");
+            return;
+        }
+        ArrayList<SubItem> cands = new ArrayList<>();
+        if (!subSavedUid.isEmpty()) {
+            for (SubItem it : subResults) {
+                if (it.uid().equals(subSavedUid)) cands.add(it);
+            }
+        }
+        int bestRank = subLangRank(subResults.get(0).lang);
+        if (bestRank >= 99) {
+            subStatusChanged();
+            return;
+        }
+        // Първо най-добрият от всеки доставчик (различни версии), после останалите.
+        HashSet<String> seen = new HashSet<>();
+        for (SubItem it : subResults) {
+            if (cands.size() >= 5) break;
+            if (subLangRank(it.lang) == bestRank && !cands.contains(it) && seen.add(it.provider)) cands.add(it);
+        }
+        for (SubItem it : subResults) {
+            if (cands.size() >= 5) break;
+            if (subLangRank(it.lang) == bestRank && !cands.contains(it)) cands.add(it);
+        }
+        subLoad(cands, true);
+    }
+
+    // Сваля и разчита субтитрите. При автоматичен избор се пробват до пет, докато една
+    // не пасне по дължина на филма.
+    private void subLoad(final ArrayList<SubItem> cands, final boolean auto) {
+        if (cands.isEmpty() || !tvVod) return;
+        final int gen = subGen;
+        final boolean tv = vodT.tv;
+        final int season = vodSeason;
+        final int episode = vodEpisode;
+        final long videoMs = player != null ? player.getDuration() : C.TIME_UNSET;
+        subLoading = true;
+        subStatusChanged();
+        SUBNET.execute(new Runnable() {
+            @Override
+            public void run() {
+                SubCues got = null;
+                SubItem gotItem = null;
+                String warn = null;
+                String err = null;
+                SubCues firstBad = null;
+                for (SubItem it : cands) {
+                    try {
+                        List<SubFile> files = subDownloadOne(it);
+                        SubFile f = subPick(files, tv, season, episode);
+                        if (f == null) {
+                            err = "архивът е празен";
+                            continue;
+                        }
+                        SubCues c = subParse(subDecode(f.bytes, it.lang));
+                        if (c.txt.length < 10) {
+                            err = "файлът не е разчетен";
+                            continue;
+                        }
+                        String w = subFitText(c.end, videoMs);
+                        if (auto && w != null && cands.size() > 1) {
+                            if (firstBad == null) firstBad = c;
+                            err = w;
+                            continue;
+                        }
+                        got = c;
+                        gotItem = it;
+                        warn = w;
+                        break;
+                    } catch (Exception e) {
+                        err = subErrText(e);
+                    }
+                }
+                final SubCues fc = got;
+                final SubItem fi = gotItem;
+                final String fw = warn;
+                final String fe = err;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (gen != subGen || !tvVod) return;
+                        subLoading = false;
+                        if (fc != null) {
+                            subSet(fc, fi, auto);
+                            if (fw != null) vodShowBar(7000, fw);
+                        } else {
+                            subStatusChanged();
+                            if (!auto) {
+                                vodShowBar(5000, "Субтитрите не се свалиха: " + (fe == null ? "грешка" : fe));
+                            } else if (fe != null && fe.startsWith("Субтитрите свършват")) {
+                                vodShowBar(6000, "Не намерих субтитри, които пасват  ·  ▲ за избор");
+                            }
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    // Груба проверка: последният ред на субтитрите трябва да е близо до края на видеото.
+    private static String subFitText(long subEndMs, long videoMs) {
+        if (subEndMs <= 0 || videoMs <= 0 || videoMs == C.TIME_UNSET) return null;
+        long diff = videoMs - subEndMs;
+        if (-diff > 90000) {
+            return "Субтитрите свършват " + (-diff / 60000) + " мин. СЛЕД филма — може да са за друга версия";
+        }
+        long allowed = Math.max(5 * 60000L, videoMs * 15 / 100);
+        if (diff > allowed) {
+            return "Субтитрите свършват " + (diff / 60000) + " мин. ПРЕДИ края — може да са за друга версия";
+        }
+        return null;
+    }
+
+    private void subSet(SubCues c, SubItem it, boolean auto) {
+        subFrom = c.from;
+        subTo = c.to;
+        subTxt = c.txt;
+        subCur = it;
+        subOff = false;
+        subShown = "";
+        if (auto && it.uid().equals(subSavedUid)) subShift = subSavedShift;
+        else if (!auto) subShift = 0;
+        subSaveChoice();
+        subEnsureView();
+        subStatusChanged();
+        vodShowBar(5000, null);
+        subSeeked();
+    }
+
+    private void subClear(boolean userOff) {
+        subFrom = new long[0];
+        subTo = new long[0];
+        subTxt = new String[0];
+        subCur = null;
+        subShown = "";
+        subOff = userOff;
+        if (subView != null) subView.setVisibility(View.GONE);
+        subSaveChoice();
+        subStatusChanged();
+    }
+
+    private void subSaveChoice() {
+        if (vodKey.isEmpty()) return;
+        String v;
+        if (subOff) v = "off";
+        else if (subCur != null) v = subCur.uid() + "\t" + subShift;
+        else return;
+        prefs.edit().putString("vs:" + vodKey, v).apply();
+    }
+
+    // Запомненият избор от предишното гледане.
+    private void subReadSaved() {
+        String v = prefs.getString("vs:" + vodKey, "");
+        subSavedUid = "";
+        subSavedShift = 0;
+        if (v.equals("off")) {
+            subOff = true;
+        } else if (!v.isEmpty()) {
+            int k = v.indexOf('\t');
+            if (k > 0) {
+                subSavedUid = v.substring(0, k);
+                try {
+                    subSavedShift = Long.parseLong(v.substring(k + 1));
+                } catch (NumberFormatException ignored) {
+                    subSavedShift = 0;
+                }
+            }
+        }
+    }
+
+    // Започна ли филмът: автоматичното търсене на субтитри.
+    private void subOnPlaying() {
+        if (subAutoDone) {
+            subEnsureView();
+            return;
+        }
+        subAutoDone = true;
+        subReadSaved();
+        if (subOff) {
+            subStatusChanged();
+            return;
+        }
+        if (!prefs.getBoolean("subAuto", true)) return;
+        subStartSearch(true);
+    }
+
+    // ---- рисуване ----
+
+    private void subEnsureView() {
+        if (subView != null || nativeLayer == null) return;
+        subView = new TextView(this);
+        subView.setGravity(Gravity.CENTER);
+        subView.setTextColor(Color.WHITE);
+        subView.setTypeface(Typeface.DEFAULT_BOLD);
+        subView.setShadowLayer(Math.max(2f, u(5)), 0f, Math.max(1f, u(1.5f)), 0xFF000000);
+        subView.setPadding(u(20), u(6), u(20), u(8));
+        subApplyStyle();
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(WC, WC,
+                Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        lp.bottomMargin = u(60);
+        lp.leftMargin = u(120);
+        lp.rightMargin = u(120);
+        subView.setVisibility(View.GONE);
+        nativeLayer.addView(subView, lp);
+    }
+
+    private void subApplyStyle() {
+        if (subView == null) return;
+        ts(subView, SUB_SIZE_UNITS[subSizeIdx()]);
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(0x73000000);
+        g.setCornerRadius(u(12));
+        subView.setBackground(g);
+    }
+
+    private void subLift(boolean up) {
+        if (subView != null) subView.setTranslationY(up ? -u(185) : 0);
+    }
+
+    private void subHide() {
+        if (subView != null) subView.setVisibility(View.GONE);
+        subShown = "";
+    }
+
+    // Принуждава обновяване на надписа (след превъртане или промяна на синхрона).
+    private void subSeeked() {
+        subShown = "\u0000";
+        if (player != null) subTick(player.getCurrentPosition());
+    }
+
+    private void subTick(long pos) {
+        int n = subTxt.length;
+        if (n == 0 || subView == null) return;
+        long t = pos - subShift;
+        int lo = 0, hi = n - 1, ans = -1;
+        while (lo <= hi) {
+            int mid = (lo + hi) >>> 1;
+            if (subFrom[mid] <= t) {
+                ans = mid;
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        String show = "";
+        if (ans >= 0) {
+            String cur = subTo[ans] > t ? subTxt[ans] : "";
+            // Два реда, които се застъпват (двама говорещи): показват се заедно.
+            String prev = "";
+            if (ans > 0 && subTo[ans - 1] > t && subFrom[ans - 1] <= t) prev = subTxt[ans - 1];
+            if (!prev.isEmpty() && !cur.isEmpty()) show = prev + "\n" + cur;
+            else show = !cur.isEmpty() ? cur : prev;
+        }
+        if (show.equals(subShown)) return;
+        subShown = show;
+        if (show.isEmpty()) {
+            subView.setVisibility(View.GONE);
+        } else {
+            subView.setText(show);
+            subView.setVisibility(View.VISIBLE);
+        }
+    }
+
+    // ---- надписи ----
+
+    private String subShiftText() {
+        float s = subShift / 1000f;
+        return String.format(Locale.US, "%s%.2f s", s > 0 ? "+" : "", s);
+    }
+
+    private String subShort() {
+        if (subLoading) return "свалям…";
+        if (subCur != null) return subCur.lang.toUpperCase(Locale.ROOT) + " · " + subCur.providerName;
+        if (subOff) return "изключени";
+        if (subSearching) return "търся…";
+        return subSearched && subResults.isEmpty() ? "няма" : "избери";
+    }
+
+    // Състоянието на субтитрите за лентата.
+    private String subStatus() {
+        if (subLoading) return "Свалям субтитри…";
+        if (subCur != null) {
+            return "Субтитри: " + subCur.lang.toUpperCase(Locale.ROOT) + " · " + subCur.providerName
+                    + (subShift != 0 ? "  (" + subShiftText() + ")" : "");
+        }
+        if (subOff) return "Без субтитри";
+        if (subSearching) return "Търся субтитри…";
+        if (subSearched) return "Няма субтитри  ·  ▲ за избор";
+        return "";
+    }
+
+    private void subStatusChanged() {
+        if (!tvVod || vodBar == null || vodBar.getVisibility() != View.VISIBLE) return;
+        if (vodStatus == null && vodBarStatus != null) vodBarStatus.setText(subStatus());
+    }
+
+    // ---- прозорци ----
+
+    private boolean subDlgShowing() {
+        return subDlg != null && tvDialog == subDlg && subDlg.isShowing();
+    }
+
+    private void subRefreshDialog() {
+        if (!subDlgShowing()) return;
+        String keep = null;
+        View f = subDlg.getCurrentFocus();
+        if (f != null && f.getTag() instanceof String) keep = (String) f.getTag();
+        subBuildDialog(keep);
+    }
+
+    private void subDialog() {
+        if (!tvVod || vodT == null) return;
+        vodHideBarNow();
+        if (!subSearched) {
+            if (!subSavedUid.isEmpty() || subOff) {
+                // нищо: използва се обичайното търсене
+            }
+            subStartSearch(false);
+        }
+        subBuildDialog(null);
+    }
+
+    private void subBuildDialog(String focusTag) {
+        StringBuilder sub = new StringBuilder();
+        if (subSearching) sub.append("Търся… ");
+        else if (subResults.isEmpty()) sub.append("Няма намерени субтитри. ");
+        else sub.append("Намерени: ").append(subResults.size()).append(". ");
+        if (!subNotes.isEmpty()) sub.append(subJoin(subNotes, "  ·  "));
+        ArrayList<String> off = new ArrayList<>();
+        for (String id : SUB_IDS) {
+            if (!subConfigured(id, null) && !id.equals("sabbz")) {
+                off.add(id.equals("opensubtitles") ? "OpenSubtitles (ключ, потребител, парола)"
+                        : subProviderName(id));
+            }
+        }
+        if (!off.isEmpty()) {
+            sub.append("\nБез ключ (от бутона Източници): ").append(subJoin(off, ", "));
+        }
+        LinearLayout card = tvCard("Субтитри", sub.toString());
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        View focus = null;
+        View firstRow = null;
+
+        LinearLayout none = tvChoice(null, "Без субтитри", subCur == null ? "● избрано" : null,
+                subCur == null ? 1 : 0, new Runnable() {
+                    @Override
+                    public void run() {
+                        tvDialogClose();
+                        subClear(true);
+                    }
+                });
+        none.setTag("none");
+        list.addView(none, lpTopW(MP, u(60), 0));
+        firstRow = none;
+        View curRow = null;
+
+        LinearLayout sync = tvChoice(null, "Синхрон", subCur != null ? subShiftText() : "първо избери субтитри", 0,
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        if (subCur == null) return;
+                        subSyncDialog();
+                    }
+                });
+        sync.setTag("sync");
+        list.addView(sync, lpTopW(MP, u(60), u(8)));
+        LinearLayout set = tvChoice(null, "Настройки на субтитрите", null, 0, new Runnable() {
+            @Override
+            public void run() {
+                subSettingsDialog();
+            }
+        });
+        set.setTag("set");
+        list.addView(set, lpTopW(MP, u(60), u(8)));
+
+        int shown = 0;
+        for (final SubItem it : subResults) {
+            if (shown >= 40) break;
+            String rel = it.release.trim();
+            if (rel.length() > 42) rel = rel.substring(0, 42) + "…";
+            boolean cur = subCur != null && subCur.uid().equals(it.uid());
+            String label = it.lang.toUpperCase(Locale.ROOT) + " · " + (rel.isEmpty() ? "субтитри" : rel);
+            LinearLayout row = tvChoice(null, label, cur ? "● избрано" : it.providerName, cur ? 1 : 0,
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            tvDialogClose();
+                            ArrayList<SubItem> one = new ArrayList<>();
+                            one.add(it);
+                            subLoad(one, false);
+                        }
+                    });
+            row.setTag(it.uid());
+            list.addView(row, lpTopW(MP, u(60), u(8)));
+            if (cur) curRow = row;
+            shown++;
+        }
+        if (focusTag != null) {
+            for (int i = 0; i < list.getChildCount(); i++) {
+                if (focusTag.equals(list.getChildAt(i).getTag())) focus = list.getChildAt(i);
+            }
+        }
+        if (focus == null) focus = curRow != null ? curRow : firstRow;
+        ScrollView sv = new ScrollView(this);
+        sv.setVerticalScrollBarEnabled(false);
+        sv.addView(list, new ViewGroup.LayoutParams(MP, WC));
+        card.addView(sv, lpTopW(MP, u(420), u(20)));
+        tvDialogShow(card, 880, focus);
+        subDlg = tvDialog;
+    }
+
+    private void subSettingsDialog() {
+        LinearLayout card = tvCard("Настройки на субтитрите", null);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout first = tvChoice(null, "Езици", SUB_LANG_NAMES[subLangSet()], 1, new Runnable() {
+            @Override
+            public void run() {
+                prefs.edit().putInt("subLang", (subLangSet() + 1) % SUB_LANG_SETS.length).apply();
+                subSettingsDialog();
+            }
+        });
+        list.addView(first, lpTopW(MP, u(62), 0));
+        list.addView(tvChoice(null, "Автоматично търсене", prefs.getBoolean("subAuto", true) ? "включено" : "изключено",
+                0, new Runnable() {
+                    @Override
+                    public void run() {
+                        prefs.edit().putBoolean("subAuto", !prefs.getBoolean("subAuto", true)).apply();
+                        subSettingsDialog();
+                    }
+                }), lpTopW(MP, u(62), u(10)));
+        list.addView(tvChoice(null, "Размер на текста", subSizeName(), 0, new Runnable() {
+            @Override
+            public void run() {
+                subCycleSize();
+                subSettingsDialog();
+            }
+        }), lpTopW(MP, u(62), u(10)));
+        list.addView(tvChoice(null, "Търси отново", null, 0, new Runnable() {
+            @Override
+            public void run() {
+                subStartSearch(false);
+                subBuildDialog(null);
+            }
+        }), lpTopW(MP, u(62), u(10)));
+        list.addView(tvChoice(null, "Назад", null, 0, new Runnable() {
+            @Override
+            public void run() {
+                subBuildDialog(null);
+            }
+        }), lpTopW(MP, u(62), u(10)));
+        card.addView(list, lpTopW(MP, WC, u(24)));
+        tvDialogShow(card, 760, first);
+        subDlg = null;
+    }
+
+    // Синхрон: ◀ ▶ местят субтитрите по-рано или по-късно (задържане = по-бързо), OK затваря.
+    private void subSyncDialog() {
+        if (subCur == null) return;
+        LinearLayout card = tvCard("Синхрон на субтитрите",
+                "◀ по-рано   ▶ по-късно.  Ако надписът идва след репликата, натискай ◀.");
+        final LinearLayout row = tvChoice(null, subShiftText(), "OK — готово", 1, new Runnable() {
+            @Override
+            public void run() {
+                tvDialogClose();
+                subSaveChoice();
+            }
+        });
+        final TextView val = (TextView) row.getChildAt(0);
+        ts(val, 54);
+        row.setOnKeyListener(new View.OnKeyListener() {
+            @Override
+            public boolean onKey(View v, int keyCode, KeyEvent ev) {
+                if (ev.getAction() != KeyEvent.ACTION_DOWN) return false;
+                if (keyCode != KeyEvent.KEYCODE_DPAD_LEFT && keyCode != KeyEvent.KEYCODE_DPAD_RIGHT) return false;
+                long step = ev.getRepeatCount() >= 8 ? 1000 : 250;
+                subShift += keyCode == KeyEvent.KEYCODE_DPAD_LEFT ? -step : step;
+                if (subShift < -120000) subShift = -120000;
+                if (subShift > 120000) subShift = 120000;
+                val.setText(subShiftText());
+                subSeeked();
+                return true;
+            }
+        });
+        card.addView(row, lpTopW(MP, u(110), u(22)));
+        LinearLayout reset = tvChoice(null, "Нулирай", null, 0, new Runnable() {
+            @Override
+            public void run() {
+                subShift = 0;
+                val.setText(subShiftText());
+                subSeeked();
+            }
+        });
+        card.addView(reset, lpTopW(MP, u(60), u(12)));
+        tvDialogShow(card, 760, row);
+        subDlg = null;
+        final Dialog dd = tvDialog;
+        if (dd != null) {
+            dd.setOnDismissListener(new DialogInterface.OnDismissListener() {
+                @Override
+                public void onDismiss(DialogInterface d) {
+                    if (tvDialog == dd) tvDialog = null;
+                    subSaveChoice();
+                    hideSystemBars();
+                }
+            });
+        }
+    }
     // ---- плочките в менюто ----
 
     // Нарисувана картинка (без файлове): прожектор, голям "play", филмова лента
