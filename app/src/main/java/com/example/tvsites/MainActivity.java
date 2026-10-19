@@ -140,7 +140,7 @@ public class MainActivity extends Activity {
     //   "https://example.com/embed/movie/{tmdb}"
     //   "https://example.com/embed/tv/{tmdb}/{season}/{episode}"
     // Може и без редактиране на кода: бутон "Източници" в каталога.
-  private static final String[] FILM_SOURCES = {
+private static final String[] FILM_SOURCES = {
     "https://vidsrc.sh/embed/movie/{tmdb}",
     "https://vidcore.org/embed/movie/{tmdb}",
     "https://vidlink.pro/movie/{tmdb}",
@@ -1044,7 +1044,7 @@ private static final String[] TV_SOURCES = {
             IC_CLOCK = 5, IC_REFRESH = 6, IC_TRASH = 7, IC_SPARK = 8, IC_PULSE = 9, IC_POWER = 10,
             IC_TV = 11, IC_FILM = 12, IC_RADIO = 13, IC_SEARCH = 14, IC_MONITOR = 15,
             IC_CURSOR = 16, IC_BARS = 17, IC_SHIELD = 18, IC_DOWN = 19, IC_SLIDERS = 20,
-            IC_STAR = 21, IC_GRID = 22, IC_DICE = 23, IC_PLUS = 24;
+            IC_STAR = 21, IC_GRID = 22, IC_DICE = 23, IC_PLUS = 24, IC_HOME = 25;
 
     // Иконка, нарисувана с няколко линии (без файлове). Координатите са на мрежа 24x24.
     private static class IconView extends View {
@@ -1238,6 +1238,11 @@ private static final String[] TV_SOURCES = {
                 case IC_PLUS:
                     line(c, 12, 5, 12, 19);
                     line(c, 5, 12, 19, 12);
+                    break;
+                case IC_HOME:
+                    poly(c, false, 4, 11.5f, 12, 4, 20, 11.5f);
+                    poly(c, false, 6.5f, 10, 6.5f, 19.5f, 17.5f, 19.5f, 17.5f, 10);
+                    poly(c, false, 10, 19.5f, 10, 14.5f, 14, 14.5f, 14, 19.5f);
                     break;
                 default:
                     break;
@@ -8085,14 +8090,15 @@ private static final String[] TV_SOURCES = {
     private static class TvSrc {
         String site = "", page = "", stream = "", ref = "", org = "", ua = "", mode = "";
         long ok;     // кога последно е тръгнал
-        int fails;   // колко пъти поред запазеният поток не е тръгнал
+        int fails;   // колко гледания поред основният поток не е тръгнал или е заседнал
+        long failAt; // кога последно основният поток е вдигнал неуспех (сайтът с пресен неуспех се пробва последен)
         int bad;     // колко проверки поред източникът не е отговорил
         long chk;    // кога е броена последната грешка/успех от проверка
         // Резервни потоци на същия сайт: {адрес, Referer, Origin, User-Agent, неуспехи поред}.
         final ArrayList<String[]> alts = new ArrayList<>();
     }
 
-    private static final int TV_MAX_ALTS = 3;
+    private static final int TV_MAX_ALTS = 4; // резервни потоци на един сайт (освен основния)
 
     private static class TvChan {
         String id = "", name = "";
@@ -8131,6 +8137,7 @@ private static final String[] TV_SOURCES = {
                         x.mode = so.optString("m");
                         x.ok = so.optLong("k");
                         x.fails = so.optInt("f");
+                        x.failAt = so.optLong("l");
                         x.bad = so.optInt("b");
                         x.chk = so.optLong("c");
                         JSONArray xa = so.optJSONArray("x");
@@ -8173,6 +8180,7 @@ private static final String[] TV_SOURCES = {
                     so.put("m", x.mode);
                     so.put("k", x.ok);
                     so.put("f", x.fails);
+                    if (x.failAt > 0) so.put("l", x.failAt);
                     if (x.bad > 0) so.put("b", x.bad);
                     if (x.chk > 0) so.put("c", x.chk);
                     if (!x.alts.isEmpty()) {
@@ -8531,7 +8539,8 @@ private static final String[] TV_SOURCES = {
         return f;
     }
 
-    // Голямата сянка с номера на канала зад картата.
+
+    // Голямата сянка с номера на канала зад картата (като на картинката: наполовина скрита).
     private static class GhostNum extends View {
         private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
         private String s = "";
@@ -8540,42 +8549,21 @@ private static final String[] TV_SOURCES = {
             super(c);
             this.s = s;
             p.setTypeface(tf);
-            p.setColor(0x14FFFFFF);
+            p.setColor(0x11FFFFFF);
             p.setTextAlign(Paint.Align.RIGHT);
+        }
+
+        void set(String s) {
+            if (s.equals(this.s)) return;
+            this.s = s;
+            invalidate();
         }
 
         @Override
         protected void onDraw(Canvas c) {
             float h = getHeight();
-            p.setTextSize(h * 1.9f);
-            c.drawText(s, getWidth() + h * 0.10f, h * 1.12f, p);
-        }
-    }
-
-    // Точки: по една за всеки източник на канала.
-    private static class DotsView extends View {
-        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final int n, dot, gap;
-
-        DotsView(Context c, int n, int dot, int gap, int color) {
-            super(c);
-            this.n = Math.min(Math.max(n, 1), 6);
-            this.dot = dot;
-            this.gap = gap;
-            p.setColor(color);
-        }
-
-        @Override
-        protected void onMeasure(int wms, int hms) {
-            setMeasuredDimension(n * dot + (n - 1) * gap, View.MeasureSpec.getSize(hms));
-        }
-
-        @Override
-        protected void onDraw(Canvas c) {
-            float cy = getHeight() / 2f;
-            for (int i = 0; i < n; i++) {
-                c.drawCircle(dot / 2f + i * (dot + gap), cy, dot / 2f, p);
-            }
+            p.setTextSize(h * 2.33f);
+            c.drawText(s, getWidth() - h * 1.10f, h * 1.372f, p);
         }
     }
 
@@ -8621,15 +8609,22 @@ private static final String[] TV_SOURCES = {
         return tile;
     }
 
-    // ---- екранът със списъка на каналите ----
+    // ---- екранът „Моята телевизия“: лява лента с категории, карта, редове и мрежа с лога ----
 
     private FrameLayout tvPanel;
     private LinearLayout tvHead;
+    private TextView tvHeadClock;
+    private LinearLayout tvRail;
     private ScrollView tvScroll;
     private LinearLayout tvBox;
     private TextView tvHint;
+    private View tvFade;
     private View tvTile;
-    private View tvMain;
+    private View tvMain;                 // първият елемент в съдържанието: там отива фокусът
+    private int tvSel = TV_HOME;         // какво е избрано в лентата: Начало, Всички или категория
+    private int tvRailPend = TV_HOME;
+    private int[] tvCatIdx = new int[0]; // категория на всеки канал (по реда в tvChans)
+    private int[] tvCatCnt = new int[TV_CAT_NAMES.length];
 
     private boolean tvPanelShown() {
         return tvPanel != null && tvPanel.getVisibility() == View.VISIBLE;
@@ -8638,30 +8633,67 @@ private static final String[] TV_SOURCES = {
     private void tvBuildPanel() {
         tvPanel = new FrameLayout(this);
         tvPanel.addView(new TvBgView(this), new FrameLayout.LayoutParams(MP, MP));
-        LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-        tvHead = new LinearLayout(this);
-        tvHead.setOrientation(LinearLayout.HORIZONTAL);
-        tvHead.setGravity(Gravity.CENTER_VERTICAL);
-        tvHead.setClipChildren(false);
-        col.addView(tvHead, new LinearLayout.LayoutParams(MP, u(110)));
+
         tvScroll = new CatScroll(this);
-        tvScroll.setFillViewport(true);
         tvScroll.setVerticalScrollBarEnabled(false);
         tvScroll.setClipChildren(false);
         tvScroll.setClipToPadding(false);
+        tvScroll.setFillViewport(true);
         tvBox = new LinearLayout(this);
         tvBox.setOrientation(LinearLayout.VERTICAL);
         tvBox.setClipChildren(false);
-        tvBox.setPadding(u(64), u(6), u(64), u(20));
         tvScroll.addView(tvBox, new ViewGroup.LayoutParams(MP, WC));
-        col.addView(tvScroll, new LinearLayout.LayoutParams(MP, 0, 1f));
+        tvPanel.addView(tvScroll, new FrameLayout.LayoutParams(MP, MP));
+
+        // Мек преход най-долу, за да се чете подсказката.
+        tvFade = new ScrimView(this, true, new int[]{0x00050912, 0xEB050912}, new float[]{0f, 1f});
+        tvPanel.addView(tvFade, new FrameLayout.LayoutParams(MP, u(80), Gravity.BOTTOM));
         tvHint = text("", 16, T_TEXT3, tfMedium, true);
         tvHint.setGravity(Gravity.CENTER);
-        col.addView(tvHint, new LinearLayout.LayoutParams(MP, u(54)));
-        tvPanel.addView(col, new FrameLayout.LayoutParams(MP, MP));
+        FrameLayout.LayoutParams hl = new FrameLayout.LayoutParams(MP, WC, Gravity.BOTTOM);
+        hl.bottomMargin = u(22);
+        tvPanel.addView(tvHint, hl);
+
+        tvRail = new LinearLayout(this);
+        tvRail.setOrientation(LinearLayout.VERTICAL);
+        tvRail.setPadding(u(10), u(10), u(10), u(12));
+        GradientDrawable rg = new GradientDrawable();
+        rg.setColor(0x09FFFFFF);
+        rg.setCornerRadius(u(26));
+        rg.setStroke(Math.max(1, u(1)), 0x14FFFFFF);
+        tvRail.setBackground(rg);
+        FrameLayout.LayoutParams rl = new FrameLayout.LayoutParams(u(292), WC,
+                Gravity.TOP | Gravity.START);
+        rl.leftMargin = u(64);
+        rl.topMargin = u(112);
+        tvPanel.addView(tvRail, rl);
+
+        tvHead = new LinearLayout(this);
+        tvHead.setOrientation(LinearLayout.HORIZONTAL);
+        tvHead.setGravity(Gravity.CENTER_VERTICAL);
+        FrameLayout.LayoutParams hdl = new FrameLayout.LayoutParams(MP, u(84),
+                Gravity.TOP | Gravity.START);
+        hdl.leftMargin = u(64);
+        hdl.rightMargin = u(64);
+        hdl.topMargin = u(16);
+        tvPanel.addView(tvHead, hdl);
+
         tvPanel.setVisibility(View.GONE);
         root.addView(tvPanel, new FrameLayout.LayoutParams(MP, MP));
+    }
+
+    // Празно състояние: целият екран за съдържанието; иначе съдържанието е вдясно от лентата.
+    private void tvLayoutFor(boolean empty) {
+        FrameLayout.LayoutParams sl = (FrameLayout.LayoutParams) tvScroll.getLayoutParams();
+        sl.leftMargin = empty ? 0 : u(360);
+        sl.topMargin = u(96);
+        sl.bottomMargin = empty ? 0 : u(56); // под прехода с подсказката: фокусираното не се скрива под него
+        tvScroll.setLayoutParams(sl);
+        FrameLayout.LayoutParams fl = (FrameLayout.LayoutParams) tvFade.getLayoutParams();
+        fl.leftMargin = empty ? 0 : u(360);
+        tvFade.setLayoutParams(fl);
+        tvRail.setVisibility(empty ? View.GONE : View.VISIBLE);
+        tvBox.setPadding(empty ? u(64) : 0, u(12), empty ? u(64) : 0, u(empty ? 20 : 40));
     }
 
     private void tvShowPanel() {
@@ -8672,33 +8704,70 @@ private static final String[] TV_SOURCES = {
         menuHolder.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
         tvPanel.setVisibility(View.VISIBLE);
         logEvent("Отворена Моята телевизия");
-        tvFill(null);
+        tvLogoMissing.clear();
+        tvLogoOffline = false;
+        tvLogoErrRun = 0;
+        // При връщане от гледане в категория фокусът отива на последния гледан канал.
+        TvChan last = tvLastChan();
+        tvFill(tvSel == TV_HOME || last == null ? null : last.id);
         updateState();
     }
 
-    // Скрива екрана, без да връща фокуса в менюто (когато се отваря друг екран).
-    private void tvHidePanelQuiet() {
+    // Докато се гледа канал или се отваря друг екран, този екран не държи памет:
+    // изгледите се махат, а логата се освобождават (на диска остават).
+    private void tvPanelRelease() {
+        ui.removeCallbacks(tvHeroRun);
+        ui.removeCallbacks(tvRailRun);
+        ui.removeCallbacks(tvPanelClockRun);
         if (tvPanel != null) {
             tvPanel.setVisibility(View.GONE);
             tvBox.removeAllViews();
             tvHead.removeAllViews();
+            tvRail.removeAllViews();
         }
         tvMain = null;
+        tvHeroCard = null;
+        tvHeroPlate = null;
+        tvHeroWant = null;
+        tvHeadClock = null;
+        tvLogoTrim();
+    }
+
+    // Скрива екрана, без да връща фокуса в менюто (когато се отваря друг екран).
+    private void tvHidePanelQuiet() {
+        tvPanelRelease();
         menuHolder.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
         // Броят на каналите в плочката на менюто следва промените.
         if (tvTileSub != null) tvTileSub.setText(tvTileSubText());
     }
 
     private void tvHidePanel() {
+        tvSel = TV_HOME; // следващото отваряне от менюто започва от „Начало“
         tvHidePanelQuiet();
         View f = tvTile != null ? tvTile : (heroView != null ? heroView : firstTile);
         if (f != null) f.requestFocus();
         updateState();
     }
 
-    private void tvFillHead(String sub, boolean addBtn) {
+    // Часът в горния десен ъгъл: обновява се в началото на всяка минута, само докато екранът се вижда.
+    private final Runnable tvPanelClockRun = new Runnable() {
+        @Override
+        public void run() {
+            tvPanelClockTick();
+        }
+    };
+
+    private void tvPanelClockTick() {
+        ui.removeCallbacks(tvPanelClockRun);
+        if (!tvPanelShown() || tvHeadClock == null) return;
+        long now = System.currentTimeMillis();
+        tvHeadClock.setText(new java.text.SimpleDateFormat("HH:mm", Locale.US)
+                .format(new java.util.Date(now)));
+        ui.postDelayed(tvPanelClockRun, 60000 - now % 60000 + 150);
+    }
+
+    private void tvFillHead(String sub) {
         tvHead.removeAllViews();
-        tvHead.setPadding(u(64), u(26), u(64), 0);
         FrameLayout mark = new FrameLayout(this);
         GradientDrawable mg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
                 new int[]{0xFF6FD3FF, 0xFF4F46E5});
@@ -8711,34 +8780,52 @@ private static final String[] TV_SOURCES = {
         tvHead.addView(mark, mlp);
         LinearLayout tx = new LinearLayout(this);
         tx.setOrientation(LinearLayout.VERTICAL);
-        tx.addView(text("Моята телевизия", 46, T_TEXT, tfCondBold, true));
+        TextView title = text("Моята телевизия", 48, T_TEXT, tfCondBold, true);
+        title.setIncludeFontPadding(false);
+        tx.addView(title);
         TextView st = text(sub, 18, T_TEXT2, tfMedium, true);
-        st.setPadding(0, u(2), 0, 0);
+        st.setPadding(0, u(6), 0, 0);
         tx.addView(st);
         tvHead.addView(tx, new LinearLayout.LayoutParams(0, WC, 1f));
-        {
-            tvHead.addView(tvPill(IC_PLUS, "Добави и провери", new Runnable() {
-                @Override
-                public void run() {
-                    tvAddFromSite();
-                }
-            }), lp(WC, u(52)));
-        }
+        tvHeadClock = text("", 40, T_TEXT, tfCondBold, true);
+        tvHeadClock.setIncludeFontPadding(false);
+        LinearLayout.LayoutParams clp = lp(WC, WC);
+        clp.rightMargin = u(30);
+        tvHead.addView(tvHeadClock, clp);
+        tvHead.addView(tvPill(IC_PLUS, "Добави и провери", new Runnable() {
+            @Override
+            public void run() {
+                tvAddFromSite();
+            }
+        }), lp(WC, u(52)));
+        tvPanelClockTick();
     }
 
     // Пълни екрана: празно състояние или списък. focusId е каналът, който да остане на фокус.
     private void tvFill(final String focusId) {
+        ui.removeCallbacks(tvHeroRun);
+        ui.removeCallbacks(tvRailRun);
         tvHead.removeAllViews();
+        tvRail.removeAllViews();
         tvBox.removeAllViews();
         tvMain = null;
-        if (tvChans.isEmpty()) {
-            tvFillHead("Още няма канали", false);
+        tvHeroCard = null;
+        tvHeroPlate = null;
+        tvHeroWant = null;
+        boolean empty = tvChans.isEmpty();
+        tvLayoutFor(empty);
+        if (empty) {
+            tvFillHead("Още няма канали");
             tvFillEmpty();
             tvHint.setText("");
         } else {
+            tvCount();
+            if (tvSel >= 0 && tvCatCnt[tvSel] == 0) tvSel = TV_HOME;
+            tvRailPend = tvSel;
             tvFillHead(plural(tvChans.size(), "канал", "канала") + "  ·  "
-                    + plural(tvSourceTotal(), "източник", "източника"), true);
-            tvFillList();
+                    + plural(tvSourceTotal(), "източник", "източника"));
+            tvFillRail();
+            tvBuildContent();
             tvHint.setText("Задръж OK върху канал, за да го промениш");
         }
         tvPanel.post(new Runnable() {
@@ -8753,6 +8840,18 @@ private static final String[] TV_SOURCES = {
         });
     }
 
+    // Колко канала има във всяка категория.
+    private void tvCount() {
+        int n = tvChans.size();
+        tvCatIdx = new int[n];
+        tvCatCnt = new int[TV_CAT_NAMES.length];
+        for (int i = 0; i < n; i++) {
+            int c = tvCatOfName(tvChans.get(i).name);
+            tvCatIdx[i] = c;
+            tvCatCnt[c]++;
+        }
+    }
+
     private String tvSrcNames(TvChan c) {
         StringBuilder sb = new StringBuilder();
         for (TvSrc s : c.srcs) {
@@ -8762,180 +8861,499 @@ private static final String[] TV_SOURCES = {
         return sb.toString();
     }
 
-    // Голямата карта "Последно гледан".
-    private View tvFeatured(final TvChan c, int num) {
-        FrameLayout card = new FrameLayout(this);
-        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                new int[]{0xFF1E5AA8, 0xFF143A7A, 0xFF0B1D45});
-        bg.setCornerRadius(u(30));
-        bg.setStroke(Math.max(1, u(1)), 0x408FDBFF);
-        card.setBackground(bg);
-        roundClip(card, u(30));
-        card.addView(new GhostNum(this, tfCondBold, String.valueOf(num)),
-                new FrameLayout.LayoutParams(MP, MP));
+    // ---- лявата лента: Начало, Всички канали, категории ----
 
+    private void tvFillRail() {
+        tvRail.removeAllViews();
+        tvRail.addView(tvRailEntry(TV_HOME, "Начало", IC_HOME, 0, 0), tvRailLp());
+        tvRail.addView(tvRailEntry(TV_ALL, "Всички канали", IC_GRID, tvChans.size(), 0), tvRailLp());
+        View sep = new View(this);
+        sep.setBackgroundColor(0x1AFFFFFF);
+        LinearLayout.LayoutParams sl = lp(MP, Math.max(1, u(1)));
+        sl.leftMargin = u(14);
+        sl.rightMargin = u(14);
+        sl.topMargin = u(2);
+        sl.bottomMargin = u(8);
+        tvRail.addView(sep, sl);
+        for (int i = 0; i < TV_CAT_NAMES.length; i++) {
+            if (tvCatCnt[i] > 0) {
+                tvRail.addView(tvRailEntry(i, TV_CAT_NAMES[i], -1, tvCatCnt[i], TV_CAT_COLORS[i]),
+                        tvRailLp());
+            }
+        }
+        tvRailMark();
+    }
+
+    private LinearLayout.LayoutParams tvRailLp() {
+        LinearLayout.LayoutParams l = lp(MP, u(58));
+        l.bottomMargin = u(6);
+        return l;
+    }
+
+    private View tvRailEntry(final int sel, String label, int icon, int count, int color) {
+        TvRailItem it = new TvRailItem(this, sel, label, icon, count, color);
+        it.setOnFocusChangeListener(tvRailFocus);
+        it.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                tvSelect(sel);
+                tvFocusContent();
+            }
+        });
+        // ▶ приема избраното и отива в съдържанието.
+        it.setOnKeyListener(new View.OnKeyListener() {
+            @Override
+            public boolean onKey(View v, int code, KeyEvent e) {
+                if (e.getAction() == KeyEvent.ACTION_DOWN && code == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                    tvSelect(sel);
+                    tvFocusContent();
+                    return true;
+                }
+                return false;
+            }
+        });
+        return it;
+    }
+
+    private void tvRailMark() {
+        for (int i = 0; i < tvRail.getChildCount(); i++) {
+            View v = tvRail.getChildAt(i);
+            if (v instanceof TvRailItem) ((TvRailItem) v).mark(((TvRailItem) v).sel == tvSel);
+        }
+    }
+
+    // Докато се върви по лентата, съдържанието се сменя чак когато спреш.
+    private final View.OnFocusChangeListener tvRailFocus = new View.OnFocusChangeListener() {
+        @Override
+        public void onFocusChange(View v, boolean has) {
+            if (!has || !(v instanceof TvRailItem)) return;
+            tvRailPend = ((TvRailItem) v).sel;
+            ui.removeCallbacks(tvRailRun);
+            if (tvRailPend != tvSel) ui.postDelayed(tvRailRun, 200);
+        }
+    };
+
+    private final Runnable tvRailRun = new Runnable() {
+        @Override
+        public void run() {
+            if (!tvPanelShown() || tvRail == null || !tvRail.hasFocus()) return;
+            if (tvRailPend != tvSel) tvSelect(tvRailPend);
+        }
+    };
+
+    private void tvSelect(int sel) {
+        ui.removeCallbacks(tvRailRun);
+        if (sel == tvSel && tvBox.getChildCount() > 0) return;
+        tvSel = sel;
+        tvRailPend = sel;
+        tvRailMark();
+        tvBuildContent();
+        tvScroll.scrollTo(0, 0);
+    }
+
+    private void tvFocusContent() {
+        if (tvMain != null) tvMain.requestFocus();
+    }
+
+    private void tvFocusRail() {
+        for (int i = 0; i < tvRail.getChildCount(); i++) {
+            View v = tvRail.getChildAt(i);
+            if (v instanceof TvRailItem && ((TvRailItem) v).sel == tvSel) {
+                v.requestFocus();
+                return;
+            }
+        }
+    }
+
+    // ---- общи слушатели на плочките ----
+
+    private final View.OnClickListener tvCardClick = new View.OnClickListener() {
+        @Override
+        public void onClick(View v) {
+            if (v instanceof TvCard) tvTuneUser(((TvCard) v).chan, -1);
+        }
+    };
+
+    private final View.OnLongClickListener tvCardLong = new View.OnLongClickListener() {
+        @Override
+        public boolean onLongClick(View v) {
+            if (!(v instanceof TvCard)) return false;
+            tvChannelMenu(((TvCard) v).chan);
+            return true;
+        }
+    };
+
+    // ◀ от първата плочка в реда води обратно към лентата с категории.
+    private final View.OnKeyListener tvCardKeys = new View.OnKeyListener() {
+        @Override
+        public boolean onKey(View v, int code, KeyEvent e) {
+            if (e.getAction() == KeyEvent.ACTION_DOWN && code == KeyEvent.KEYCODE_DPAD_LEFT
+                    && v instanceof TvCard && ((TvCard) v).edge) {
+                // Само ново натискане: при задържане стрелката спира в началото на реда.
+                if (e.getRepeatCount() == 0) tvFocusRail();
+                return true;
+            }
+            return false;
+        }
+    };
+
+    // Увеличение и сянка, както навсякъде; на екрана „Начало“ картата показва канала на фокус.
+    private final View.OnFocusChangeListener tvCardFocus = new View.OnFocusChangeListener() {
+        @Override
+        public void onFocusChange(View v, boolean has) {
+            tvFocus.onFocusChange(v, has);
+            if (has && v instanceof TvCard && tvHeroCard != null) tvHeroShow(((TvCard) v).chan);
+        }
+    };
+
+    private TvCard tvCardFor(int i, float wU, float plateU) {
+        TvChan c = tvChans.get(i);
+        TvCard t = new TvCard(this, c, tvPicFor(c.name), i + 1, wU, plateU);
+        t.setOnClickListener(tvCardClick);
+        t.setOnLongClickListener(tvCardLong);
+        t.setOnKeyListener(tvCardKeys);
+        t.setTag(R_SCALE, 1.06f);
+        t.setOnFocusChangeListener(tvCardFocus);
+        return t;
+    }
+
+    // ---- съдържанието: „Начало“ (карта и редове) или мрежа ----
+
+    private void tvBuildContent() {
+        ui.removeCallbacks(tvHeroRun);
+        tvBox.removeAllViews();
+        tvMain = null;
+        tvHeroCard = null;
+        tvHeroPlate = null;
+        tvHeroWant = null;
+        if (tvSel == TV_HOME) tvBuildHome();
+        else tvBuildGrid();
+    }
+
+    private void tvBuildHome() {
+        int n = tvChans.size();
+        TvChan last = tvLastChan();
+        tvHeroLast = last;
+        View hero = tvHeroBuild(last);
+        LinearLayout.LayoutParams hl = lp(u(1152), u(172));
+        hl.leftMargin = u(24);
+        tvBox.addView(hero, hl);
+        tvMain = hero;
+
+        // Последно гледани: най-новите първи.
+        ArrayList<Integer> rec = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            if (tvChans.get(i).last > 0) rec.add(i);
+        }
+        Collections.sort(rec, new java.util.Comparator<Integer>() {
+            @Override
+            public int compare(Integer a, Integer b) {
+                return Long.compare(tvChans.get(b).last, tvChans.get(a).last);
+            }
+        });
+        while (rec.size() > 12) rec.remove(rec.size() - 1);
+        if (!rec.isEmpty()) {
+            tvBox.addView(tvRow("Последно гледани", IC_CLOCK, 0, rec), lpTop(u(20)));
+        }
+        for (int c = 0; c < TV_CAT_NAMES.length; c++) {
+            if (tvCatCnt[c] == 0) continue;
+            ArrayList<Integer> idx = new ArrayList<>();
+            for (int i = 0; i < n; i++) {
+                if (tvCatIdx[i] == c) idx.add(i);
+            }
+            tvBox.addView(tvRow(TV_CAT_NAMES[c], -1, TV_CAT_COLORS[c], idx), lpTop(u(rec.isEmpty() && c == firstCat() ? 20 : 0)));
+        }
+    }
+
+    private int firstCat() {
+        for (int c = 0; c < TV_CAT_NAMES.length; c++) {
+            if (tvCatCnt[c] > 0) return c;
+        }
+        return -1;
+    }
+
+    // Ред: заглавие с брой и лента от плочки, която се върти настрани.
+    private View tvRow(String title, int icon, int color, ArrayList<Integer> idx) {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout hd = new LinearLayout(this);
+        hd.setOrientation(LinearLayout.HORIZONTAL);
+        hd.setGravity(Gravity.CENTER_VERTICAL);
+        hd.setPadding(u(24), 0, 0, 0);
+        if (icon >= 0) {
+            LinearLayout.LayoutParams ilp = lp(u(24), u(24));
+            ilp.rightMargin = u(12);
+            hd.addView(new IconView(this, icon, T_SKY2), ilp);
+        } else {
+            View dot = new View(this);
+            GradientDrawable dg = new GradientDrawable();
+            dg.setColor(color);
+            dg.setCornerRadius(u(4));
+            dot.setBackground(dg);
+            LinearLayout.LayoutParams dlp = lp(u(12), u(12));
+            dlp.rightMargin = u(12);
+            hd.addView(dot, dlp);
+        }
+        hd.addView(text(title, 30, T_TEXT, tfCondBold, true));
+        TextView cnt = text(String.valueOf(idx.size()), 18, T_TEXT3, tfMedium, true);
+        cnt.setPadding(u(12), u(4), 0, 0);
+        hd.addView(cnt);
+        col.addView(hd, lp(MP, u(40)));
+
+        RowScroll hs = new RowScroll(this);
+        hs.setHorizontalScrollBarEnabled(false);
+        hs.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        hs.setClipChildren(false);
+        hs.setClipToPadding(false);
+        hs.setPadding(u(24), u(18), u(24), u(10)); // сверху място за ореола при фокус
+        LinearLayout strip = new LinearLayout(this);
+        strip.setOrientation(LinearLayout.HORIZONTAL);
+        strip.setClipChildren(false);
+        for (int k = 0; k < idx.size(); k++) {
+            TvCard t = tvCardFor(idx.get(k), 212, 118);
+            LinearLayout.LayoutParams tl = lp(t.wPx, t.hPx);
+            if (k > 0) tl.leftMargin = u(16);
+            else t.edge = true;
+            strip.addView(t, tl);
+        }
+        hs.addView(strip, new ViewGroup.LayoutParams(WC, WC));
+        col.addView(hs, lp(MP, u(18 + 160 + 10)));
+        return col;
+    }
+
+    // Мрежа: всички канали или една категория, по пет в ред.
+    private void tvBuildGrid() {
+        int n = tvChans.size();
+        ArrayList<Integer> idx = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            if (tvSel == TV_ALL || tvCatIdx[i] == tvSel) idx.add(i);
+        }
+        LinearLayout gh = new LinearLayout(this);
+        gh.setOrientation(LinearLayout.HORIZONTAL);
+        gh.setGravity(Gravity.CENTER_VERTICAL);
+        gh.setPadding(u(24), 0, u(64), 0);
+        if (tvSel == TV_ALL) {
+            LinearLayout.LayoutParams ilp = lp(u(30), u(30));
+            ilp.rightMargin = u(14);
+            gh.addView(new IconView(this, IC_GRID, T_SKY2), ilp);
+        } else {
+            View dot = new View(this);
+            GradientDrawable dg = new GradientDrawable();
+            dg.setColor(TV_CAT_COLORS[tvSel]);
+            dg.setCornerRadius(u(5));
+            dot.setBackground(dg);
+            LinearLayout.LayoutParams dlp = lp(u(14), u(14));
+            dlp.rightMargin = u(14);
+            gh.addView(dot, dlp);
+        }
+        TextView title = text(tvSel == TV_ALL ? "Всички канали" : TV_CAT_NAMES[tvSel], 46, T_TEXT,
+                tfCondBold, true);
+        title.setIncludeFontPadding(false);
+        gh.addView(title);
+        TextView cnt = text(plural(idx.size(), "канал", "канала"), 19, T_TEXT3, tfMedium, true);
+        cnt.setPadding(u(16), u(8), 0, 0);
+        gh.addView(cnt);
+        gh.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        gh.addView(tvKeyChip("◀", "категории"), lp(WC, u(38)));
+        tvBox.addView(gh, lp(MP, u(56)));
+
+        int cols = 5;
+        for (int r = 0; r * cols < idx.size(); r++) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setClipChildren(false);
+            row.setPadding(u(24), 0, 0, 0);
+            for (int k = 0; k < cols && r * cols + k < idx.size(); k++) {
+                TvCard t = tvCardFor(idx.get(r * cols + k), 206, 110);
+                LinearLayout.LayoutParams tl = lp(t.wPx, t.hPx);
+                if (k > 0) tl.leftMargin = u(21);
+                else t.edge = true;
+                if (r == 0 && k == 0) tvMain = t;
+                row.addView(t, tl);
+            }
+            tvBox.addView(row, lpTop(u(r == 0 ? 22 : 20)));
+        }
+    }
+
+    // ---- голямата карта на „Начало“ ----
+
+    private FrameLayout tvHeroCard;
+    private TvPlate tvHeroPlate;
+    private GhostNum tvHeroGhost;
+    private TextView tvHeroName, tvHeroLabTxt, tvHeroCatTxt;
+    private View tvHeroCatDot;
+    private LinearLayout tvHeroChips;
+    private TvChan tvHeroChan, tvHeroWant, tvHeroLast;
+
+    private StateListDrawable tvHeroBg() {
+        int[] cols = {0xFF1E5AA8, 0xFF143A7A, 0xFF0B1D45};
+        GradientDrawable n = new GradientDrawable(GradientDrawable.Orientation.TL_BR, cols);
+        n.setCornerRadius(u(30));
+        n.setStroke(Math.max(1, u(1)), 0x408FDBFF);
+        GradientDrawable f = new GradientDrawable(GradientDrawable.Orientation.TL_BR, cols);
+        f.setCornerRadius(u(30));
+        f.setStroke(u(3), T_SKY);
+        StateListDrawable sl = new StateListDrawable();
+        sl.addState(new int[]{android.R.attr.state_focused}, f);
+        sl.addState(new int[]{}, n);
+        return sl;
+    }
+
+    private View tvHeroBuild(TvChan c) {
+        FrameLayout card = new FrameLayout(this);
+        card.setFocusable(true);
+        card.setClickable(true);
+        card.setLongClickable(true);
+        card.setBackground(tvHeroBg());
+        roundClip(card, u(30));
+        tvHeroGhost = new GhostNum(this, tfCondBold, "");
+        card.addView(tvHeroGhost, new FrameLayout.LayoutParams(MP, MP));
+
+        tvHeroPlate = new TvPlate(this, 52, 44, true);
+        FrameLayout.LayoutParams pl = new FrameLayout.LayoutParams(u(216), u(124),
+                Gravity.TOP | Gravity.START);
+        pl.leftMargin = u(20);
+        pl.topMargin = u(20);
+        card.addView(tvHeroPlate, pl);
+
+        // Белег: червена точка, „Последно гледан“ или номер, и категорията с цвета ѝ.
         LinearLayout lab = new LinearLayout(this);
         lab.setOrientation(LinearLayout.HORIZONTAL);
         lab.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams dlp = lp(u(18), u(18));
         dlp.rightMargin = u(10);
         lab.addView(tvLiveDot(18), dlp);
-        lab.addView(text("Последно гледан", 17, T_TEXT2, tfMedium, true));
-        FrameLayout.LayoutParams llp = new FrameLayout.LayoutParams(WC, WC,
-                Gravity.TOP | Gravity.START);
-        llp.leftMargin = u(40);
-        llp.topMargin = u(24);
-        card.addView(lab, llp);
+        tvHeroLabTxt = text("", 17, T_TEXT2, tfMedium, true);
+        lab.addView(tvHeroLabTxt);
+        TextView mid = text("·", 17, T_TEXT3, tfMedium, true);
+        mid.setPadding(u(10), 0, u(10), 0);
+        lab.addView(mid);
+        tvHeroCatDot = new View(this);
+        LinearLayout.LayoutParams cdl = lp(u(12), u(12));
+        cdl.rightMargin = u(10);
+        lab.addView(tvHeroCatDot, cdl);
+        tvHeroCatTxt = text("", 17, T_TEXT2, tfMedium, true);
+        lab.addView(tvHeroCatTxt);
+        FrameLayout.LayoutParams ll = new FrameLayout.LayoutParams(WC, WC, Gravity.TOP | Gravity.START);
+        ll.leftMargin = u(254);
+        ll.topMargin = u(22);
+        card.addView(lab, ll);
 
-        TextView nm = text(c.name, c.name.length() > 18 ? 56 : 72, T_TEXT, tfCondBold, true);
-        nm.setIncludeFontPadding(false);
-        FrameLayout.LayoutParams nlp = new FrameLayout.LayoutParams(MP, WC,
-                Gravity.TOP | Gravity.START);
-        nlp.leftMargin = u(40);
-        nlp.rightMargin = u(280);
-        nlp.topMargin = u(54);
-        card.addView(nm, nlp);
+        tvHeroName = text("", 66, T_TEXT, tfCondBold, true);
+        tvHeroName.setIncludeFontPadding(false);
+        FrameLayout.LayoutParams nl = new FrameLayout.LayoutParams(MP, WC, Gravity.TOP | Gravity.START);
+        nl.leftMargin = u(254);
+        nl.rightMargin = u(280);
+        nl.topMargin = u(50);
+        card.addView(tvHeroName, nl);
 
-        LinearLayout chips = new LinearLayout(this);
-        chips.setOrientation(LinearLayout.HORIZONTAL);
+        tvHeroChips = new LinearLayout(this);
+        tvHeroChips.setOrientation(LinearLayout.HORIZONTAL);
+        FrameLayout.LayoutParams chl = new FrameLayout.LayoutParams(WC, WC, Gravity.BOTTOM | Gravity.START);
+        chl.leftMargin = u(254);
+        chl.bottomMargin = u(22);
+        card.addView(tvHeroChips, chl);
+
+        // „OK  Гледай“: само подсказка, цялата карта е бутонът.
+        LinearLayout go = new LinearLayout(this);
+        go.setOrientation(LinearLayout.HORIZONTAL);
+        go.setGravity(Gravity.CENTER_VERTICAL);
+        go.setPadding(u(14), 0, u(30), 0);
+        GradientDrawable gg = new GradientDrawable();
+        gg.setColor(0x6104121F);
+        gg.setCornerRadius(u(34));
+        gg.setStroke(Math.max(1, u(1)), 0x42FFFFFF);
+        go.setBackground(gg);
+        TextView ok = text("OK", 18, T_INK, Typeface.DEFAULT_BOLD, true);
+        ok.setGravity(Gravity.CENTER);
+        GradientDrawable og = new GradientDrawable();
+        og.setColor(T_SKY2);
+        og.setCornerRadius(u(12));
+        ok.setBackground(og);
+        LinearLayout.LayoutParams okl = lp(u(52), u(38));
+        okl.rightMargin = u(12);
+        go.addView(ok, okl);
+        go.addView(text("Гледай", 25, T_TEXT, Typeface.DEFAULT_BOLD, true));
+        FrameLayout.LayoutParams gl = new FrameLayout.LayoutParams(WC, u(68), Gravity.TOP | Gravity.END);
+        gl.rightMargin = u(30);
+        gl.topMargin = u(52);
+        card.addView(go, gl);
+
+        card.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (tvHeroChan != null) tvTuneUser(tvHeroChan, -1);
+            }
+        });
+        card.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {
+                if (tvHeroChan == null) return false;
+                tvChannelMenu(tvHeroChan);
+                return true;
+            }
+        });
+        card.setOnKeyListener(new View.OnKeyListener() {
+            @Override
+            public boolean onKey(View v, int code, KeyEvent e) {
+                if (e.getAction() == KeyEvent.ACTION_DOWN && code == KeyEvent.KEYCODE_DPAD_LEFT) {
+                    if (e.getRepeatCount() == 0) tvFocusRail();
+                    return true;
+                }
+                return false;
+            }
+        });
+        card.setTag(R_SCALE, 1.012f);
+        card.setOnFocusChangeListener(tvFocus);
+        tvHeroCard = card;
+        tvHeroApply(c);
+        return card;
+    }
+
+    // Картата показва канала на фокус; смяната се изчаква малко, за да не се бави върху бързо въртене.
+    private final Runnable tvHeroRun = new Runnable() {
+        @Override
+        public void run() {
+            if (tvHeroWant != null && tvPanelShown()) tvHeroApply(tvHeroWant);
+        }
+    };
+
+    private void tvHeroShow(TvChan c) {
+        tvHeroWant = c;
+        ui.removeCallbacks(tvHeroRun);
+        ui.postDelayed(tvHeroRun, 130);
+    }
+
+    private void tvHeroApply(TvChan c) {
+        if (c == null || tvHeroCard == null) return;
+        tvHeroChan = c;
+        int num = tvChans.indexOf(c) + 1;
+        int ci = tvCatOfName(c.name);
+        tvHeroGhost.set(String.valueOf(num));
+        tvHeroPlate.setChan(c.name);
+        tvHeroLabTxt.setText(c == tvHeroLast && c.last > 0 ? "Последно гледан" : "Канал " + num);
+        GradientDrawable cg = new GradientDrawable();
+        cg.setColor(TV_CAT_COLORS[ci]);
+        cg.setCornerRadius(u(4));
+        tvHeroCatDot.setBackground(cg);
+        tvHeroCatTxt.setText(TV_CAT_NAMES[ci]);
+        tvHeroName.setText(c.name);
+        ts(tvHeroName, c.name.length() > 24 ? 44 : c.name.length() > 16 ? 54 : 66);
+        tvHeroChips.removeAllViews();
         int shown = 0;
         for (TvSrc s : c.srcs) {
             if (shown++ >= 4) break;
             TextView chip = text(s.site, 16, T_TEXT, tfMedium, true);
             chip.setGravity(Gravity.CENTER);
             chip.setPadding(u(14), 0, u(14), 0);
-            GradientDrawable cg = new GradientDrawable();
-            cg.setColor(0x1FFFFFFF);
-            cg.setCornerRadius(u(16));
-            cg.setStroke(Math.max(1, u(1)), 0x2EFFFFFF);
-            chip.setBackground(cg);
+            GradientDrawable ch = new GradientDrawable();
+            ch.setColor(0x1FFFFFFF);
+            ch.setCornerRadius(u(16));
+            ch.setStroke(Math.max(1, u(1)), 0x2EFFFFFF);
+            chip.setBackground(ch);
             LinearLayout.LayoutParams clp = lp(WC, u(32));
             if (shown > 1) clp.leftMargin = u(10);
-            chips.addView(chip, clp);
-        }
-        FrameLayout.LayoutParams chlp = new FrameLayout.LayoutParams(WC, WC,
-                Gravity.BOTTOM | Gravity.START);
-        chlp.leftMargin = u(40);
-        chlp.bottomMargin = u(22);
-        card.addView(chips, chlp);
-
-        LinearLayout go = tvPrimary(IC_PLAY, "Гледай", 72, 24, new Runnable() {
-            @Override
-            public void run() {
-                tvTuneUser(c, -1);
-            }
-        });
-        tvMain = go;
-        FrameLayout.LayoutParams glp = new FrameLayout.LayoutParams(WC, u(72),
-                Gravity.END | Gravity.CENTER_VERTICAL);
-        glp.rightMargin = u(48);
-        card.addView(go, glp);
-        return card;
-    }
-
-    // Канал в мрежата: цветна черта, голям номер, име и сайтове.
-    private View tvCell(final TvChan c, int num) {
-        FrameLayout cell = new FrameLayout(this);
-        cell.setFocusable(true);
-        cell.setClickable(true);
-        cell.setLongClickable(true);
-        cell.setTag("ch:" + c.id);
-        cell.setBackground(stateBg(T_SURF, T_SURF2, T_SKY, u(20), T_LINE));
-
-        int col = tvColor(c);
-        View bar = new View(this);
-        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{col, (col & 0x00FFFFFF) | 0x55000000});
-        float r = u(18);
-        bg.setCornerRadii(new float[]{r, r, 0, 0, 0, 0, r, r});
-        bar.setBackground(bg);
-        FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(u(7), MP);
-        blp.setMargins(u(2), u(2), 0, u(2));
-        cell.addView(bar, blp);
-
-        TextView no = text(String.valueOf(num), 46, T_SKY2, tfCondBold, true);
-        no.setIncludeFontPadding(false);
-        no.setGravity(Gravity.CENTER_VERTICAL);
-        FrameLayout.LayoutParams nlp = new FrameLayout.LayoutParams(u(74), MP);
-        nlp.leftMargin = u(24);
-        cell.addView(no, nlp);
-
-        View sep = new View(this);
-        sep.setBackgroundColor(T_LINE);
-        FrameLayout.LayoutParams slp = new FrameLayout.LayoutParams(Math.max(1, u(1.5f)), MP);
-        slp.leftMargin = u(104);
-        slp.topMargin = u(20);
-        slp.bottomMargin = u(20);
-        cell.addView(sep, slp);
-
-        TextView nm = text(c.name, 32, T_TEXT, tfCondBold, true);
-        nm.setIncludeFontPadding(false);
-        FrameLayout.LayoutParams nmlp = new FrameLayout.LayoutParams(MP, WC);
-        nmlp.leftMargin = u(124);
-        nmlp.rightMargin = u(96);
-        nmlp.topMargin = u(14);
-        cell.addView(nm, nmlp);
-
-        boolean dead = tvDead(c);
-        TextView sr = text((dead ? "не работи  ·  " : "") + tvSrcNames(c), 15,
-                dead ? 0xFFFDA4AF : T_TEXT3, tfMedium, true);
-        FrameLayout.LayoutParams srlp = new FrameLayout.LayoutParams(MP, WC, Gravity.BOTTOM);
-        srlp.leftMargin = u(124);
-        srlp.rightMargin = u(96);
-        srlp.bottomMargin = u(12);
-        cell.addView(sr, srlp);
-
-        FrameLayout.LayoutParams dlp = new FrameLayout.LayoutParams(WC, MP,
-                Gravity.END | Gravity.CENTER_VERTICAL);
-        dlp.rightMargin = u(22);
-        cell.addView(new DotsView(this, c.srcs.size(), u(9), u(6), T_SKY), dlp);
-
-        cell.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                tvTuneUser(c, -1);
-            }
-        });
-        cell.setOnLongClickListener(new View.OnLongClickListener() {
-            @Override
-            public boolean onLongClick(View v) {
-                tvChannelMenu(c);
-                return true;
-            }
-        });
-        cell.setTag(R_SCALE, 1.03f);
-        cell.setOnFocusChangeListener(tvFocus);
-        return cell;
-    }
-
-    private void tvFillList() {
-        TvChan last = tvLastChan();
-        tvBox.addView(tvFeatured(last, tvChans.indexOf(last) + 1),
-                new LinearLayout.LayoutParams(MP, u(192)));
-
-        LinearLayout sec = new LinearLayout(this);
-        sec.setOrientation(LinearLayout.HORIZONTAL);
-        sec.addView(text("Всички канали", 30, T_TEXT, tfCondBold, true));
-        TextView cnt = text(String.valueOf(tvChans.size()), 18, T_TEXT3, tfMedium, true);
-        cnt.setPadding(u(14), u(12), 0, 0);
-        sec.addView(cnt);
-        tvBox.addView(sec, lpTop(u(26)));
-
-        int n = tvChans.size();
-        for (int i = 0; i < n; i += 3) {
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setClipChildren(false);
-            for (int k = 0; k < 3; k++) {
-                LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(0, u(86), 1f);
-                if (k > 0) clp.leftMargin = u(20);
-                if (i + k < n) {
-                    row.addView(tvCell(tvChans.get(i + k), i + k + 1), clp);
-                } else {
-                    row.addView(new View(this), clp);
-                }
-            }
-            tvBox.addView(row, lpTop(u(i == 0 ? 16 : 14)));
+            tvHeroChips.addView(chip, clp);
         }
     }
 
@@ -9485,6 +9903,14 @@ private static final String[] TV_SOURCES = {
                         }
                     }), lpTopW(MP, u(62), u(10)));
         }
+        list.addView(tvChoice(null, "Обнови потоците", "пуска канала и търси още", 0, new Runnable() {
+            @Override
+            public void run() {
+                tvDialogClose();
+                tvMoreChan = c;
+                tvTuneUser(c, -1);
+            }
+        }), lpTopW(MP, u(62), u(10)));
         list.addView(tvChoice(null, "Източници", String.valueOf(c.srcs.size()), 0, new Runnable() {
             @Override
             public void run() {
@@ -9747,6 +10173,34 @@ private static final String[] TV_SOURCES = {
     private final HashSet<String> tvBad = new HashSet<>();
     private Player.Listener tvLis;
 
+    // Едно гледане = от избора на канала до следващия избор от потребителя. В него потоците, които
+    // не тръгнаха или заседнаха, не се пробват пак, а търсенето в един сайт е най-много два пъти.
+    private final HashSet<String> tvSessBad = new HashSet<>();
+    private final HashMap<Integer, Integer> tvCapMap = new HashMap<>();
+    private static final int TV_CAP_MAX = 2;               // търсения по страницата на сайт за едно гледане
+    private static final int TV_MAX_RESTARTS = 8;          // най-много рестарти за едно гледане
+    private static final long TV_STABLE_MS = 45000;        // толкова добра картина = потокът е здрав
+    private static final long TV_SAVED_START_MS = 8000;    // колко се чака запазен поток да тръгне
+    private static final long TV_STALL_MS = 10000;         // колко се търпи заседнала картина (на живо)
+    private static final long TV_FAIL_MEMORY = 6 * 3600 * 1000L; // толкова време сайтът с неуспех се пробва последен
+    private String tvStableUrl = "";
+    private int tvStableSi = -1;
+
+    private int tvCapUsed(int si) {
+        Integer v = tvCapMap.get(si);
+        return v == null ? 0 : v;
+    }
+
+    private boolean tvIsBad(String u) {
+        return tvBad.contains(u) || tvSessBad.contains(u);
+    }
+
+    // Източник без пресен неуспех: нито заседнал поток скоро, нито провал на проверката.
+    private static boolean tvSrcSound(TvSrc s) {
+        if (s.bad > 0) return false;
+        return s.fails == 0 || System.currentTimeMillis() - s.failAt > TV_FAIL_MEMORY;
+    }
+
     // Скритата страница се "бутва" да пусне видеото: пуска <video> без звук и натиска големия бутон
     // за пускане, но само ако е върху самия плеър (не бутоните на другите канали в страницата).
     private static final String TV_PLAY_JS =
@@ -9835,12 +10289,13 @@ private static final String[] TV_SOURCES = {
         return s.stream.isEmpty() ? 0 : 1 + s.alts.size();
     }
 
-    // ▲▼: следващ или предишен поток на същия сайт.
+    // ◀: следващ поток на същия сайт. Ако няма друг, сайтът се търси за още потоци (само сега, при нужда).
     private void tvSwitchStream(int dir) {
         TvChan c = tvCur;
         int m = tvStreamCount();
-        if (c == null || m < 2) {
-            tvShowBanner(2500, "Няма друг поток на този сайт");
+        if (c == null) return;
+        if (m < 2) {
+            tvMoreStart(true);
             return;
         }
         int i = tvSrcNowIdx();
@@ -9859,6 +10314,10 @@ private static final String[] TV_SOURCES = {
     private void tvTuneUser(TvChan c, int firstSrc) {
         tvRestarts = 0;
         tvSwitches = 0;
+        tvSessBad.clear();
+        tvCapMap.clear();
+        tvSearched.clear();
+        if (tvMoreChan != null && tvMoreChan != c) tvMoreChan = null;
         tvTune(c, firstSrc);
     }
 
@@ -9876,24 +10335,44 @@ private static final String[] TV_SOURCES = {
         tvCur = c;
         tvPlaying = false;
         int n = c.srcs.size();
-        tvFirstSrc = firstSrc >= 0 && firstSrc < n ? firstSrc : 0;
-        // План: за всеки източник първо запазеният поток, после търсене през страницата му.
+        int first = firstSrc >= 0 && firstSrc < n ? firstSrc : 0;
+        if (firstSrc < 0 && !tvSrcSound(c.srcs.get(first))) {
+            // Основният сайт скоро е имал неуспех: започва се със сайт без пресен неуспех, ако има такъв.
+            for (int i = 0; i < n; i++) {
+                if (tvSrcSound(c.srcs.get(i))) {
+                    first = i;
+                    break;
+                }
+            }
+        }
+        tvFirstSrc = first;
+        // План: за всеки източник първо запазените потоци, после търсене през страницата му.
+        // Потоците, които в това гледане вече не тръгнаха или заседнаха, се прескачат.
         tvPlan.clear();
         ArrayList<Integer> order = new ArrayList<>();
         order.add(tvFirstSrc);
+        // Сайтовете с пресен неуспех се пробват последни.
         for (int i = 0; i < n; i++) {
-            if (i != tvFirstSrc) order.add(i);
+            if (i != tvFirstSrc && tvSrcSound(c.srcs.get(i))) order.add(i);
+        }
+        for (int i = 0; i < n; i++) {
+            if (i != tvFirstSrc && !tvSrcSound(c.srcs.get(i))) order.add(i);
         }
         for (int i : order) {
             TvSrc s = c.srcs.get(i);
             boolean cap = tvCapturable(s);
+            boolean capOk = cap && (tvVod || tvCapUsed(i) < TV_CAP_MAX);
             // Поток, който няколко пъти поред не е тръгнал, вероятно е изтекъл: веднага към търсене.
-            if (!s.stream.isEmpty() && (s.fails < 3 || !cap)) tvPlan.add(new int[]{i, TV_DIRECT, -1});
+            if (!s.stream.isEmpty() && !tvSessBad.contains(s.stream) && (s.fails < 3 || !cap)) {
+                tvPlan.add(new int[]{i, TV_DIRECT, -1});
+            }
             // Резервните потоци на същата страница се пробват, преди да се търси или смени сайтът.
             if (!s.stream.isEmpty()) {
-                for (int k = 0; k < s.alts.size(); k++) tvPlan.add(new int[]{i, TV_DIRECT, k});
+                for (int k = 0; k < s.alts.size(); k++) {
+                    if (!tvSessBad.contains(s.alts.get(k)[0])) tvPlan.add(new int[]{i, TV_DIRECT, k});
+                }
             }
-            if (cap) tvPlan.add(new int[]{i, TV_CAPTURE});
+            if (capOk) tvPlan.add(new int[]{i, TV_CAPTURE});
         }
         if (tvForce != null && tvForce[0] >= 0 && tvForce[0] < n) {
             // Избран поток (от менюто или със ▲▼): пробва се пръв, дори да е бил отбелязан за счупен.
@@ -9906,12 +10385,8 @@ private static final String[] TV_SOURCES = {
         tvPinned = tvForce != null;
         tvForce = null;
         tvStep = -1;
-        if (tvPanel != null) {
-            // Докато се гледа, екранът със списъка не държи памет.
-            tvPanel.setVisibility(View.GONE);
-            tvBox.removeAllViews();
-            tvHead.removeAllViews();
-        }
+        // Докато се гледа, екранът със списъка не държи памет (изгледи и лога).
+        tvPanelRelease();
         menuHolder.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
         nativeLayer.setVisibility(View.VISIBLE);
         tvHideListNow();
@@ -9934,6 +10409,13 @@ private static final String[] TV_SOURCES = {
         ui.removeCallbacks(tvPokeRun);
         ui.removeCallbacks(tvPokeFallback);
         ui.removeCallbacks(tvStallRun);
+        ui.removeCallbacks(tvStableRun);
+        // Търсенето на още потоци (ако върви) се прекратява; закъснелият му резултат се пренебрегва.
+        tvSearchGen++;
+        tvSearching = false;
+        tvSearchTune = false;
+        ui.removeCallbacks(tvSearchEndRun);
+        ui.removeCallbacks(tvMoreStartRun);
         tvTryGen++;
         tvTrying = false;
         if (player != null) {
@@ -10018,16 +10500,80 @@ private static final String[] TV_SOURCES = {
         }
     }
 
+    // Заглавията на заявката към потока. Бисквитките не са тук: за всяка заявка (плейлист и части)
+    // се вземат наново от бисквитките на страницата и се обновяват от отговорите (TvCookies).
     private HashMap<String, String> tvHeadersOf(TvSrc s) {
         HashMap<String, String> p = new HashMap<>();
         if (!s.ref.isEmpty()) p.put("Referer", s.ref);
         if (!s.org.isEmpty()) p.put("Origin", s.org);
-        try {
-            String ck = CookieManager.getInstance().getCookie(s.stream);
-            if (ck != null && !ck.isEmpty()) p.put("Cookie", ck);
-        } catch (Exception ignored) {
-        }
+        tvCommonHeaders(p, s.stream);
         return p;
+    }
+
+    // По-пълни заглавия, като в истинския браузър: приемани типове, език и откъде идва заявката.
+    private static void tvCommonHeaders(HashMap<String, String> p, String url) {
+        if (!p.containsKey("Accept")) p.put("Accept", "*/*");
+        if (!p.containsKey("Accept-Language")) {
+            p.put("Accept-Language", "bg-BG,bg;q=0.9,en-US;q=0.8,en;q=0.7");
+        }
+        String org = p.get("Origin");
+        if (org == null || org.isEmpty() || url == null || !url.startsWith("http")) return;
+        String oh = nz(Uri.parse(org).getHost()).toLowerCase(Locale.ROOT);
+        String uh = nz(Uri.parse(url).getHost()).toLowerCase(Locale.ROOT);
+        if (oh.isEmpty() || uh.isEmpty()) return;
+        String rel = "cross-site";
+        if (oh.equals(uh)) rel = "same-origin";
+        else if (siteBase(oh).equals(siteBase(uh))) rel = "same-site";
+        p.put("Sec-Fetch-Site", rel);
+        p.put("Sec-Fetch-Mode", "cors");
+        p.put("Sec-Fetch-Dest", "empty");
+    }
+
+    // Родният плеър ползва същите бисквитки като скритата страница и ги обновява от отговорите:
+    // някои сайтове сменят бисквитката при всеки плейлист и режат връзката, ако не я върнеш.
+    private static class TvCookies extends java.net.CookieHandler {
+        @Override
+        public java.util.Map<String, java.util.List<String>> get(java.net.URI uri,
+                java.util.Map<String, java.util.List<String>> requestHeaders) {
+            java.util.Map<String, java.util.List<String>> m = new HashMap<>();
+            try {
+                String ck = CookieManager.getInstance().getCookie(uri.toString());
+                if (ck != null && !ck.isEmpty()) m.put("Cookie", java.util.Collections.singletonList(ck));
+            } catch (Exception ignored) {
+                // без бисквитки
+            }
+            return m;
+        }
+
+        @Override
+        public void put(java.net.URI uri, java.util.Map<String, java.util.List<String>> responseHeaders) {
+            if (responseHeaders == null) return;
+            try {
+                CookieManager cm = CookieManager.getInstance();
+                for (java.util.Map.Entry<String, java.util.List<String>> en : responseHeaders.entrySet()) {
+                    String k = en.getKey();
+                    if (k == null || !(k.equalsIgnoreCase("Set-Cookie")
+                            || k.equalsIgnoreCase("Set-Cookie2"))) {
+                        continue;
+                    }
+                    for (String v : en.getValue()) cm.setCookie(uri.toString(), v);
+                }
+            } catch (Exception ignored) {
+                // бисквитката не се записва
+            }
+        }
+    }
+
+    private static boolean tvCookiesOn;
+
+    private static void tvCookiesInstall() {
+        if (tvCookiesOn) return;
+        tvCookiesOn = true;
+        try {
+            java.net.CookieHandler.setDefault(new TvCookies());
+        } catch (Exception ignored) {
+            // остават заглавията от записа
+        }
     }
 
     private String tvUaOf(TvSrc s) {
@@ -10052,6 +10598,7 @@ private static final String[] TV_SOURCES = {
         final HashMap<String, String> fprops = props;
         final String fua = ua;
         try {
+            tvCookiesInstall();
             DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
                     .setAllowCrossProtocolRedirects(true)
                     .setConnectTimeoutMs(12000)
@@ -10109,7 +10656,9 @@ private static final String[] TV_SOURCES = {
             player.prepare();
             player.setPlayWhenReady(true);
             tvTryTimeoutGen = my;
-            ui.postDelayed(tvTryTimeout, tvVod ? 25000 : 15000);
+            // Запазеният поток или тръгва бързо, или не си струва да се чака: хванатият през
+            // страницата има малко повече време, а филмът - най-много.
+            ui.postDelayed(tvTryTimeout, tvVod ? 25000 : viaCapture ? 15000 : TV_SAVED_START_MS);
         } catch (Exception e) {
             tvTryFailed("грешка " + e.getClass().getSimpleName());
         }
@@ -10148,6 +10697,8 @@ private static final String[] TV_SOURCES = {
             tvDropped(why);
             return;
         }
+        // В това гледане потокът, който не тръгна, не се пробва втори път.
+        if (!tvVod && tvTryUrl != null && !tvTryUrl.isEmpty()) tvSessBad.add(tvTryUrl);
         if (tvCapturing) {
             // Намереният в страницата адрес не е тръгнал: пробва се следващият.
             tvBad.add(nz(tvTryUrl));
@@ -10170,7 +10721,9 @@ private static final String[] TV_SOURCES = {
             int[] st = tvPlan.get(tvStep);
             // Само основният поток се брои за счупен; резервните са допълнение.
             if (st[1] == TV_DIRECT && (st.length < 3 || st[2] < 0)) {
-                tvCur.srcs.get(st[0]).fails++;
+                TvSrc ms = tvCur.srcs.get(st[0]);
+                ms.fails++;
+                ms.failAt = System.currentTimeMillis();
                 tvSave();
             } else if (st[1] == TV_DIRECT && st[2] >= 0) {
                 TvSrc fs = tvCur.srcs.get(st[0]);
@@ -10229,12 +10782,15 @@ private static final String[] TV_SOURCES = {
             for (int k = 0; k < s.alts.size(); k++) {
                 String[] al = s.alts.get(k);
                 if (al[0].equals(url)) {
+                    // Броячът на неуспехите върви със самия поток.
+                    int altFails = tvAltFails(al);
                     String[] oldMain = {s.stream, s.ref, s.org, s.ua, String.valueOf(s.fails)};
                     s.alts.set(k, oldMain);
                     s.stream = al[0];
                     s.ref = al[1];
                     s.org = al[2];
                     s.ua = al[3];
+                    s.fails = altFails;
                     break;
                 }
             }
@@ -10242,11 +10798,15 @@ private static final String[] TV_SOURCES = {
         if (viaCapture) {
             // Новият поток се запомня: следващия път тръгва направо.
             fresh = !s.stream.isEmpty() && !s.stream.equals(url);
+            // Същият поток с нов знак (token) в адреса е същият поток: старите копия не са резервни.
+            String newKey = tvStreamKey(url);
             for (int k = s.alts.size() - 1; k >= 0; k--) {
-                if (s.alts.get(k)[0].equals(url)) s.alts.remove(k);
+                String au = s.alts.get(k)[0];
+                if (au.equals(url) || tvStreamKey(au).equals(newKey)) s.alts.remove(k);
             }
-            // Старият основен поток отива в резервните, освен ако е счупен (3 пъти поред).
-            if (fresh && s.fails < 3) {
+            // Старият основен поток отива в резервните, освен ако е счупен (3 пъти поред)
+            // или е същият поток с по-стар знак.
+            if (fresh && s.fails < 3 && !tvStreamKey(s.stream).equals(newKey)) {
                 s.alts.add(0, new String[]{s.stream, s.ref, s.org, s.ua, String.valueOf(s.fails)});
             }
             // Счупените резервни се махат; когато са повече от 3, отпада най-счупеният.
@@ -10264,12 +10824,18 @@ private static final String[] TV_SOURCES = {
             s.ref = nz(props.get("Referer"));
             s.org = nz(props.get("Origin"));
             s.ua = nz(ua);
+            s.fails = 0; // нов поток: започва с чист лист
             tvCapturing = false;
             tvDropWeb();
         }
         s.ok = now;
-        s.fails = 0;
         tvPlayedAt = SystemClock.uptimeMillis();
+        // Неуспехите на потока се зачеркват чак след доста добра картина, а не при първия кадър:
+        // така поток, който тръгва и заседва, не се лекува сам.
+        tvStableUrl = url;
+        tvStableSi = si;
+        ui.removeCallbacks(tvStableRun);
+        if (!tvVod) ui.postDelayed(tvStableRun, TV_STABLE_MS);
         if (tvVod) {
             logEvent("Филм: тръгна " + tvCur.name + " от " + s.site + (viaCapture ? " (хванат поток)" : ""), true);
             tvWaitHide();
@@ -10284,26 +10850,111 @@ private static final String[] TV_SOURCES = {
         tvWaitHide();
         tvShowBanner(5000, fresh ? "Запазеният поток не тръгна. Намерих нов и го записах." : null);
         updateState();
+        if (tvMoreChan == tvCur) {
+            // „Обнови потоците“ от менюто: каналът тръгна, сега се търсят още потоци в сайта му.
+            tvMoreChan = null;
+            ui.removeCallbacks(tvMoreStartRun);
+            ui.postDelayed(tvMoreStartRun, 3500);
+        }
     }
+
+    private final Runnable tvMoreStartRun = new Runnable() {
+        @Override
+        public void run() {
+            if (tvMode && tvPlaying && !tvVod) tvMoreStart(false);
+        }
+    };
 
     private final Runnable tvStallRun = new Runnable() {
         @Override
         public void run() {
             if (!tvMode || !tvPlaying) return;
-            tvDropped("потокът заседна");
+            String info = "";
+            try {
+                if (player != null) {
+                    info = ", в буфера " + Math.max(0, player.getBufferedPosition()
+                            - player.getCurrentPosition()) / 1000 + " сек.";
+                }
+            } catch (Exception ignored) {
+                // без подробност в записа
+            }
+            tvDropped("потокът заседна" + info);
+        }
+    };
+
+    private final Runnable tvStableRun = new Runnable() {
+        @Override
+        public void run() {
+            if (!tvMode || !tvPlaying || tvVod || tvCur == null) return;
+            if (tvStableSi < 0 || tvStableSi >= tvCur.srcs.size()) return;
+            TvSrc s = tvCur.srcs.get(tvStableSi);
+            boolean changed = false;
+            if (s.stream.equals(tvStableUrl)) {
+                if (s.fails != 0) {
+                    s.fails = 0;
+                    changed = true;
+                }
+            } else {
+                for (String[] al : s.alts) {
+                    if (al[0].equals(tvStableUrl) && tvAltFails(al) != 0) {
+                        al[4] = "0";
+                        changed = true;
+                    }
+                }
+            }
+            if (changed) tvSave();
         }
     };
 
     private void tvBuffering() {
         tvShowBanner(0, "Зареждане…");
         ui.removeCallbacks(tvStallRun);
-        ui.postDelayed(tvStallRun, 25000);
+        // На живо картина, която не помръдва 10 секунди, е заседнала; филмът има повече търпение.
+        ui.postDelayed(tvStallRun, tvVod ? 25000 : TV_STALL_MS);
     }
 
-    // Връзката се скъса, докато гледаме: пробва се наново; ако не помага - друг източник.
+    // Отбелязва заседнал поток: в това гледане не се пробва пак, а неуспехът му се записва
+    // (три такива в отделни гледания и резервният поток се маха, основният се търси наново).
+    private void tvMarkStall(TvChan c, int si, String url, long ranMs) {
+        if (url == null || url.isEmpty() || si < 0 || si >= c.srcs.size()) return;
+        if (!tvSessBad.add(url)) return; // в това гледане вече е отбелязан
+        TvSrc s = c.srcs.get(si);
+        int count = 0;
+        boolean known = false;
+        if (s.stream.equals(url)) {
+            s.fails++;
+            s.failAt = System.currentTimeMillis();
+            count = s.fails;
+            known = true;
+        } else {
+            for (int k = 0; k < s.alts.size(); k++) {
+                String[] al = s.alts.get(k);
+                if (!al[0].equals(url)) continue;
+                int f = tvAltFails(al) + 1;
+                count = f;
+                known = true;
+                if (f >= 3) {
+                    s.alts.remove(k);
+                    logEvent("ТВ: махнах нестабилен резервен поток от " + s.site);
+                } else {
+                    al[4] = String.valueOf(f);
+                }
+                break;
+            }
+        }
+        if (known) tvSave();
+        logEvent("ТВ: потокът " + shortName(url) + " заседна след " + (ranMs / 1000) + " сек. (" + s.site
+                + ", неуспех " + count + " от 3)");
+    }
+
+    // Връзката се скъса или картината заседна, докато гледаме. Потокът, който е вървял кратко,
+    // се отбелязва като неуспешен и се опитват другите: резервните на същия сайт, ново търсене
+    // в сайта, после следващият сайт. Потокът, който е вървял добре, е само прекъснал - той се
+    // пуска пак. Филмите си остават постарому.
     private void tvDropped(String why) {
         long now = SystemClock.uptimeMillis();
-        if (now - tvPlayedAt > 120000) {
+        long ran = now - tvPlayedAt;
+        if (ran > 120000) {
             tvRestarts = 0;
             tvSwitches = 0;
         }
@@ -10315,13 +10966,22 @@ private static final String[] TV_SOURCES = {
             if (p > 0) vodResume = p;
         }
         int cur = tvSrcNowIdx();
-        logEvent("ТВ: връзката се скъса (" + why + "), опит " + tvRestarts);
-        if (tvRestarts <= 3) {
-            tvTune(c, cur);
+        logEvent("ТВ: връзката се скъса (" + why + "), опит " + tvRestarts + ", вървя " + (ran / 1000) + " сек.");
+        if (tvVod) {
+            if (tvRestarts <= 3) {
+                tvTune(c, cur);
+                return;
+            }
+            tvRestarts = 0;
+            if (c.srcs.size() > 1 && ++tvSwitches <= 2) tvTune(c, (cur + 1) % c.srcs.size());
+            else tvGiveUp();
             return;
         }
-        tvRestarts = 0;
-        if (c.srcs.size() > 1 && ++tvSwitches <= 2) tvTune(c, (cur + 1) % c.srcs.size());
+        // Докато върви търсенето на още потоци, скритата страница може да натовари кутията и картината
+        // да заседне заради нея: тогава потокът не се обвинява.
+        boolean searchBusy = now < tvSearchBusyUntil;
+        if (ran < TV_STABLE_MS && !searchBusy) tvMarkStall(c, cur, nz(tvTryUrl), ran);
+        if (tvRestarts <= TV_MAX_RESTARTS) tvTune(c, cur);
         else tvGiveUp();
     }
 
@@ -10372,6 +11032,8 @@ private static final String[] TV_SOURCES = {
         tvMode = false;
         ui.removeCallbacks(tvZapGo);
         ui.removeCallbacks(tvBannerHideRun);
+        ui.removeCallbacks(tvClockRun);
+        tvMoreChan = null;
         tvZapIdx = -1;
         tvStepGen++;
         tvStopAttempt(true);
@@ -10400,6 +11062,14 @@ private static final String[] TV_SOURCES = {
         tvCapSrc = si;
         tvBad.clear();
         tvTrying = false;
+        tvCapMap.put(si, tvCapUsed(si) + 1);
+        tvOpenHidden(s, false);
+        tvArmStep(tvVod ? 32000 : 25000);
+    }
+
+    // Отваря страницата на източника в скритата страница. Вика се и от търсенето на още потоци
+    // (quiet = плеърът на канала свири през това време: страницата не бива да пуска звук сама).
+    private void tvOpenHidden(TvSrc s, boolean quiet) {
         String url = s.page;
         allowedHost = Uri.parse(url).getHost();
         srcQueue = null;
@@ -10431,12 +11101,30 @@ private static final String[] TV_SOURCES = {
         logEvent("ТВ: търся поток през " + s.site, true);
         if (web == null) createWebView();
         applyUserAgent();
+        tvNoImages(web);
+        if (quiet) {
+            try {
+                web.getSettings().setMediaPlaybackRequiresUserGesture(true);
+            } catch (Exception ignored) {
+                // остава позволеното самопускане
+            }
+        }
         web.setVisibility(View.VISIBLE);
         web.loadUrl(url);
         // Ако страницата не съобщи, че е готова (реклами, които висят), "буткането" започва пак.
         ui.removeCallbacks(tvPokeFallback);
         ui.postDelayed(tvPokeFallback, 8000);
-        tvArmStep(tvVod ? 32000 : 25000);
+    }
+
+    // Скритата страница никой не я гледа: без картинки тя се зарежда по-бързо и товари по-малко.
+    private static void tvNoImages(WebView w) {
+        try {
+            WebSettings ws = w.getSettings();
+            ws.setLoadsImagesAutomatically(false);
+            ws.setBlockNetworkImage(true);
+        } catch (Exception ignored) {
+            // настройката не се прилага: страницата се зарежда с картинки
+        }
     }
 
     private final Runnable tvPokeFallback = new Runnable() {
@@ -10457,9 +11145,10 @@ private static final String[] TV_SOURCES = {
     private final Runnable tvPokeRun = new Runnable() {
         @Override
         public void run() {
-            if (!tvMode || !tvCapturing || web == null || tvPlaying) return;
+            if (!tvMode || !tvCapturing || web == null || (tvPlaying && !tvSearching)) return;
             int n = tvPokeN++;
             if (!tvTrying) {
+                web.evaluateJavascript(TV_MUTE_JS, null);
                 web.evaluateJavascript(TV_PLAY_JS, null);
                 tvScanResources();
                 // Страница, която виси или не е показала плеър: едно презареждане често я оправя.
@@ -10497,7 +11186,7 @@ private static final String[] TV_SOURCES = {
     private boolean tvHasCandidate() {
         synchronized (mediaPlaylists) {
             for (String u : mediaPlaylists.keySet()) {
-                if (!tvBad.contains(u)) return true;
+                if (!tvIsBad(u)) return true;
             }
         }
         return false;
@@ -10574,6 +11263,11 @@ private static final String[] TV_SOURCES = {
     // Страницата е заредена с грешка: няма смисъл да се чака.
     private void tvCaptureError(String why) {
         logEvent("ТВ: страницата не се зареди (" + why + ")");
+        if (tvSearching) {
+            // Търсенето на още потоци: каналът си свири, няма стъпка за прескачане.
+            ui.post(tvSearchEndRun);
+            return;
+        }
         final int gen = tvStepGen;
         ui.post(new Runnable() {
             @Override
@@ -10604,7 +11298,7 @@ private static final String[] TV_SOURCES = {
             HashMap<String, String> firstH = null;
             for (Map.Entry<String, HashMap<String, String>> en : mediaPlaylists.entrySet()) {
                 String u = en.getKey();
-                if (tvBad.contains(u)) continue;
+                if (tvIsBad(u)) continue;
                 if (first == null) {
                     first = u;
                     firstH = en.getValue();
@@ -10623,7 +11317,7 @@ private static final String[] TV_SOURCES = {
         if (cand == null && tvVod) {
             synchronized (mediaFiles) {
                 for (Map.Entry<String, HashMap<String, String>> en : mediaFiles.entrySet()) {
-                    if (tvBad.contains(en.getKey())) continue;
+                    if (tvIsBad(en.getKey())) continue;
                     cand = en.getKey();
                     h = en.getValue();
                     break;
@@ -10640,11 +11334,7 @@ private static final String[] TV_SOURCES = {
         }
         if (ua == null && web != null) ua = web.getSettings().getUserAgentString();
         if (ua == null) ua = MOBILE_UA;
-        try {
-            String ck = CookieManager.getInstance().getCookie(cand);
-            if (ck != null && !ck.isEmpty()) props.put("Cookie", ck);
-        } catch (Exception ignored) {
-        }
+        tvCommonHeaders(props, cand);
         tvWaitText("Намерих поток, пускам…");
         tvTryUrl(cand, props, ua, tvCapSrc, true);
     }
@@ -10656,7 +11346,9 @@ private static final String[] TV_SOURCES = {
     private LinearLayout tvWaitChips;
     private LinearLayout tvBanner, tvKeys;
     private View tvChipZap, tvChipSrc, tvChipStream;
-    private TextView tvBnNo, tvBnName, tvBnSub;
+    private TextView tvBnNo, tvBnName, tvBnSub, tvBnCat;
+    private TvPlate tvBnPlate;
+    private View tvBnCatDot;
     private FrameLayout tvListBox;
     private LinearLayout tvListCol;
     private ScrollView tvListScroll;
@@ -10720,50 +11412,76 @@ private static final String[] TV_SOURCES = {
         tvWait.setVisibility(View.GONE);
         nativeLayer.addView(tvWait, new FrameLayout.LayoutParams(MP, MP));
 
-        // Табела с канала долу вляво.
+        // Табела с канала долу вляво: лого, номер, име, категория и източник, "На живо" и часът.
         tvBanner = new LinearLayout(this);
         tvBanner.setOrientation(LinearLayout.HORIZONTAL);
         tvBanner.setGravity(Gravity.CENTER_VERTICAL);
-        tvBanner.setPadding(u(30), 0, u(34), 0);
+        tvBanner.setPadding(u(22), 0, u(34), 0);
         GradientDrawable bb = new GradientDrawable();
-        bb.setColor(0xD6050A18);
-        bb.setCornerRadius(u(26));
+        bb.setColor(0xDB050A18);
+        bb.setCornerRadius(u(28));
         bb.setStroke(Math.max(1, u(1)), 0x24FFFFFF);
         tvBanner.setBackground(bb);
-        tvBnNo = text("", 76, T_SKY2, tfCondBold, true);
+        // Логото само се чете от кутията: докато се гледа, нищо не се тегли.
+        tvBnPlate = new TvPlate(this, 44, 36, false);
+        LinearLayout.LayoutParams pll = lp(u(168), u(104));
+        pll.rightMargin = u(24);
+        tvBanner.addView(tvBnPlate, pll);
+        tvBnNo = text("", 78, T_SKY2, tfCondBold, true);
         tvBnNo.setIncludeFontPadding(false);
         tvBnNo.setGravity(Gravity.CENTER);
-        tvBnNo.setMinWidth(u(86));
+        tvBnNo.setMinWidth(u(84));
         tvBanner.addView(tvBnNo, lp(WC, WC));
         View sep = new View(this);
         sep.setBackgroundColor(T_LINE);
-        LinearLayout.LayoutParams sl = lp(Math.max(1, u(1.5f)), u(68));
+        LinearLayout.LayoutParams sl = lp(Math.max(1, u(1.5f)), u(78));
         sl.leftMargin = u(24);
         sl.rightMargin = u(24);
         tvBanner.addView(sep, sl);
         LinearLayout tx = new LinearLayout(this);
         tx.setOrientation(LinearLayout.VERTICAL);
-        tvBnName = text("", 48, T_TEXT, tfCondBold, true);
+        tvBnName = text("", 52, T_TEXT, tfCondBold, true);
         tvBnName.setIncludeFontPadding(false);
         tx.addView(tvBnName);
+        // Под името: цветна точка и категория, после източникът.
+        LinearLayout stl = new LinearLayout(this);
+        stl.setOrientation(LinearLayout.HORIZONTAL);
+        stl.setGravity(Gravity.CENTER_VERTICAL);
+        tvBnCatDot = new View(this);
+        LinearLayout.LayoutParams cdl = lp(u(12), u(12));
+        cdl.rightMargin = u(10);
+        stl.addView(tvBnCatDot, cdl);
+        tvBnCat = text("", 19, T_TEXT2, tfMedium, true);
+        stl.addView(tvBnCat);
         tvBnSub = text("", 19, T_TEXT2, tfMedium, true);
-        tvBnSub.setPadding(0, u(8), 0, 0);
-        tx.addView(tvBnSub);
+        stl.addView(tvBnSub, new LinearLayout.LayoutParams(0, WC, 1f));
+        tx.addView(stl, lpTop(u(10)));
         tvBanner.addView(tx, new LinearLayout.LayoutParams(0, WC, 1f));
+        // Вдясно: "На живо", а под него часът. Часът върви само докато лентата се вижда.
         LinearLayout live = new LinearLayout(this);
         live.setOrientation(LinearLayout.HORIZONTAL);
         live.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams dl = lp(u(18), u(18));
         dl.rightMargin = u(10);
         live.addView(tvLiveDot(18), dl);
-        live.addView(text("На живо", 18, T_TEXT, Typeface.DEFAULT_BOLD, true));
-        LinearLayout.LayoutParams ll = lp(WC, WC);
-        ll.leftMargin = u(20);
-        tvBanner.addView(live, ll);
-        FrameLayout.LayoutParams bl = new FrameLayout.LayoutParams(u(900), u(124),
+        live.addView(text("На живо", 19, T_TEXT, Typeface.DEFAULT_BOLD, true));
+        LinearLayout rc = new LinearLayout(this);
+        rc.setOrientation(LinearLayout.VERTICAL);
+        rc.setGravity(Gravity.END);
+        rc.addView(live, lp(WC, WC));
+        tvBnClock = text("", 44, T_TEXT, tfCondBold, true);
+        tvBnClock.setIncludeFontPadding(false);
+        tvBnClock.setGravity(Gravity.END);
+        LinearLayout.LayoutParams ckl = lp(WC, WC);
+        ckl.topMargin = u(8);
+        rc.addView(tvBnClock, ckl);
+        LinearLayout.LayoutParams rcl = lp(WC, WC);
+        rcl.leftMargin = u(20);
+        tvBanner.addView(rc, rcl);
+        FrameLayout.LayoutParams bl = new FrameLayout.LayoutParams(u(1120), u(144),
                 Gravity.BOTTOM | Gravity.START);
         bl.leftMargin = u(56);
-        bl.bottomMargin = u(56);
+        bl.bottomMargin = u(52);
         tvBanner.setVisibility(View.GONE);
         nativeLayer.addView(tvBanner, bl);
 
@@ -10784,7 +11502,7 @@ private static final String[] TV_SOURCES = {
         FrameLayout.LayoutParams kl2 = new FrameLayout.LayoutParams(WC, WC,
                 Gravity.BOTTOM | Gravity.START);
         kl2.leftMargin = u(56);
-        kl2.bottomMargin = u(200);
+        kl2.bottomMargin = u(216);
         tvKeys.setVisibility(View.GONE);
         nativeLayer.addView(tvKeys, kl2);
 
@@ -10823,6 +11541,30 @@ private static final String[] TV_SOURCES = {
             v.setVisibility(View.VISIBLE);
         }
         v.animate().alpha(1f).setDuration(180).start();
+        if (v == tvBanner || v == vodBar) tvClockTick();
+    }
+
+    // Часовникът в лентата на канала и в лентата на филма: върви само докато лентата се вижда,
+    // обновява се в началото на всяка минута и после не държи нищо.
+    private TextView tvBnClock;
+
+    private final Runnable tvClockRun = new Runnable() {
+        @Override
+        public void run() {
+            tvClockTick();
+        }
+    };
+
+    private void tvClockTick() {
+        ui.removeCallbacks(tvClockRun);
+        boolean live = tvBanner != null && tvBanner.getVisibility() == View.VISIBLE && !tvVod;
+        boolean film = vodBar != null && vodBar.getVisibility() == View.VISIBLE && tvVod;
+        if (!live && !film) return;
+        long now = System.currentTimeMillis();
+        String t = new java.text.SimpleDateFormat("HH:mm", Locale.US).format(new java.util.Date(now));
+        if (tvBnClock != null) tvBnClock.setText(t);
+        if (vodBarClock != null) vodBarClock.setText(t);
+        ui.postDelayed(tvClockRun, 60000 - now % 60000 + 150);
     }
 
     private void tvFadeOut(final View v) {
@@ -10967,7 +11709,8 @@ private static final String[] TV_SOURCES = {
         tvFillBanner(tvCur, status != null ? status : tvLine());
         // Подсказки само за това, което има смисъл: един канал не се сменя, един източник също.
         tvChipZap.setVisibility(tvChans.size() > 1 ? View.VISIBLE : View.GONE);
-        tvChipStream.setVisibility(tvStreamCount() > 1 ? View.VISIBLE : View.GONE);
+        // ◀ има смисъл и когато няма втори поток: тогава търси още в сайта.
+        tvChipStream.setVisibility(tvStreamCount() > 1 || tvSearchable() ? View.VISIBLE : View.GONE);
         tvChipSrc.setVisibility(tvCur.srcs.size() > 1 ? View.VISIBLE : View.GONE);
         tvFadeIn(tvBanner);
         tvFadeIn(tvKeys);
@@ -10978,8 +11721,23 @@ private static final String[] TV_SOURCES = {
     private void tvFillBanner(TvChan c, String line) {
         tvBnNo.setText(String.valueOf(tvChans.indexOf(c) + 1));
         tvBnName.setText(c.name);
-        ts(tvBnName, c.name.length() > 22 ? 36 : 48);
-        tvBnSub.setText(line);
+        ts(tvBnName, c.name.length() > 22 ? 38 : c.name.length() > 16 ? 46 : 52);
+        int ci = tvCatOfName(c.name);
+        GradientDrawable cg = new GradientDrawable();
+        cg.setColor(TV_CAT_COLORS[ci]);
+        cg.setCornerRadius(u(4));
+        tvBnCatDot.setBackground(cg);
+        tvBnCat.setText(TV_CAT_NAMES[ci]);
+        if (line == null || line.isEmpty()) {
+            tvBnSub.setText("");
+        } else {
+            android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder("  ·  ");
+            sb.setSpan(new android.text.style.ForegroundColorSpan(T_TEXT3), 0, sb.length(),
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            sb.append(line);
+            tvBnSub.setText(sb);
+        }
+        tvBnPlate.setChan(c.name);
     }
 
     private void tvHideBanner() {
@@ -11202,7 +11960,7 @@ private static final String[] TV_SOURCES = {
     private String vodStatus;
 
     private FrameLayout vodBar;
-    private TextView vodBarTitle, vodBarStatus, vodBarTime;
+    private TextView vodBarTitle, vodBarStatus, vodBarTime, vodBarClock;
     private VodProgress vodProg;
     private View vodChipSubs;
 
@@ -11718,6 +12476,11 @@ private static final String[] TV_SOURCES = {
         LinearLayout.LayoutParams stl = lp(WC, WC);
         stl.leftMargin = u(20);
         r1.addView(vodBarStatus, stl);
+        vodBarClock = text("", 30, T_TEXT, tfCondBold, true);
+        vodBarClock.setIncludeFontPadding(false);
+        LinearLayout.LayoutParams ckl = lp(WC, WC);
+        ckl.leftMargin = u(26);
+        r1.addView(vodBarClock, ckl);
         col.addView(r1, lp(MP, WC));
 
         vodProg = new VodProgress(this);
@@ -14029,6 +14792,1110 @@ private static final String[] TV_SOURCES = {
         }
         return a;
     }
+
+    // ====================== ОЩЕ ПОТОЦИ ПРИ НУЖДА ======================
+    // Само докато каналът се гледа и само когато си поискал: ◀ без друг поток на сайта, или
+    // „Обнови потоците“ в менюто на канала. Скритата страница на сайта се отваря за кратко, събират
+    // се плейлистите, които тя поиска, и всеки се проверява с една малка заявка: истински ли е,
+    // на живо ли е, и не е ли просто вариант (качество) на поток, който вече имаме. Новите
+    // стават резервни потоци на сайта (най-много 4 резервни).
+
+    private boolean tvSearching;                 // скритата страница търси още потоци, докато каналът свири
+    private int tvSearchSi = -1;
+    private boolean tvSearchTune;                // след търсенето да се мине на първия нов поток
+    private int tvSearchGen;
+    private TvChan tvMoreChan;                   // канал, за който от менюто е поискано търсене след пускане
+    private final HashSet<Integer> tvSearched = new HashSet<>(); // сайтове, търсени в това гледане
+    private static final long TV_SEARCH_MS = 18000;
+    private long tvSearchBusyUntil;              // до кога скритата страница може да натоварва кутията
+
+    // Страницата заглушава всичко, което пусне: каналът свири в родния плеър и два звука не бива да има.
+    private static final String TV_MUTE_JS =
+            "(function(){try{function m(){var a=document.querySelectorAll('video,audio');"
+                    + "for(var i=0;i<a.length;i++){try{a[i].muted=true;a[i].volume=0;}catch(e){}}}"
+                    + "m();if(!window.__tvm){window.__tvm=1;"
+                    + "document.addEventListener('play',function(e){try{e.target.muted=true;"
+                    + "e.target.volume=0;}catch(x){}},true);"
+                    + "var t=0;new MutationObserver(function(){if(t)return;"
+                    + "t=setTimeout(function(){t=0;m();},500);}).observe(document.documentElement,"
+                    + "{childList:true,subtree:true});}}catch(e){}})()";
+
+    // Има ли смисъл да се търси: текущият сайт има страница, която сочи точно към канала.
+    private boolean tvSearchable() {
+        TvChan c = tvCur;
+        if (c == null || tvVod) return false;
+        int i = tvSrcNowIdx();
+        return i >= 0 && i < c.srcs.size() && tvCapturable(c.srcs.get(i));
+    }
+
+    private void tvMoreStart(boolean thenTune) {
+        TvChan c = tvCur;
+        if (!tvMode || tvVod || c == null) return;
+        if (tvSearching) {
+            tvSearchTune = tvSearchTune || thenTune;
+            tvShowBanner(0, "Още търся потоци…");
+            return;
+        }
+        int si = tvSrcNowIdx();
+        if (si < 0 || si >= c.srcs.size()) return;
+        TvSrc s = c.srcs.get(si);
+        if (!tvPlaying || tvCapturing || !tvCapturable(s) || tvSearched.contains(si)) {
+            tvShowBanner(2500, "Няма друг поток на този сайт");
+            return;
+        }
+        tvSearched.add(si);
+        tvSearching = true;
+        tvSearchBusyUntil = SystemClock.uptimeMillis() + TV_SEARCH_MS + 12000;
+        tvSearchSi = si;
+        tvSearchTune = thenTune;
+        ++tvSearchGen;
+        tvCapturing = true;
+        tvReloaded = true; // страницата не се презарежда: плеърът свири и търсенето е кратко
+        tvCapSrc = si;
+        tvTrying = false;
+        tvPokeN = 0;
+        logEvent("ТВ: търся още потоци в " + s.site, true);
+        tvShowBanner(0, "Търся още потоци…");
+        try {
+            tvOpenHidden(s, true);
+        } catch (Exception e) {
+            logEvent("ТВ: търсенето не започна (" + e.getClass().getSimpleName() + ")");
+            tvSearchEnd();
+            return;
+        }
+        ui.removeCallbacks(tvSearchEndRun);
+        ui.postDelayed(tvSearchEndRun, TV_SEARCH_MS);
+    }
+
+    private final Runnable tvSearchEndRun = new Runnable() {
+        @Override
+        public void run() {
+            tvSearchEnd();
+        }
+    };
+
+    // Времето за търсене изтече: страницата се затваря, а намерените плейлисти се проверяват.
+    private void tvSearchEnd() {
+        ui.removeCallbacks(tvSearchEndRun);
+        if (!tvSearching) return;
+        final TvChan c = tvCur;
+        final int si = tvSearchSi;
+        final boolean thenTune = tvSearchTune;
+        final int gen = tvSearchGen;
+        tvSearching = false;
+        tvSearchTune = false;
+        final ArrayList<String> urls = new ArrayList<>();
+        final HashMap<String, HashMap<String, String>> hs = new HashMap<>();
+        synchronized (mediaPlaylists) {
+            for (Map.Entry<String, HashMap<String, String>> en : mediaPlaylists.entrySet()) {
+                urls.add(en.getKey());
+                hs.put(en.getKey(), en.getValue());
+            }
+        }
+        if (tvCapturing) {
+            tvCapturing = false;
+            ui.removeCallbacks(tvPokeRun);
+            ui.removeCallbacks(tvPokeFallback);
+            tvDropWeb();
+        }
+        if (!tvMode || tvVod || c == null || si < 0 || si >= c.srcs.size()) return;
+        TvSrc s = c.srcs.get(si);
+        // Вече известните потоци на сайта и сайтовете (CDN), от които е позволено да идват новите.
+        final HashSet<String> known = new HashSet<>();
+        final HashSet<String> fams = new HashSet<>();
+        if (!s.stream.isEmpty()) {
+            known.add(tvStreamKey(s.stream));
+            fams.add(siteBase(hostOf(s.stream)));
+        }
+        for (String[] al : s.alts) {
+            known.add(tvStreamKey(al[0]));
+            fams.add(siteBase(hostOf(al[0])));
+        }
+        if (!s.page.isEmpty()) fams.add(siteBase(hostOf(s.page)));
+        final String ua = tvUaOf(s);
+        final String site = s.site;
+        if (urls.isEmpty()) {
+            tvSearchDone(c, si, new ArrayList<String[]>(), 0, thenTune, gen);
+            return;
+        }
+        tvShowBanner(0, "Проверявам намерените потоци…");
+        final int cand = urls.size();
+        SUBNET.execute(new Runnable() {
+            @Override
+            public void run() {
+                final ArrayList<String[]> found = tvSearchProbe(urls, hs, known, fams, ua);
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        tvSearchDone(c, si, found, cand, thenTune, gen);
+                    }
+                });
+            }
+        });
+    }
+
+    // Проверява плейлистите един по един. Връща {адрес, Referer, Origin, User-Agent} на всеки нов,
+    // истински и отделен поток. Работи в отделна нишка.
+    private ArrayList<String[]> tvSearchProbe(ArrayList<String> urls,
+                                              HashMap<String, HashMap<String, String>> hs,
+                                              HashSet<String> known, HashSet<String> fams,
+                                              String defUa) {
+        ArrayList<String[]> out = new ArrayList<>();
+        HashSet<String> covered = new HashSet<>();
+        int tried = 0;
+        for (String u : urls) {
+            if (out.size() >= TV_MAX_ALTS - 1 || tried >= 10) break;
+            String key = tvStreamKey(u);
+            boolean isKnown = known.contains(key);
+            // Вариант (качество) на плейлист, който вече сме видели: не е отделен поток.
+            if (!isKnown && covered.contains(key)) continue;
+            String host = hostOf(u);
+            if (isBlocked(host)) continue;
+            if (!isKnown && !fams.contains(siteBase(host))) continue; // чужд домейн: може да е друг канал
+            tried++;
+            HashMap<String, String> h = hs.get(u);
+            String ua = h != null && h.get("User-Agent") != null ? h.get("User-Agent") : defUa;
+            String[] r = tvFetchPlaylist(u, h, ua);
+            if (r == null) continue;
+            String t = r[1].trim();
+            if (t.startsWith("﻿")) t = t.substring(1);
+            boolean valid = false;
+            if (t.startsWith("#EXTM3U")) {
+                if (t.contains("#EXT-X-STREAM-INF")) {
+                    // Главен плейлист: качествата му не са отделни потоци.
+                    tvCoverVariants(t, r[0], covered);
+                    covered.add(key);
+                    valid = true;
+                } else if (t.contains("#EXTINF") && !t.contains("#EXT-X-ENDLIST")) {
+                    valid = true; // плейлист на живо, без главен (или главният не е хванат)
+                }
+            } else if (t.contains("<MPD") && t.contains("type=\"dynamic\"")) {
+                valid = true;
+            }
+            if (!valid || isKnown) continue;
+            String ref = h != null ? nz(h.get("Referer")) : "";
+            String org = h != null ? nz(h.get("Origin")) : "";
+            out.add(new String[]{u, ref, org, ua});
+            covered.add(key);
+        }
+        return out;
+    }
+
+    // Адресите на качествата и записите в главния плейлист се отбелязват като „вече покрити“.
+    private static void tvCoverVariants(String text, String baseUrl, HashSet<String> covered) {
+        java.net.URL base;
+        try {
+            base = new java.net.URL(baseUrl);
+        } catch (Exception e) {
+            return;
+        }
+        boolean next = false;
+        for (String raw : text.split("\n")) {
+            String ln = raw.trim();
+            if (ln.isEmpty()) continue;
+            if (ln.startsWith("#")) {
+                if (ln.startsWith("#EXT-X-STREAM-INF")) next = true;
+                int q = ln.indexOf("URI=\"");
+                if (q >= 0) {
+                    int e = ln.indexOf('"', q + 5);
+                    if (e > q) tvCoverOne(base, ln.substring(q + 5, e), covered);
+                }
+                continue;
+            }
+            if (next) {
+                tvCoverOne(base, ln, covered);
+                next = false;
+            }
+        }
+    }
+
+    private static void tvCoverOne(java.net.URL base, String ref, HashSet<String> covered) {
+        try {
+            covered.add(tvStreamKey(new java.net.URL(base, ref).toString()));
+        } catch (Exception ignored) {
+            // неразбираем адрес: не се отбелязва
+        }
+    }
+
+    // Ключ на потока без променливите части (параметри и дълги знакови низове в пътя):
+    // същият поток с нов знак (token) е същият поток.
+    private static String tvStreamKey(String url) {
+        if (url == null) return "";
+        try {
+            Uri u = Uri.parse(url);
+            StringBuilder sb = new StringBuilder(nz(u.getHost()).toLowerCase(Locale.ROOT));
+            for (String seg : nz(u.getPath()).split("/")) {
+                if (seg.isEmpty()) continue;
+                sb.append('/').append(tvTokenSeg(seg) ? "*" : seg.toLowerCase(Locale.ROOT));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return url;
+        }
+    }
+
+    private static boolean tvTokenSeg(String seg) {
+        if (seg.length() < 14) return false;
+        boolean digit = false;
+        for (int i = 0; i < seg.length(); i++) {
+            char ch = seg.charAt(i);
+            if (ch >= '0' && ch <= '9') digit = true;
+            else if (!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '-' || ch == '_'
+                    || ch == '=')) {
+                return false; // точка или друг знак: това е име на файл
+            }
+        }
+        return digit;
+    }
+
+    // Малка заявка за плейлиста: {краен адрес, текст} или null.
+    private static String[] tvFetchPlaylist(String url, HashMap<String, String> h, String ua) {
+        java.net.HttpURLConnection con = null;
+        try {
+            con = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            con.setConnectTimeout(6000);
+            con.setReadTimeout(6000);
+            con.setInstanceFollowRedirects(true);
+            con.setRequestProperty("User-Agent", ua);
+            HashMap<String, String> p = new HashMap<>();
+            if (h != null) {
+                if (h.get("Referer") != null) p.put("Referer", h.get("Referer"));
+                if (h.get("Origin") != null) p.put("Origin", h.get("Origin"));
+            }
+            tvCommonHeaders(p, url);
+            for (Map.Entry<String, String> en : p.entrySet()) {
+                con.setRequestProperty(en.getKey(), en.getValue());
+            }
+            con.setRequestProperty("Accept-Encoding", "identity");
+            int code = con.getResponseCode();
+            if (code < 200 || code >= 300) return null;
+            InputStream in = con.getInputStream();
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0 && bo.size() < 200000) bo.write(buf, 0, n);
+            in.close();
+            return new String[]{con.getURL().toString(), bo.toString("UTF-8")};
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (con != null) con.disconnect();
+        }
+    }
+
+    // Резултатът от търсенето: новите потоци стават резервни; ако е натиснато ◀ - първият се пуска.
+    private void tvSearchDone(TvChan c, int si, ArrayList<String[]> found, int candidates,
+                              boolean thenTune, int gen) {
+        if (gen != tvSearchGen || !tvMode || tvVod || tvCur != c || si < 0 || si >= c.srcs.size()) return;
+        TvSrc s = c.srcs.get(si);
+        int added = 0;
+        for (String[] f : found) {
+            boolean have = f[0].equals(s.stream);
+            for (String[] al : s.alts) {
+                if (al[0].equals(f[0])) have = true;
+            }
+            if (have) continue;
+            // Няма място: отпада най-неуспешният от старите резервни (не и от току-що добавените).
+            while (s.alts.size() >= TV_MAX_ALTS) {
+                int limit = s.alts.size() - added;
+                if (limit <= 0) break;
+                int worst = 0;
+                for (int k = 1; k < limit; k++) {
+                    if (tvAltFails(s.alts.get(k)) > tvAltFails(s.alts.get(worst))) worst = k;
+                }
+                s.alts.remove(worst);
+            }
+            if (s.alts.size() >= TV_MAX_ALTS) break;
+            s.alts.add(new String[]{f[0], f[1], f[2], f[3], "0"});
+            added++;
+        }
+        if (added > 0) tvSave();
+        logEvent("ТВ: още потоци в " + s.site + ": страницата поиска " + candidates
+                + " плейлиста, нови потоци " + added);
+        if (added == 0) {
+            tvShowBanner(3500, "Няма други потоци на този сайт");
+            return;
+        }
+        if (thenTune) {
+            tvTuneStream(c, si, s.alts.size() - added);
+        } else {
+            tvShowBanner(4000, "Добавих " + added + (added == 1 ? " нов поток" : " нови потока")
+                    + " към " + s.site);
+        }
+    }
+    // ====================== НОВИЯТ ВИД: лога, категории, плочки ======================
+    // Логата се теглят само докато е отворен екранът „Моята телевизия“, по веднъж за всяко лого,
+    // и остават на кутията. Докато се гледа канал, нищо не се тегли и екранът не държи памет.
+
+    private static final int TV_HOME = -1, TV_ALL = -2;
+
+    // ---- таблици: категория и лого по име на канал ----
+
+    private HashMap<String, Integer> tvCatMap;
+    private HashMap<String, String[]> tvLogoMap;
+
+    private void tvTablesInit() {
+        if (tvCatMap != null) return;
+        HashMap<String, Integer> cm = new HashMap<>();
+        for (int i = 0; i < TV_CAT_DATA.length; i++) {
+            for (String n : TV_CAT_DATA[i].split("\\|")) cm.put(tvKeyName(n), i);
+        }
+        HashMap<String, String[]> lm = new HashMap<>();
+        for (String line : TV_LOGO_DATA.split("\n")) {
+            int a = line.indexOf('=');
+            if (a <= 0) continue;
+            String path = line.substring(a + 1);
+            String flag = "";
+            int b = path.indexOf('=');
+            if (b > 0) {
+                flag = path.substring(b + 1);
+                path = path.substring(0, b);
+            }
+            lm.put(tvKeyName(line.substring(0, a)), new String[]{path, flag});
+        }
+        tvLogoMap = lm;
+        tvCatMap = cm;
+    }
+
+    // Категория на канал по името му; всичко непознато (и твоите канали) е „Други“.
+    private int tvCatOfName(String name) {
+        tvTablesInit();
+        Integer i = tvCatMap.get(tvKeyName(name));
+        return i == null ? TV_CAT_NAMES.length - 1 : i;
+    }
+
+    // Какво се рисува върху плочката на един канал.
+    private static class TvPic {
+        String name = "";
+        int cat;                   // категория (цветът на плочката с име)
+        String path;               // път до логото или null, ако няма
+        boolean light;             // светла плочка (за тъмни лога)
+        StaticLayout lay;          // оформеното име (за плочка без лого)
+        TextPaint tp;
+        int layW, layH;            // за какъв размер е оформено
+    }
+
+    private TvPic tvPicFor(String name) {
+        tvTablesInit();
+        String key = tvKeyName(name);
+        TvPic p = new TvPic();
+        p.name = name;
+        Integer ci = tvCatMap.get(key);
+        p.cat = ci == null ? TV_CAT_NAMES.length - 1 : ci;
+        String[] lg = tvLogoMap.get(key);
+        if (lg != null) {
+            p.path = lg[0];
+            p.light = lg[1].equals("L");
+        }
+        return p;
+    }
+
+    // ---- логата: теглят се веднъж, пазят се във файл, а в паметта стоят само видимите ----
+
+    private LruCache<String, Bitmap> tvLogoCache;
+    private ThreadPoolExecutor tvLogoPool;
+    private final HashMap<String, ArrayList<View>> tvLogoWait = new HashMap<>();
+    private final HashSet<String> tvLogoFailed = new HashSet<>();   // не се изтегли (до рестарт)
+    private final HashSet<String> tvLogoMissing = new HashSet<>();  // няма на кутията (проверено без мрежа)
+    private boolean tvLogoLogged;
+    private volatile int tvLogoErrRun;          // неуспешни теглия поред (мрежата не отговаря)
+    private volatile boolean tvLogoOffline;     // няма връзка: логата не се теглят до следващото отваряне
+
+    // Логото от паметта. Ако го няма, зареждането почва (веднъж) и view се прерисува, когато е готово.
+    // net: позволено ли е теглене от интернет (на екрана със списъка - да; докато се гледа - не).
+    private Bitmap tvLogoGet(String path, View waiter, boolean net) {
+        if (tvLogoCache == null) {
+            tvLogoCache = new LruCache<String, Bitmap>(4 * 1024 * 1024) {
+                @Override
+                protected int sizeOf(String k, Bitmap b) {
+                    return b.getByteCount();
+                }
+            };
+        }
+        Bitmap b = tvLogoCache.get(path);
+        if (b != null) return b;
+        if (tvLogoGone(path, net)) return null;
+        ArrayList<View> w = tvLogoWait.get(path);
+        if (w == null) {
+            w = new ArrayList<>();
+            tvLogoWait.put(path, w);
+            tvLogoJob(path, net);
+        }
+        if (waiter != null && !w.contains(waiter)) w.add(waiter);
+        return null;
+    }
+
+    private boolean tvLogoGone(String path, boolean net) {
+        return tvLogoFailed.contains(path) || (!net && tvLogoMissing.contains(path));
+    }
+
+    private void tvLogoJob(final String path, final boolean net) {
+        if (tvLogoPool == null) {
+            ThreadPoolExecutor ex = new ThreadPoolExecutor(3, 3, 4, TimeUnit.SECONDS,
+                    new LinkedBlockingQueue<Runnable>(), new ThreadFactory() {
+                @Override
+                public Thread newThread(final Runnable r) {
+                    Thread t = new Thread(new Runnable() {
+                        @Override
+                        public void run() {
+                            android.os.Process.setThreadPriority(
+                                    android.os.Process.THREAD_PRIORITY_BACKGROUND);
+                            r.run();
+                        }
+                    }, "tv-logo");
+                    t.setDaemon(true);
+                    return t;
+                }
+            });
+            ex.allowCoreThreadTimeOut(true);
+            tvLogoPool = ex;
+        }
+        final File dir = new File(getFilesDir(), "tvlogos");
+        final int maxW = u(172);
+        final int maxH = u(96);
+        tvLogoPool.execute(new Runnable() {
+            @Override
+            public void run() {
+                Bitmap b = null;
+                int st = 0; // 0 е готово, 1 няма на кутията, 2 не се изтегли
+                try {
+                    File f = new File(dir, path.replace('/', '_'));
+                    if (!f.exists() || f.length() < 40) {
+                        if (!net) st = 1;
+                        else if (tvLogoOffline) st = 2;
+                        else if (!(dir.isDirectory() || dir.mkdirs()) || !tvLogoDownload(path, f)) st = 2;
+                    }
+                    if (st == 0) {
+                        b = tvLogoDecode(f, maxW, maxH);
+                        if (b == null) {
+                            f.delete();
+                            st = net ? 2 : 1;
+                        }
+                    }
+                } catch (Throwable t) {
+                    st = 2;
+                }
+                final Bitmap fb = b;
+                final int fst = st;
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        tvLogoDone(path, fb, fst);
+                    }
+                });
+            }
+        });
+    }
+
+    private void tvLogoDone(String path, Bitmap b, int st) {
+        ArrayList<View> w = tvLogoWait.remove(path);
+        if (b != null) {
+            // Ако никой вече не чака (екранът е затворен), логото не се държи в паметта.
+            if (w != null && !w.isEmpty() && tvLogoCache != null) tvLogoCache.put(path, b);
+        } else if (st == 2) {
+            tvLogoFailed.add(path);
+            if (!tvLogoLogged) {
+                tvLogoLogged = true;
+                logEvent("Лого: не се изтегли " + path);
+            }
+        } else {
+            tvLogoMissing.add(path);
+        }
+        if (w != null) {
+            for (View v : w) {
+                if (v.isAttachedToWindow()) v.invalidate();
+            }
+        }
+    }
+
+    // Освобождава паметта на логата (екранът се затваря или започва гледане).
+    private void tvLogoTrim() {
+        tvLogoWait.clear();
+        if (tvLogoCache != null) tvLogoCache.evictAll();
+    }
+
+    // Тегли логото (първо от GitHub, после от огледало) и го записва стегнато до 360 px.
+    private boolean tvLogoDownload(String path, File out) {
+        String[] urls = {
+                "https://raw.githubusercontent.com/tv-logo/tv-logos/" + TV_LOGO_SHA + "/" + path,
+                "https://cdn.jsdelivr.net/gh/tv-logo/tv-logos@" + TV_LOGO_SHA + "/" + path};
+        for (String us : urls) {
+            HttpURLConnection c = null;
+            try {
+                c = (HttpURLConnection) new URL(us).openConnection();
+                c.setConnectTimeout(5000);
+                c.setReadTimeout(8000);
+                c.setRequestProperty("User-Agent", TV_CHK_UA);
+                if (c.getResponseCode() != 200) continue;
+                InputStream in = c.getInputStream();
+                java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) {
+                    bo.write(buf, 0, n);
+                    if (bo.size() > 3000000) break;
+                }
+                in.close();
+                if (bo.size() > 3000000 || bo.size() < 60) continue;
+                if (tvLogoSave(bo.toByteArray(), out)) {
+                    tvLogoErrRun = 0;
+                    return true;
+                }
+            } catch (java.net.UnknownHostException | java.net.SocketTimeoutException
+                    | java.net.ConnectException t) {
+                // Няма връзка: втори адрес не се пробва, а след три такива поред - и следващите логата.
+                if (++tvLogoErrRun >= 3) tvLogoOffline = true;
+                return false;
+            } catch (Throwable t) {
+                // следва другият адрес
+            } finally {
+                if (c != null) c.disconnect();
+            }
+        }
+        return false;
+    }
+
+    // Реже прозрачните краища, смалява до 360 px и записва като PNG.
+    private boolean tvLogoSave(byte[] data, File out) throws IOException {
+        BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(data, 0, data.length, o);
+        if (o.outWidth <= 0 || o.outHeight <= 0) return false;
+        int sample = 1;
+        while (Math.max(o.outWidth, o.outHeight) / (sample * 2) >= 360) sample *= 2;
+        o.inJustDecodeBounds = false;
+        o.inSampleSize = sample;
+        o.inPreferredConfig = Bitmap.Config.ARGB_8888;
+        Bitmap b = BitmapFactory.decodeByteArray(data, 0, data.length, o);
+        if (b == null) return false;
+        int w = b.getWidth();
+        int h = b.getHeight();
+        int[] row = new int[w];
+        int minX = w, minY = h, maxX = -1, maxY = -1;
+        for (int y = 0; y < h; y++) {
+            b.getPixels(row, 0, w, 0, y, w, 1);
+            for (int x = 0; x < w; x++) {
+                if ((row[x] >>> 24) > 8) {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    maxY = y;
+                }
+            }
+        }
+        if (maxX < 0) return false; // празна картинка
+        Bitmap c = b;
+        if (minX > 0 || minY > 0 || maxX < w - 1 || maxY < h - 1) {
+            c = Bitmap.createBitmap(b, minX, minY, maxX - minX + 1, maxY - minY + 1);
+        }
+        float s = 360f / Math.max(c.getWidth(), c.getHeight());
+        if (s < 1f) {
+            c = Bitmap.createScaledBitmap(c, Math.max(1, Math.round(c.getWidth() * s)),
+                    Math.max(1, Math.round(c.getHeight() * s)), true);
+        }
+        File tmp = new File(out.getParentFile(), out.getName() + "." + Thread.currentThread().getId() + ".tmp");
+        FileOutputStream fo = new FileOutputStream(tmp);
+        try {
+            c.compress(Bitmap.CompressFormat.PNG, 100, fo);
+        } finally {
+            fo.close();
+        }
+        return tmp.renameTo(out);
+    }
+
+    // Чете записаното лого, смалено до размера, с който се показва.
+    private Bitmap tvLogoDecode(File f, int maxW, int maxH) {
+        BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inJustDecodeBounds = true;
+        BitmapFactory.decodeFile(f.getPath(), o);
+        if (o.outWidth <= 0 || o.outHeight <= 0) return null;
+        int sample = 1;
+        while (o.outWidth / (sample * 2) >= maxW && o.outHeight / (sample * 2) >= maxH) sample *= 2;
+        o.inJustDecodeBounds = false;
+        o.inSampleSize = sample;
+        Bitmap b = BitmapFactory.decodeFile(f.getPath(), o);
+        if (b == null) return null;
+        float s = Math.min(1f, Math.min(maxW / (float) b.getWidth(), maxH / (float) b.getHeight()));
+        if (s < 1f) {
+            b = Bitmap.createScaledBitmap(b, Math.max(1, Math.round(b.getWidth() * s)),
+                    Math.max(1, Math.round(b.getHeight() * s)), true);
+        }
+        return b;
+    }
+
+    // ---- рисуване на плочките (общи за всички; само от главната нишка) ----
+
+    private final android.util.SparseArray<GradientDrawable> tvPlateBgs = new android.util.SparseArray<>();
+    private Paint tvPaintObj;
+    private final RectF tvRf = new RectF();
+
+    private Paint tvPaint() {
+        if (tvPaintObj == null) tvPaintObj = new Paint(Paint.ANTI_ALIAS_FLAG);
+        return tvPaintObj;
+    }
+
+    private static int tvMix(int a, int b, float t) {
+        int r = Math.round(((a >> 16) & 255) * (1 - t) + ((b >> 16) & 255) * t);
+        int g = Math.round(((a >> 8) & 255) * (1 - t) + ((b >> 8) & 255) * t);
+        int bl = Math.round((a & 255) * (1 - t) + (b & 255) * t);
+        return 0xFF000000 | (r << 16) | (g << 8) | bl;
+    }
+
+    // kind: 0 тъмна плочка с лого, 1 светла (за тъмни лога), 2 плочка с името (цвят по категория).
+    private GradientDrawable tvPlateBg(int kind, int cat, boolean focus) {
+        int key = (kind * 16 + cat) * 2 + (focus ? 1 : 0);
+        GradientDrawable g = tvPlateBgs.get(key);
+        if (g != null) return g;
+        int a, b, stroke;
+        if (kind == 1) {
+            a = focus ? 0xFFFAFCFF : 0xFFEDF3FC;
+            b = focus ? 0xFFE6EEFA : 0xFFD5E0F3;
+            stroke = 0x8CFFFFFF;
+        } else if (kind == 2) {
+            b = focus ? T_SURF2 : T_SURF;
+            a = tvMix(b, TV_CAT_COLORS[cat], focus ? 0.42f : 0.26f);
+            stroke = 0x248FDBFF;
+        } else {
+            a = focus ? 0xFF2A4380 : 0xFF18244C;
+            b = focus ? T_SURF2 : T_SURF;
+            stroke = 0x248FDBFF;
+        }
+        g = new GradientDrawable(kind == 2 ? GradientDrawable.Orientation.TL_BR
+                : GradientDrawable.Orientation.TOP_BOTTOM, new int[]{a, b});
+        g.setCornerRadius(u(20));
+        g.setStroke(Math.max(1, Math.round(U * 1.5f)), stroke);
+        tvPlateBgs.put(key, g);
+        return g;
+    }
+
+    // Плочка: фон, а върху него логото или (когато няма лого) името на канала.
+    // pending: логото се чака - показва се празна тъмна плочка, без име.
+    private void tvDrawPlate(Canvas cv, TvPic pic, Bitmap bmp, boolean pending, int l, int t,
+                             int w, int h, boolean focus, boolean dead, int padX, int padY) {
+        Paint p = tvPaint();
+        int kind = bmp != null ? (pic.light ? 1 : 0) : pending ? 0 : 2;
+        float rad = u(20);
+        if (focus) {
+            float hw = u(8);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(hw);
+            p.setColor(0x2938BDF8);
+            tvRf.set(l - hw / 2f, t - hw / 2f, l + w + hw / 2f, t + h + hw / 2f);
+            cv.drawRoundRect(tvRf, rad + hw / 2f, rad + hw / 2f, p);
+            float rw = u(3);
+            p.setStrokeWidth(rw);
+            p.setColor(T_SKY);
+            tvRf.set(l - rw / 2f, t - rw / 2f, l + w + rw / 2f, t + h + rw / 2f);
+            cv.drawRoundRect(tvRf, rad + rw / 2f, rad + rw / 2f, p);
+        }
+        GradientDrawable g = tvPlateBg(kind, pic.cat, focus);
+        g.setAlpha(dead ? 140 : 255);
+        g.setBounds(l, t, l + w, t + h);
+        g.draw(cv);
+        if (bmp != null) {
+            float bw = bmp.getWidth();
+            float bh = bmp.getHeight();
+            float asp = bw / bh;
+            float aw = w - padX;
+            float ah = h - padY;
+            if (asp < 1.35f) ah = h - Math.round(padY * 0.7f);
+            if (asp > 4.5f) aw = w - Math.round(padX * 0.55f);
+            float s = Math.min(aw / bw, ah / bh);
+            float dw = bw * s;
+            float dh = bh * s;
+            tvRf.set(l + (w - dw) / 2f, t + (h - dh) / 2f, l + (w + dw) / 2f, t + (h + dh) / 2f);
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(Color.WHITE);
+            p.setAlpha(dead ? 140 : 255);
+            p.setFilterBitmap(true);
+            cv.drawBitmap(bmp, null, tvRf, p);
+            p.setAlpha(255);
+        } else if (kind == 2) {
+            tvDrawName(cv, pic, l, t, w, h, dead);
+        }
+    }
+
+    // Името на канала върху плочка без лого: до два реда, шрифтът се смалява, докато се събере.
+    private void tvDrawName(Canvas cv, TvPic pic, int l, int t, int w, int h, boolean dead) {
+        int aw = w - u(28);
+        if (pic.lay == null || pic.layW != aw || pic.layH != h) {
+            if (pic.tp == null) {
+                pic.tp = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+                pic.tp.setTypeface(tfCondBold);
+            }
+            float size = u(32);
+            float min = u(16);
+            StaticLayout sl;
+            while (true) {
+                pic.tp.setTextSize(size);
+                sl = new StaticLayout(pic.name, pic.tp, aw, Layout.Alignment.ALIGN_CENTER, 1.02f, 0f, false);
+                if ((sl.getLineCount() <= 2 && sl.getHeight() <= h - u(18)) || size <= min) break;
+                size -= u(2);
+            }
+            pic.lay = sl;
+            pic.layW = aw;
+            pic.layH = h;
+        }
+        pic.tp.setColor(dead ? 0x8CEEF4FF : T_TEXT);
+        cv.save();
+        cv.translate(l + (w - aw) / 2f, t + (h - pic.lay.getHeight()) / 2f);
+        pic.lay.draw(cv);
+        cv.restore();
+    }
+
+    // Само плочката (за голямата карта и за лентата върху картината).
+    private class TvPlate extends View {
+        private TvPic pic;
+        private final int padX, padY;
+        private final boolean net;
+
+        TvPlate(Context ctx, float padXU, float padYU, boolean net) {
+            super(ctx);
+            this.padX = u(padXU);
+            this.padY = u(padYU);
+            this.net = net;
+        }
+
+        void setChan(String name) {
+            pic = tvPicFor(name);
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(Canvas cv) {
+            if (pic == null) return;
+            Bitmap bmp = null;
+            boolean pending = false;
+            if (pic.path != null) {
+                bmp = tvLogoGet(pic.path, this, net);
+                pending = bmp == null && !tvLogoGone(pic.path, net);
+            }
+            tvDrawPlate(cv, pic, bmp, pending, 0, 0, getWidth(), getHeight(), false, false, padX, padY);
+        }
+    }
+
+    // Канал в мрежата и в редовете: плочка с логото и отдолу номер и име. Всичко се рисува в един view.
+    private class TvCard extends View {
+        final TvChan chan;
+        final TvPic pic;
+        final boolean dead;
+        boolean edge;   // първа в реда: ◀ води към лентата с категории
+        final int wPx, plateH, hPx, padX, padY;
+        private final String capNum;
+        private final String capName;
+        private final float capNumW, badgeW;
+
+        TvCard(Context ctx, TvChan c, TvPic pic, int num, float wU, float plateU) {
+            super(ctx);
+            this.chan = c;
+            this.pic = pic;
+            this.dead = tvDead(c);
+            this.wPx = u(wU);
+            this.plateH = u(plateU);
+            this.hPx = plateH + u(42);
+            this.padX = u(44);
+            this.padY = u(40);
+            this.capNum = String.valueOf(num);
+            Paint p = tvPaint();
+            p.setTypeface(tfCondBold);
+            p.setTextSize(u(22));
+            this.capNumW = p.measureText(capNum);
+            p.setTypeface(tfMedium);
+            p.setTextSize(u(17));
+            this.capName = TextUtils.ellipsize(c.name, new TextPaint(p),
+                    wPx - u(8) - capNumW - u(10), TextUtils.TruncateAt.END).toString();
+            p.setTextSize(u(14));
+            this.badgeW = dead ? p.measureText("не работи") + u(20) : 0f;
+            setFocusable(true);
+            setClickable(true);
+            setLongClickable(true);
+            setTag("ch:" + c.id);
+            final int ww = wPx;
+            final int ph = plateH;
+            setOutlineProvider(new ViewOutlineProvider() {
+                @Override
+                public void getOutline(View v, Outline o) {
+                    o.setRoundRect(0, 0, ww, ph, u(20));
+                }
+            });
+        }
+
+        @Override
+        protected void onMeasure(int wms, int hms) {
+            setMeasuredDimension(wPx, hPx);
+        }
+
+        @Override
+        protected void onDraw(Canvas cv) {
+            Bitmap bmp = null;
+            boolean pending = false;
+            if (pic.path != null) {
+                bmp = tvLogoGet(pic.path, this, true);
+                pending = bmp == null && !tvLogoGone(pic.path, true);
+            }
+            boolean f = isFocused();
+            tvDrawPlate(cv, pic, bmp, pending, 0, 0, wPx, plateH, f, dead, padX, padY);
+            Paint p = tvPaint();
+            p.setStyle(Paint.Style.FILL);
+            p.setTypeface(tfCondBold);
+            p.setTextSize(u(22));
+            p.setColor(dead ? T_TEXT3 : T_SKY2);
+            float base = plateH + u(11) + u(19);
+            cv.drawText(capNum, u(4), base, p);
+            p.setTypeface(tfMedium);
+            p.setTextSize(u(17));
+            p.setColor(f ? T_TEXT : dead ? T_TEXT3 : T_TEXT2);
+            cv.drawText(capName, u(4) + capNumW + u(10), base, p);
+            if (dead) {
+                float bh = u(24);
+                tvRf.set(u(8), u(8), u(8) + badgeW, u(8) + bh);
+                p.setStyle(Paint.Style.FILL);
+                p.setColor(0xE03C101C);
+                cv.drawRoundRect(tvRf, bh / 2f, bh / 2f, p);
+                p.setStyle(Paint.Style.STROKE);
+                p.setStrokeWidth(Math.max(1, u(1)));
+                p.setColor(0x80FDA4AF);
+                cv.drawRoundRect(tvRf, bh / 2f, bh / 2f, p);
+                p.setStyle(Paint.Style.FILL);
+                p.setTypeface(tfMedium);
+                p.setTextSize(u(14));
+                p.setColor(0xFFFDA4AF);
+                p.setTextAlign(Paint.Align.CENTER);
+                cv.drawText("не работи", u(8) + badgeW / 2f, u(8) + bh / 2f + u(5), p);
+                p.setTextAlign(Paint.Align.LEFT);
+            }
+        }
+    }
+
+    // Елемент от лентата с категории вляво: икона или цветна точка, име и брой.
+    private class TvRailItem extends FrameLayout {
+        final int sel;
+        private final TextView nm;
+        private final TextView cn;
+        private final View bar;
+
+        TvRailItem(Context ctx, int sel, String label, int icon, int count, int color) {
+            super(ctx);
+            this.sel = sel;
+            setFocusable(true);
+            setClickable(true);
+            GradientDrawable fo = new GradientDrawable();
+            fo.setColor(T_SURF2);
+            fo.setCornerRadius(u(16));
+            fo.setStroke(u(3), T_SKY);
+            GradientDrawable on = new GradientDrawable();
+            on.setColor(T_SURF2);
+            on.setCornerRadius(u(16));
+            StateListDrawable bg = new StateListDrawable();
+            bg.addState(new int[]{android.R.attr.state_focused}, fo);
+            bg.addState(new int[]{android.R.attr.state_selected}, on);
+            bg.addState(new int[]{}, new ColorDrawable(0));
+            setBackground(bg);
+
+            LinearLayout row = new LinearLayout(ctx);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(u(16), 0, u(18), 0);
+            FrameLayout ic = new FrameLayout(ctx);
+            if (icon >= 0) {
+                ic.addView(new IconView(ctx, icon, T_SKY2),
+                        new FrameLayout.LayoutParams(u(22), u(22), Gravity.CENTER));
+            } else {
+                View dot = new View(ctx);
+                GradientDrawable dg = new GradientDrawable();
+                dg.setColor(color);
+                dg.setCornerRadius(u(4));
+                dot.setBackground(dg);
+                ic.addView(dot, new FrameLayout.LayoutParams(u(12), u(12), Gravity.CENTER));
+            }
+            LinearLayout.LayoutParams ilp = lp(u(22), u(22));
+            ilp.rightMargin = u(12);
+            row.addView(ic, ilp);
+            nm = text(label, 24, T_TEXT2, tfCondBold, true);
+            row.addView(nm, new LinearLayout.LayoutParams(0, WC, 1f));
+            if (count > 0) {
+                cn = text(String.valueOf(count), 17, T_TEXT3, tfMedium, true);
+                row.addView(cn, lp(WC, WC));
+            } else {
+                cn = null;
+            }
+            addView(row, new FrameLayout.LayoutParams(MP, MP));
+            bar = new View(ctx);
+            GradientDrawable bgd = new GradientDrawable();
+            bgd.setColor(icon >= 0 ? T_SKY : color);
+            bgd.setCornerRadius(u(3));
+            bar.setBackground(bgd);
+            bar.setVisibility(View.INVISIBLE);
+            addView(bar, new FrameLayout.LayoutParams(u(5), u(34), Gravity.START | Gravity.CENTER_VERTICAL));
+        }
+
+        void mark(boolean on) {
+            setSelected(on);
+            nm.setTextColor(on ? T_TEXT : T_TEXT2);
+            if (cn != null) cn.setTextColor(on ? T_TEXT2 : T_TEXT3);
+            bar.setVisibility(on ? View.VISIBLE : View.INVISIBLE);
+        }
+    }
+
+    // ---- таблици за новия вид (направени автоматично от gen_tables.py) ----
+    private static final String TV_LOGO_SHA = "d32e347bb7c4c640dceec23957802ad9182f58a6";
+    private static final String[] TV_CAT_NAMES = {"Български", "Новини", "Спорт", "Филми и сериали", "Документални", "Детски", "Музика", "Чужди", "Други"};
+    private static final int[] TV_CAT_COLORS = {0xFF4C8DFF, 0xFFF87171, 0xFF34D399, 0xFFA78BFA, 0xFFFBBF24, 0xFFFB923C, 0xFFF472B6, 0xFF94A3B8, 0xFF2DD4BF};
+    // Имената на готовите канали по категория (последната категория „Други“ е за всичко останало).
+    private static final String[] TV_CAT_DATA = {
+        "БНТ 1|БНТ 2|БНТ 3|БНТ 4|bTV|Nova|Diema|Diema Family|City TV|Kanal 3|Kanal 0|Agro|TVN|Skat TV|TV Evropa|BIT|Alfa TV",
+        "Bulgaria On Air|Bulgaria On Air TV|Bulgaria 24|BFM|France 24|Deutsche Welle|Bloomberg|Russia Today|Euronews Bulgaria|Nova News|TRT Haber|Habertürk TV|CNN Türk|NTV|Euronews",
+        "Diema Sport|Diema Sport 2|Diema Sport 3|Nova Sport|Max Sport 1|Max Sport 2|Max Sport 3|Max Sport 4|Eurosport 1 BG|Eurosport 2 BG|Match Futbol 1|Match Futbol 2|Match Futbol 3|Ring BG|Sila|FITE|BEK Sports|beIN Sports|Sports TV|TJK TV|TRT Spor|Arena Sport 1|Arena Sport 2|Arena Sport 3|Arena Sport 4|A Spor|BEIN SPORTS HABER",
+        "Kino Nova|bTV Action|bTV Cinema|bTV Comedy|bTV Lady|Star Channel|Star Life|Star Crime|AXN|AMC|Epic Drama|Filmbox Stars|Filmbox Extra|Movie Star|Scream|FOX TV|AXN Black|AXN White|FilmBox|FilmBox Plus|Fox Crime|Fox Life|CBS Reality|Comedy Central|TV1000|Cinemax 2|Cinemax|HBO 3|HBO 2|HBO|Btv Story",
+        "National Geographic|Nat Geo Wild|Discovery Channel|Investigation Discovery|Animal Planet|Viasat Nature|Viasat Explore|Travel Channel|TLC BG|TLC|DMAX|Docubox|24 Kitchen|TRT Belgesel|Code Fashion|Code Health|VTK|Discovery Science|History Channel|Viasat History|Food Network|Id Xtra",
+        "Cartoon Network|Cartoonito|Disney Channel|Nick Jr|Nickelodeon|Nick Toons|Nick Jr RU|Nickelodeon RU|Carousel|TRT Cocuk|Baby TV|Duck TV|Disney Junior|E Kids|Boomerang|Minika GO",
+        "Evrokom|Balkanika TV|FEN TV|MTV 00s|MTV Hits|The Voice|Planeta HD BG|Planeta Folk|Power Turk|Kral Pop TV|TRT Muzik|Tatlises TV|Byeaz TV|BG Music Channel|Box TV|Magic TV|DSTV|Tiankov Folk|Fen Folk|Sunrise Music|Mezzo|VH1|MTV Rocks|MTV|Folklor Tv|Rodina Tv|Tiankov Tv",
+        "Pervyy Kanal|Russia 1|RU TV|1 HD TV|TRT 1|ATV|Kanal D|Show TV|Star TV|Yaban TV|ARD|ZDF|RTL|PRO 7|WDR|Bayerischer Rundfunk|TV5 Monde|C8 FR|7/8 TV|Fashion TV|Max One|Now TV|TV1|FOX TV (TR)",
+    };
+    // Име=път на логото в хранилището tv-logo/tv-logos; „=L“ значи светла плочка (тъмно лого).
+    private static final String TV_LOGO_DATA = ""
+        + "БНТ 1=countries/bulgaria/bnt-1-bg.png\n"
+        + "БНТ 2=countries/bulgaria/bnt-2-bg.png\n"
+        + "БНТ 3=countries/bulgaria/bnt-3-bg.png\n"
+        + "БНТ 4=countries/bulgaria/bnt-4-bg.png\n"
+        + "bTV=countries/bulgaria/btv-bg.png\n"
+        + "Nova=countries/bulgaria/nova-bg.png\n"
+        + "Diema=countries/bulgaria/diema-bg.png\n"
+        + "Diema Family=countries/bulgaria/diema-family-bg.png\n"
+        + "Kino Nova=countries/bulgaria/kino-nova-bg.png\n"
+        + "City TV=countries/bulgaria/city-tv-bg.png\n"
+        + "Bulgaria On Air=countries/bulgaria/bulgaria-on-air-bg.png\n"
+        + "Bulgaria On Air TV=countries/bulgaria/bulgaria-on-air-bg.png\n"
+        + "Evrokom=countries/bulgaria/evrokom-bg.png\n"
+        + "Agro=countries/bulgaria/agro-tv-bg.png\n"
+        + "Skat TV=countries/bulgaria/skat-bg.png=L\n"
+        + "Bulgaria 24=countries/bulgaria/bulgaria-24-bg.png\n"
+        + "France 24=countries/international/france-24-int.png\n"
+        + "Bloomberg=countries/bulgaria/bloomberg-tv-bulgaria-bg.png\n"
+        + "Russia Today=countries/international/russia-today-int.png\n"
+        + "Euronews Bulgaria=countries/international/euro-news-int.png\n"
+        + "Nova News=countries/bulgaria/nova-news-bg.png\n"
+        + "TRT Haber=countries/turkey/trt-haber-hd-tr.png\n"
+        + "NTV=countries/turkey/ntv-tr.png\n"
+        + "Diema Sport=countries/bulgaria/diema-sport-hd-bg.png\n"
+        + "Diema Sport 2=countries/bulgaria/diema-sport2-hd-bg.png\n"
+        + "Diema Sport 3=countries/bulgaria/diema-sport3-hd-bg.png\n"
+        + "Nova Sport=countries/bulgaria/nova-sport-bg.png\n"
+        + "Max Sport 1=countries/bulgaria/max-sport-1-bg.png\n"
+        + "Max Sport 2=countries/bulgaria/max-sport-2-bg.png\n"
+        + "Max Sport 3=countries/bulgaria/max-sport-3-bg.png\n"
+        + "Max Sport 4=countries/bulgaria/max-sport-4-bg.png\n"
+        + "Eurosport 1 BG=countries/germany/eurosport-1-de.png\n"
+        + "Eurosport 2 BG=countries/germany/eurosport-2-de.png\n"
+        + "Match Futbol 1=countries/russia/match-futbol-1-ru.png\n"
+        + "Match Futbol 2=countries/russia/match-futbol-2-ru.png\n"
+        + "Match Futbol 3=countries/russia/match-futbol-3-ru.png\n"
+        + "Ring BG=countries/bulgaria/ring-bg.png\n"
+        + "FITE=countries/international/fite-tv-int.png\n"
+        + "beIN Sports=countries/international/beinsports/old/stacked/bein-sports-4k-int.png\n"
+        + "TJK TV=countries/turkey/tjk-tv-tr.png\n"
+        + "TRT Spor=countries/turkey/trt-spor-hd-tr.png\n"
+        + "Arena Sport 1=countries/world-europe/arena-sport/arena-sport-1-eu.png\n"
+        + "Arena Sport 2=countries/world-europe/arena-sport/arena-sport-2-eu.png\n"
+        + "Arena Sport 3=countries/world-europe/arena-sport/arena-sport-3-eu.png\n"
+        + "Arena Sport 4=countries/world-europe/arena-sport/arena-sport-4-eu.png\n"
+        + "bTV Action=countries/bulgaria/btv-action-bg.png\n"
+        + "bTV Cinema=countries/bulgaria/btv-cinema-bg.png\n"
+        + "bTV Comedy=countries/bulgaria/btv-comedy-bg.png\n"
+        + "bTV Lady=countries/bulgaria/btv-lady-bg.png=L\n"
+        + "Star Channel=countries/bulgaria/star-channel-bg.png\n"
+        + "Star Life=countries/bulgaria/star-life-bg.png\n"
+        + "Star Crime=countries/bulgaria/star-crime-bg.png\n"
+        + "AXN=countries/romania/axn-ro.png\n"
+        + "AMC=countries/romania/amc-ro.png\n"
+        + "Epic Drama=countries/romania/epic-drama-ro.png\n"
+        + "Filmbox Stars=countries/international/filmbox-stars-int.png\n"
+        + "Filmbox Extra=countries/international/filmbox-extra-hd-int.png\n"
+        + "Movie Star=countries/bulgaria/movie-star-bg.png=L\n"
+        + "AXN Black=countries/germany/axn-black-de.png\n"
+        + "AXN White=countries/germany/axn-white-de.png\n"
+        + "FilmBox=countries/international/filmbox-hd-int.png\n"
+        + "FilmBox Plus=countries/international/filmbox-plus-int.png\n"
+        + "Fox Crime=countries/turkey/fox-crime-tr.png\n"
+        + "Fox Life=countries/international/fox-life-int.png\n"
+        + "CBS Reality=countries/romania/cbs-reality-ro.png\n"
+        + "Comedy Central=countries/germany/comedy-central-de.png\n"
+        + "TV1000=countries/romania/tv1000-ro.png\n"
+        + "Cinemax 2=countries/romania/cinemax2-ro.png\n"
+        + "Cinemax=countries/romania/cinemax-ro.png\n"
+        + "HBO 3=countries/romania/hbo3-ro.png\n"
+        + "HBO 2=countries/romania/hbo2-ro.png\n"
+        + "HBO=countries/romania/hbo-ro.png\n"
+        + "National Geographic=countries/germany/hd/national-geographic-hd-de.png\n"
+        + "Nat Geo Wild=countries/serbia/national-geographic-wild-rs.png\n"
+        + "Discovery Channel=countries/germany/discovery-channel-de.png\n"
+        + "Investigation Discovery=countries/international/investigation-discovery-int.png\n"
+        + "Animal Planet=countries/international/animal-planet-int.png\n"
+        + "Viasat Nature=countries/romania/viasat-nature-ro.png\n"
+        + "Viasat Explore=countries/romania/viasat-explore-ro.png=L\n"
+        + "TLC BG=countries/international/tlc-int.png\n"
+        + "TLC=countries/international/tlc-int.png\n"
+        + "DMAX=countries/germany/dmax-de.png\n"
+        + "Docubox=countries/international/docubox-hd-int.png\n"
+        + "24 Kitchen=countries/bulgaria/24-kitchen-bg.png\n"
+        + "TRT Belgesel=countries/turkey/trt-belgesel-tr.png\n"
+        + "Code Fashion=countries/bulgaria/code-fashion-bg.png\n"
+        + "Code Health=countries/bulgaria/code-health-bg.png\n"
+        + "Cartoon Network=countries/international/cartoon-network-hd-int.png\n"
+        + "Cartoonito=countries/united-kingdom/cartoonito-uk.png\n"
+        + "Disney Channel=countries/international/disney-channel-int.png\n"
+        + "Nick Jr=countries/germany/nick-jr-de.png\n"
+        + "Nickelodeon=countries/germany/nickelodeon-de.png\n"
+        + "Nick Toons=countries/germany/nick-toons-de.png\n"
+        + "TRT Cocuk=countries/turkey/trt-cocuk-tr.png\n"
+        + "Baby TV=countries/serbia/baby-tv-rs.png\n"
+        + "Duck TV=countries/world-europe/duck-tv-eu.png\n"
+        + "E Kids=countries/bulgaria/ekids-bg.png\n"
+        + "Boomerang=countries/germany/boomerang-de.png\n"
+        + "MTV 00s=countries/world-europe/mtv-00s-eu.png\n"
+        + "MTV Hits=countries/serbia/mtv-hits-rs.png\n"
+        + "The Voice=countries/bulgaria/the-voice-bg.png\n"
+        + "Planeta HD BG=countries/bulgaria/planeta-bg.png=L\n"
+        + "Planeta Folk=countries/bulgaria/planeta-folk-bg.png\n"
+        + "Power Turk=countries/turkey/powerturk-tr.png\n"
+        + "Kral Pop TV=countries/turkey/kral-pop-tr.png\n"
+        + "TRT Muzik=countries/turkey/trt-muzik-tr.png\n"
+        + "Tatlises TV=countries/turkey/tatlises-tv-tr.png\n"
+        + "TRT 1=countries/turkey/trt-1-hd-tr.png\n"
+        + "ATV=countries/turkey/atv-tr.png\n"
+        + "Kanal D=countries/turkey/kanal-d-tr.png\n"
+        + "Show TV=countries/turkey/show-tr.png\n"
+        + "Yaban TV=countries/turkey/yaban-tr.png\n"
+        + "ARD=countries/germany/ard-de.png\n"
+        + "ZDF=countries/germany/hd/zdf-hd-de.png\n"
+        + "RTL=countries/germany/hd/rtl-hd-de.png\n"
+        + "WDR=countries/germany/hd/wdr-hd-de.png\n"
+        + "TV5 Monde=countries/international/tv5-monde-int.png\n"
+        + "Euronews=countries/international/euro-news-int.png\n"
+        + "7/8 TV=countries/bulgaria/7-8-tv-bg.png\n"
+        + "Fashion TV=countries/international/fashion-tv-int.png\n"
+        + "Now TV=countries/turkey/now-tr.png\n"
+        + "TV1=countries/turkey/tv1-tr.png\n"
+        + "Minika GO=countries/turkey/minika-go-tr.png\n"
+        + "Discovery Science=countries/serbia/discovery-science-rs.png\n"
+        + "History Channel=countries/germany/hd/history-hd-de.png\n"
+        + "Viasat History=countries/romania/viasat-history-ro.png=L\n"
+        + "Food Network=countries/serbia/food-network-rs.png=L\n"
+        + "A Spor=countries/turkey/a-spor-tr.png\n"
+        + "BEIN SPORTS HABER=countries/international/beinsports/old/stacked/bein-sports-haber-int.png\n"
+        + "Magic TV=countries/bulgaria/magic-tv-bg.png\n"
+        + "DSTV=countries/bulgaria/dstv-bg.png\n"
+        + "Fen Folk=countries/bulgaria/fen-folk-tv-bg.png\n"
+        + "Mezzo=countries/france/mezzo-fr.png\n"
+        + "VH1=countries/united-kingdom/vh1-uk.png=L\n"
+        + "MTV Rocks=countries/united-kingdom/mtv-rocks-uk.png\n"
+        + "MTV=countries/germany/hd/mtv-hd-de.png\n"
+        + "Folklor Tv=countries/bulgaria/folklor-tv-bg.png\n"
+        + "Rodina Tv=countries/bulgaria/tv-rodina-bg.png\n"
+        + "BG Music Channel=countries/bulgaria/bg-muic-channel-bg.png\n"
+        + "Balkanika TV=countries/bulgaria/balkanika-music-television-bg.png\n"
+        + "Carousel=countries/bulgaria/karusel-bg.png\n"
+        ;
     // ---- плочките в менюто ----
 
     // Нарисувана картинка (без файлове): прожектор, голям "play", филмова лента
