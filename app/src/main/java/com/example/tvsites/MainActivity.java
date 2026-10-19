@@ -140,7 +140,7 @@ public class MainActivity extends Activity {
     //   "https://example.com/embed/movie/{tmdb}"
     //   "https://example.com/embed/tv/{tmdb}/{season}/{episode}"
     // Може и без редактиране на кода: бутон "Източници" в каталога.
-private static final String[] FILM_SOURCES = {
+  private static final String[] FILM_SOURCES = {
     "https://vidsrc.sh/embed/movie/{tmdb}",
     "https://vidcore.org/embed/movie/{tmdb}",
     "https://vidlink.pro/movie/{tmdb}",
@@ -8086,6 +8086,8 @@ private static final String[] TV_SOURCES = {
         String site = "", page = "", stream = "", ref = "", org = "", ua = "", mode = "";
         long ok;     // кога последно е тръгнал
         int fails;   // колко пъти поред запазеният поток не е тръгнал
+        int bad;     // колко проверки поред източникът не е отговорил
+        long chk;    // кога е броена последната грешка/успех от проверка
         // Резервни потоци на същия сайт: {адрес, Referer, Origin, User-Agent, неуспехи поред}.
         final ArrayList<String[]> alts = new ArrayList<>();
     }
@@ -8129,6 +8131,8 @@ private static final String[] TV_SOURCES = {
                         x.mode = so.optString("m");
                         x.ok = so.optLong("k");
                         x.fails = so.optInt("f");
+                        x.bad = so.optInt("b");
+                        x.chk = so.optLong("c");
                         JSONArray xa = so.optJSONArray("x");
                         if (xa != null) {
                             for (int k = 0; k < xa.length() && k < TV_MAX_ALTS; k++) {
@@ -8169,6 +8173,8 @@ private static final String[] TV_SOURCES = {
                     so.put("m", x.mode);
                     so.put("k", x.ok);
                     so.put("f", x.fails);
+                    if (x.bad > 0) so.put("b", x.bad);
+                    if (x.chk > 0) so.put("c", x.chk);
                     if (!x.alts.isEmpty()) {
                         JSONArray xa = new JSONArray();
                         for (String[] al : x.alts) {
@@ -8710,8 +8716,8 @@ private static final String[] TV_SOURCES = {
         st.setPadding(0, u(2), 0, 0);
         tx.addView(st);
         tvHead.addView(tx, new LinearLayout.LayoutParams(0, WC, 1f));
-        if (addBtn) {
-            tvHead.addView(tvPill(IC_PLUS, "Добави от сайт", new Runnable() {
+        {
+            tvHead.addView(tvPill(IC_PLUS, "Добави и провери", new Runnable() {
                 @Override
                 public void run() {
                     tvAddFromSite();
@@ -8870,7 +8876,9 @@ private static final String[] TV_SOURCES = {
         nmlp.topMargin = u(14);
         cell.addView(nm, nmlp);
 
-        TextView sr = text(tvSrcNames(c), 15, T_TEXT3, tfMedium, true);
+        boolean dead = tvDead(c);
+        TextView sr = text((dead ? "не работи  ·  " : "") + tvSrcNames(c), 15,
+                dead ? 0xFFFDA4AF : T_TEXT3, tfMedium, true);
         FrameLayout.LayoutParams srlp = new FrameLayout.LayoutParams(MP, WC, Gravity.BOTTOM);
         srlp.leftMargin = u(124);
         srlp.rightMargin = u(96);
@@ -9693,11 +9701,11 @@ private static final String[] TV_SOURCES = {
 
     // "Добави от сайт": избор на сайт, който да се отвори.
     private void tvAddFromSite() {
-        LinearLayout card = tvCard("Добави от сайт",
-                "Отвори сайта, пусни канал, задръж OK и в „Видео на страницата“ избери „В ТВ“.");
+        LinearLayout card = tvCard("Добави и провери",
+                "Или отвори сайт, пусни канал, задръж OK и в „Видео на страницата“ избери „В ТВ“.");
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
-        View first = null;
+        View first = tvManageRows(list);
         for (final String[] site : tvSites()) {
             LinearLayout r = tvChoice(null, site[0], hostOf(site[1]), first == null ? 1 : 0,
                     new Runnable() {
@@ -9713,7 +9721,7 @@ private static final String[] TV_SOURCES = {
         ScrollView sv = new ScrollView(this);
         sv.setVerticalScrollBarEnabled(false);
         sv.addView(list, new ViewGroup.LayoutParams(MP, WC));
-        card.addView(sv, lpTopW(MP, Math.min(u(340), u(72) * Math.max(1, tvSites().size())), u(24)));
+        card.addView(sv, lpTopW(MP, Math.min(u(440), u(72) * (Math.max(1, tvSites().size()) + 3)), u(24)));
         tvDialogShow(card, 720, first);
     }
 
@@ -10214,6 +10222,7 @@ private static final String[] TV_SOURCES = {
         if (player != null) player.setVolume(1f);
         TvSrc s = tvCur.srcs.get(si);
         long now = System.currentTimeMillis();
+        s.bad = 0;
         boolean fresh = false;
         if (!viaCapture && !tvPinned && !s.stream.equals(url)) {
             // Тръгна резервен поток: става основен, старият основен отива в резервните.
@@ -13446,6 +13455,579 @@ private static final String[] TV_SOURCES = {
                 }
             });
         }
+    }
+
+    // ---- готов списък канали, проверка на линковете, неработещи ----
+
+    // Име = линк1, линк2 ... (gledaitv.fan, gledaitv.live, iptv-bg.com, seirsanduk, bgnow.tv)
+    private static final String TV_LIST = ""
+        + "БНТ 1 = https://www.gledaitv.fan/bnt-1-live-tv.html, https://www.gledaitv.live/watch-tv/64/bnt-1-online, https://iptv-bg.com/bnt-1-online/, https://www.seirsanduk.online/hd-bnt-1-hd-online, https://www.bgnow.tv/en/watch/bnt-1/\n"
+        + "БНТ 2 = https://www.gledaitv.fan/bnt-2-live-tv.html, https://www.gledaitv.live/watch-tv/63/bnt-2-online, https://iptv-bg.com/bnt-2-online/, https://www.seirsanduk.online/bnt-2-online, https://www.bgnow.tv/en/watch/bnt-2/\n"
+        + "БНТ 3 = https://www.gledaitv.fan/bnt-3-live-tv.html, https://www.gledaitv.live/watch-tv/62/bnt-3-online, https://iptv-bg.com/bnt-3-online/, https://www.seirsanduk.online/hd-bnt-3-hd-online, https://www.bgnow.tv/en/watch/bnt-3/\n"
+        + "БНТ 4 = https://www.gledaitv.fan/bnt-4-live-tv.html, https://www.gledaitv.live/watch-tv/42/bnt-4-online, https://iptv-bg.com/bnt-4-online/, https://www.seirsanduk.online/bnt-4-online, https://www.bgnow.tv/en/watch/bnt-4/\n"
+        + "bTV = https://www.gledaitv.fan/btv-live-tv.html, https://www.gledaitv.live/watch-tv/61/btv-online, https://iptv-bg.com/btv/, https://www.seirsanduk.online/hd-btv-hd-online, https://www.bgnow.tv/en/watch/btv/\n"
+        + "Nova = https://www.gledaitv.fan/nova-live-tv.html, https://www.gledaitv.live/watch-tv/60/nova-tv-online, https://iptv-bg.com/nova-tv-online/, https://www.seirsanduk.online/hd-nova-tv-hd-online, https://www.bgnow.tv/en/watch/nova/\n"
+        + "Diema = https://www.gledaitv.fan/diema-live-tv.html, https://www.gledaitv.live/watch-tv/52/diema-online, https://iptv-bg.com/diema-online/, https://www.seirsanduk.online/hd-diema-hd-online, https://www.bgnow.tv/en/watch/diema/\n"
+        + "Diema Family = https://www.gledaitv.fan/diema-family-live-tv.html, https://www.gledaitv.live/watch-tv/51/diema-family-online, https://iptv-bg.com/diema-family-online/, https://www.seirsanduk.online/hd-diema-family-hd-online, https://www.bgnow.tv/en/watch/diema-family/\n"
+        + "Kino Nova = https://www.gledaitv.fan/kino-nova-live-tv.html, https://www.gledaitv.live/watch-tv/44/kino-nova-online, https://iptv-bg.com/kino-nova-online/, https://www.seirsanduk.online/hd-kino-nova-hd-online, https://www.bgnow.tv/en/watch/kino-nova/\n"
+        + "City TV = https://www.gledaitv.fan/city-tv-live-tv.html, https://www.gledaitv.live/watch-tv/41/city-tv-online, https://iptv-bg.com/city-tv-online/, https://www.seirsanduk.online/city-tv-online, https://www.bgnow.tv/en/watch/city-tv/\n"
+        + "Bulgaria On Air = https://www.gledaitv.fan/bulgaria-on-air-live-tv.html, https://www.gledaitv.live/watch-tv/79/bulgaria-on-air, https://iptv-bg.com/bg-on-air-online/, https://www.seirsanduk.online/bulgaria-on-air-online, https://www.bgnow.tv/en/watch/bulgaria-on-air/\n"
+        + "Bulgaria On Air TV = https://www.gledaitv.fan/bulgaria-on-air-tv-live-tv.html\n"
+        + "Kanal 3 = https://www.gledaitv.fan/kanal-3-live-tv.html, https://iptv-bg.com/kanal-3-online/, https://www.seirsanduk.online/kanal-3-online, https://www.bgnow.tv/en/watch/kanal-3/\n"
+        + "Evrokom = https://www.gledaitv.fan/evrokom-live-tv.html, https://www.gledaitv.live/watch-tv/80/eurocom-online, https://iptv-bg.com/evrokom-online/, https://www.seirsanduk.online/evrokom-online\n"
+        + "Balkanika TV = https://www.gledaitv.fan/balkanika-tv-live-tv.html, https://www.gledaitv.live/watch-tv/73/balkanika-tv-online, https://iptv-bg.com/balkanika-online/, https://www.bgnow.tv/en/watch/balkanika-tv/\n"
+        + "FEN TV = https://www.gledaitv.fan/fen-tv-live-tv.html, https://www.gledaitv.live/watch-tv/74/fen-tv-online, https://iptv-bg.com/fen-tv-online/, https://www.bgnow.tv/en/watch/fen-tv/\n"
+        + "Kanal 0 = https://www.gledaitv.fan/kanal-0-live-tv.html\n"
+        + "Agro = https://www.gledaitv.fan/agro-live-tv.html\n"
+        + "TVN = https://www.gledaitv.fan/tvn-live-tv.html\n"
+        + "Skat TV = https://iptv-bg.com/skat-tv-online/, https://www.seirsanduk.online/skat-online\n"
+        + "TV Evropa = https://iptv-bg.com/tv-evropa-online/\n"
+        + "BIT = https://iptv-bg.com/bit-online/\n"
+        + "Alfa TV = https://iptv-bg.com/alfa-tv-online/\n"
+        + "Bulgaria 24 = https://www.gledaitv.fan/bulgaria-24-live-tv.html\n"
+        + "BFM = https://www.gledaitv.fan/bfm-live-tv.html\n"
+        + "France 24 = https://www.gledaitv.fan/france-24-live-tv.html\n"
+        + "Deutsche Welle = https://www.gledaitv.fan/deutsche-welle-live-tv.html\n"
+        + "Bloomberg = https://iptv-bg.com/bloomberg-online/, https://www.seirsanduk.online/bloomberg-tv-online\n"
+        + "Russia Today = https://iptv-bg.com/russia-today-online/\n"
+        + "Euronews Bulgaria = https://www.seirsanduk.online/hd-euronews-bulgaria-hd-online\n"
+        + "Nova News = https://www.seirsanduk.online/hd-nova-news-hd-online, https://www.bgnow.tv/en/watch/nova-news/\n"
+        + "TRT Haber = https://www.bgnow.tv/en/watch/trt-haber/\n"
+        + "Habertürk TV = https://www.bgnow.tv/en/watch/haberturk-tv/\n"
+        + "CNN Türk = https://www.bgnow.tv/en/watch/cnn-turk/\n"
+        + "NTV = https://www.bgnow.tv/en/watch/ntv/\n"
+        + "Diema Sport = https://www.gledaitv.fan/diema-sport-live-tv.html, https://www.gledaitv.live/watch-tv/13/diema-sport-online, https://iptv-bg.com/diema-sport-online/, https://www.seirsanduk.online/hd-diema-sport-hd-online\n"
+        + "Diema Sport 2 = https://www.gledaitv.fan/diema-sport-2-live-tv.html, https://www.gledaitv.live/watch-tv/12/diema-sport-2-online, https://iptv-bg.com/diema-sport-2-online/, https://www.seirsanduk.online/hd-diema-sport-2-hd-online\n"
+        + "Diema Sport 3 = https://www.gledaitv.fan/diema-sport-3-live-tv.html, https://www.gledaitv.live/watch-tv/38/diema-sport-3-online, https://iptv-bg.com/diema-sport-3-online/, https://www.seirsanduk.online/hd-diema-sport-3-hd-online\n"
+        + "Nova Sport = https://www.gledaitv.fan/nova-sport-live-tv.html, https://www.gledaitv.live/watch-tv/32/nova-sport-online, https://iptv-bg.com/nova-sport-online/, https://www.seirsanduk.online/hd-nova-sport-hd-online, https://www.bgnow.tv/en/watch/nova-sport/\n"
+        + "Max Sport 1 = https://www.gledaitv.fan/max-sport-1-live-tv.html, https://www.gledaitv.live/watch-tv/9/max-sport-bg-1-online, https://iptv-bg.com/max-sport-1-online/, https://www.seirsanduk.online/hd-max-sport-1-hd-online\n"
+        + "Max Sport 2 = https://www.gledaitv.fan/max-sport-2-live-tv.html, https://www.gledaitv.live/watch-tv/10/max-sport-2-bg-online, https://iptv-bg.com/max-sport-2-online/, https://www.seirsanduk.online/hd-max-sport-2-hd-online\n"
+        + "Max Sport 3 = https://www.gledaitv.fan/max-sport-3-live-tv.html, https://www.gledaitv.live/watch-tv/11/max-sport-3-bg-online, https://iptv-bg.com/max-sport-3-online/, https://www.seirsanduk.online/hd-max-sport-3-hd-online\n"
+        + "Max Sport 4 = https://www.gledaitv.fan/max-sport-4-live-tv.html, https://www.gledaitv.live/watch-tv/65/max-sport-4-bg-online, https://iptv-bg.com/max-sport-4-online/, https://www.seirsanduk.online/hd-max-sport-4-hd-online\n"
+        + "Eurosport 1 BG = https://www.gledaitv.fan/eurosport-1-bg-live-tv.html, https://www.gledaitv.live/watch-tv/33/eurosport-1-online, https://iptv-bg.com/eurosport-online/, https://www.seirsanduk.online/hd-eurosport-1-hd-online, https://www.bgnow.tv/en/watch/eurosport-1/\n"
+        + "Eurosport 2 BG = https://www.gledaitv.fan/eurosport-2-bg-live-tv.html, https://www.gledaitv.live/watch-tv/34/eurosport-2-online, https://iptv-bg.com/eurosport-2-online/, https://www.seirsanduk.online/hd-eurosport-2-hd-online, https://www.bgnow.tv/en/watch/eurosport-2/\n"
+        + "Match Futbol 1 = https://www.gledaitv.fan/match-futbol-1-live-tv.html\n"
+        + "Match Futbol 2 = https://www.gledaitv.fan/match-futbol-2-live-tv.html\n"
+        + "Match Futbol 3 = https://www.gledaitv.fan/match-futbol-3-live-tv.html\n"
+        + "Ring BG = https://www.gledaitv.fan/ring-bg-live-tv.html, https://www.gledaitv.live/watch-tv/31/ring-bg-online, https://iptv-bg.com/ring-bg-online/, https://www.seirsanduk.online/hd-ring-bg-hd-online, https://www.bgnow.tv/en/watch/ring/\n"
+        + "Sila = https://www.gledaitv.fan/sila-live-tv.html\n"
+        + "FITE = https://www.gledaitv.fan/fite-live-tv.html\n"
+        + "BEK Sports = https://www.gledaitv.fan/bek-sports-live-tv.html\n"
+        + "beIN Sports = https://www.gledaitv.fan/bein-sports-live-tv.html\n"
+        + "Sports TV = https://www.gledaitv.fan/sports-tv-live-tv.html\n"
+        + "TJK TV = https://www.gledaitv.fan/tjk-tv-live-tv.html\n"
+        + "TRT Spor = https://www.gledaitv.fan/trt-spor-live-tv.html, https://www.bgnow.tv/en/watch/trt-spor/\n"
+        + "Arena Sport 1 = https://iptv-bg.com/arena-sport-1-online/\n"
+        + "Arena Sport 2 = https://iptv-bg.com/arena-sport-2-online/\n"
+        + "Arena Sport 3 = https://iptv-bg.com/arena-sport-3-online/\n"
+        + "Arena Sport 4 = https://iptv-bg.com/arena-sport-4-online/\n"
+        + "bTV Action = https://www.gledaitv.fan/btv-action-live-tv.html, https://www.gledaitv.live/watch-tv/56/btv-action-online, https://iptv-bg.com/btv-action/, https://www.seirsanduk.online/hd-btv-action-hd-online, https://www.bgnow.tv/en/watch/btv-action/\n"
+        + "bTV Cinema = https://www.gledaitv.fan/btv-cinema-live-tv.html, https://www.gledaitv.live/watch-tv/55/btv-cinema-online, https://iptv-bg.com/btv-cinema-online/, https://www.seirsanduk.online/btv-cinema-online, https://www.bgnow.tv/en/watch/btv-cinema/\n"
+        + "bTV Comedy = https://www.gledaitv.fan/btv-comedy-live-tv.html, https://www.gledaitv.live/watch-tv/54/btv-comedy-online, https://iptv-bg.com/btv-comedy-online/, https://www.seirsanduk.online/hd-btv-comedy-hd-online, https://www.bgnow.tv/en/watch/btv-comedy/\n"
+        + "bTV Lady = https://www.gledaitv.fan/btv-lady-live-tv.html, https://www.gledaitv.live/watch-tv/53/btv-lady-online, https://iptv-bg.com/btv-lady-online/\n"
+        + "Star Channel = https://www.gledaitv.fan/star-channel-live-tv.html, https://www.seirsanduk.online/hd-star-channel-hd-online, https://www.bgnow.tv/en/watch/star-channel/\n"
+        + "Star Life = https://www.gledaitv.fan/star-life-live-tv.html, https://www.seirsanduk.online/hd-star-life-hd-online, https://www.bgnow.tv/en/watch/star-life/\n"
+        + "Star Crime = https://www.gledaitv.fan/star-crime-live-tv.html, https://www.seirsanduk.online/hd-star-crime-hd-online, https://www.bgnow.tv/en/watch/star-crime/\n"
+        + "AXN = https://www.gledaitv.fan/axn-live-tv.html, https://www.gledaitv.live/watch-tv/59/axn-online, https://www.seirsanduk.online/axn-online, https://www.bgnow.tv/en/watch/axn/\n"
+        + "AMC = https://www.gledaitv.fan/amc-live-tv.html, https://www.gledaitv.live/watch-tv/66/amc-online, https://iptv-bg.com/amc-online/\n"
+        + "Epic Drama = https://www.gledaitv.fan/epic-drama-live-tv.html, https://www.gledaitv.live/watch-tv/75/epic-drama-online, https://www.seirsanduk.online/hd-epic-drama-hd-online\n"
+        + "Filmbox Stars = https://www.gledaitv.fan/filmbox-stars-live-tv.html\n"
+        + "Filmbox Extra = https://www.gledaitv.fan/filmbox-extra-live-tv.html, https://www.gledaitv.live/watch-tv/49/film-box-extra-online\n"
+        + "Movie Star = https://www.gledaitv.fan/movie-star-live-tv.html, https://www.gledaitv.live/watch-tv/43/movie-star-online, https://iptv-bg.com/movie-star-online/\n"
+        + "Scream = https://www.gledaitv.fan/scream-live-tv.html\n"
+        + "FOX TV = https://www.gledaitv.fan/fox-tv-live-tv.html, https://www.gledaitv.live/watch-tv/47/fox-online, https://iptv-bg.com/fox-online/\n"
+        + "AXN Black = https://www.gledaitv.live/watch-tv/58/axn-black-online, https://iptv-bg.com/axn-black-online/, https://www.seirsanduk.online/axn-black-online\n"
+        + "AXN White = https://www.gledaitv.live/watch-tv/57/axn-white-online, https://iptv-bg.com/axn-white-online/, https://www.seirsanduk.online/axn-white-online\n"
+        + "FilmBox = https://www.gledaitv.live/watch-tv/50/film-box-online\n"
+        + "FilmBox Plus = https://www.gledaitv.live/watch-tv/48/film-box-plus-online\n"
+        + "Fox Crime = https://www.gledaitv.live/watch-tv/45/fox-crime-online, https://iptv-bg.com/fox-crime-online/\n"
+        + "Fox Life = https://www.gledaitv.live/watch-tv/46/fox-life-online, https://iptv-bg.com/fox-life-online/\n"
+        + "CBS Reality = https://iptv-bg.com/csb-reality-online/\n"
+        + "Comedy Central = https://iptv-bg.com/comedy-central-online/\n"
+        + "TV1000 = https://iptv-bg.com/tv1000-online/\n"
+        + "Cinemax 2 = https://iptv-bg.com/cinemax-2-online/\n"
+        + "Cinemax = https://iptv-bg.com/cinemax-online/\n"
+        + "HBO 3 = https://iptv-bg.com/hbo-3-online/\n"
+        + "HBO 2 = https://iptv-bg.com/hbo-2-online/\n"
+        + "HBO = https://iptv-bg.com/hbo-online/\n"
+        + "Btv Story = https://www.seirsanduk.online/btv-story-online, https://www.bgnow.tv/en/watch/btv-story/\n"
+        + "National Geographic = https://www.gledaitv.fan/national-geographic-live-tv.html, https://www.gledaitv.live/watch-tv/23/national-geographic-channel, https://iptv-bg.com/nat-geo-online/, https://www.seirsanduk.online/hd-nat-geo-hd-online, https://www.bgnow.tv/en/watch/national-geographic-channel/\n"
+        + "Nat Geo Wild = https://www.gledaitv.fan/nat-geo-wild-live-tv.html, https://www.gledaitv.live/watch-tv/24/nat-geo-wild-online, https://iptv-bg.com/nat-geo-wild-online/, https://www.seirsanduk.online/hd-nat-geo-wild-hd-online, https://www.bgnow.tv/en/watch/nat-geo-wild/\n"
+        + "Discovery Channel = https://www.gledaitv.fan/discovery-channel-live-tv.html, https://www.gledaitv.live/watch-tv/18/discovery-channel-online, https://iptv-bg.com/discovery-channel-online/, https://www.seirsanduk.online/hd-discovery-channel-hd-online, https://www.bgnow.tv/en/watch/discovery-channel/\n"
+        + "Investigation Discovery = https://www.gledaitv.fan/investigation-discovery-live-tv.html, https://www.gledaitv.live/watch-tv/22/investigation-discovery-online, https://www.bgnow.tv/en/watch/investigation-discovery/\n"
+        + "Animal Planet = https://www.gledaitv.fan/animal-planet-live-tv.html, https://www.gledaitv.live/watch-tv/17/animal-planet-online, https://iptv-bg.com/animal-planet-online/, https://www.bgnow.tv/en/watch/animal-planet/\n"
+        + "Viasat Nature = https://www.gledaitv.fan/viasat-nature-live-tv.html, https://www.gledaitv.live/watch-tv/28/viasat-nature-online, https://iptv-bg.com/viasat-nature-online/, https://www.bgnow.tv/en/watch/viasat-nature/\n"
+        + "Viasat Explore = https://www.gledaitv.fan/viasat-explore-live-tv.html, https://www.gledaitv.live/watch-tv/26/viasat-explore-online, https://iptv-bg.com/viasat-explorer-online/, https://www.seirsanduk.online/hd-viasat-explore-hd-online\n"
+        + "Travel Channel = https://www.gledaitv.fan/travel-channel-live-tv.html, https://www.gledaitv.live/watch-tv/82/travel-channel-online, https://iptv-bg.com/travel-channel-online/, https://www.seirsanduk.online/hd-travel-channel-hd-online, https://www.seirsanduk.online/travel-tv-online, https://www.bgnow.tv/en/watch/travel-channel/\n"
+        + "TLC BG = https://www.gledaitv.fan/tlc-bg-live-tv.html, https://www.gledaitv.live/watch-tv/36/tlc-online, https://iptv-bg.com/tlc-online/, https://www.seirsanduk.online/tlc-online, https://www.bgnow.tv/en/watch/tlc/\n"
+        + "TLC = https://www.gledaitv.fan/tlc-live-tv.html\n"
+        + "DMAX = https://www.gledaitv.fan/dmax-live-tv.html\n"
+        + "Docubox = https://www.gledaitv.fan/docubox-live-tv.html, https://www.gledaitv.live/watch-tv/19/docubox-online\n"
+        + "24 Kitchen = https://www.gledaitv.fan/24-kitchen-live-tv.html, https://www.gledaitv.live/watch-tv/35/24-kitchen-online, https://iptv-bg.com/24kitchen-online/, https://www.seirsanduk.online/hd-24-kitchen-hd-online, https://www.bgnow.tv/en/watch/24-kitchen/\n"
+        + "TRT Belgesel = https://www.gledaitv.fan/trt-belgesel-live-tv.html\n"
+        + "Code Fashion = https://www.gledaitv.fan/code-fashion-live-tv.html, https://www.gledaitv.live/watch-tv/78/code-fashion-tv-online, https://www.seirsanduk.online/hd-code-fashion-tv-hd-online, https://www.bgnow.tv/en/watch/code-fashion/\n"
+        + "Code Health = https://www.gledaitv.fan/code-health-live-tv.html, https://www.bgnow.tv/en/watch/code-health/\n"
+        + "VTK = https://www.gledaitv.fan/vtk-live-tv.html, https://www.seirsanduk.online/vtk-online\n"
+        + "Cartoon Network = https://www.gledaitv.fan/cartoon-network-live-tv.html, https://www.gledaitv.live/watch-tv/16/cartoon-network-online, https://iptv-bg.com/cartoon-network-online/, https://www.seirsanduk.online/cartoon-network-online, https://www.bgnow.tv/en/watch/cartoon-network/\n"
+        + "Cartoonito = https://www.gledaitv.fan/cartoonito-live-tv.html, https://www.bgnow.tv/en/watch/cartoonito/\n"
+        + "Disney Channel = https://www.gledaitv.fan/disney-channel-live-tv.html, https://www.gledaitv.live/watch-tv/15/disney-channel-online, https://iptv-bg.com/disney-channel-online/, https://www.seirsanduk.online/disney-channel-online, https://www.bgnow.tv/en/watch/disney-channel/\n"
+        + "Nick Jr = https://www.gledaitv.fan/nick-jr-live-tv.html, https://www.gledaitv.live/watch-tv/29/nick-jr-online, https://www.seirsanduk.online/nick-jr-online\n"
+        + "Nickelodeon = https://www.gledaitv.fan/nickelodeon-live-tv.html, https://www.gledaitv.live/watch-tv/14/nickelodeon-online, https://iptv-bg.com/nickelodeon-online/, https://www.seirsanduk.online/nickelodeon-online, https://www.bgnow.tv/en/watch/nickelodeon/\n"
+        + "Nick Toons = https://www.gledaitv.fan/nick-toons-live-tv.html, https://www.gledaitv.live/watch-tv/30/nicktoons-online, https://www.seirsanduk.online/nicktoons-online, https://www.bgnow.tv/en/watch/nicktoons/\n"
+        + "Nick Jr RU = https://www.gledaitv.fan/nick-jr-ru-live-tv.html\n"
+        + "Nickelodeon RU = https://www.gledaitv.fan/nickelodeon-ru-live-tv.html\n"
+        + "Carousel = https://www.gledaitv.fan/carousel-live-tv.html\n"
+        + "TRT Cocuk = https://www.gledaitv.fan/trt-cocuk-live-tv.html, https://www.bgnow.tv/en/watch/trt-cocuk/\n"
+        + "Baby TV = https://iptv-bg.com/baby-tv-online/\n"
+        + "Duck TV = https://iptv-bg.com/duck-tv-online/\n"
+        + "Disney Junior = https://iptv-bg.com/disney-junior-online/\n"
+        + "E Kids = https://iptv-bg.com/ekids-online/, https://www.seirsanduk.online/e-kids-online\n"
+        + "Boomerang = https://iptv-bg.com/boomerang-tv-online/\n"
+        + "MTV 00s = https://www.gledaitv.fan/mtv-00s-live-tv.html\n"
+        + "MTV Hits = https://www.gledaitv.fan/mtv-hits-live-tv.html, https://iptv-bg.com/mtv-hits-online/\n"
+        + "The Voice = https://www.gledaitv.fan/the-voice-live-tv.html, https://www.gledaitv.live/watch-tv/4/the-voice-online, https://iptv-bg.com/the-voice-online/, https://www.seirsanduk.online/the-voice-online, https://www.bgnow.tv/en/watch/the-voice/\n"
+        + "Planeta HD BG = https://www.gledaitv.fan/planeta-hd-bg-live-tv.html, https://www.gledaitv.live/watch-tv/40/planeta-hd-online, https://iptv-bg.com/planeta-hd-online/, https://iptv-bg.com/planeta-tv-online/, https://www.seirsanduk.online/hd-planeta-hd-online, https://www.bgnow.tv/en/watch/planeta-hd/\n"
+        + "Planeta Folk = https://www.gledaitv.fan/planeta-folk-live-tv.html, https://www.gledaitv.live/watch-tv/39/planeta-folk-online, https://iptv-bg.com/planeta-folk-online/, https://www.seirsanduk.online/planeta-folk-online\n"
+        + "Power Turk = https://www.gledaitv.fan/power-turk-live-tv.html, https://www.bgnow.tv/en/watch/power-turk-tv/\n"
+        + "Kral Pop TV = https://www.gledaitv.fan/kral-pop-tv-live-tv.html, https://www.bgnow.tv/en/watch/kral-pop-tv/\n"
+        + "TRT Muzik = https://www.gledaitv.fan/trt-muzik-live-tv.html\n"
+        + "Tatlises TV = https://www.gledaitv.fan/tatlises-tv-live-tv.html\n"
+        + "Byeaz TV = https://www.gledaitv.fan/byeaz-tv-live-tv.html\n"
+        + "Pervyy Kanal = https://www.gledaitv.fan/pervyy-kanal-live-tv.html\n"
+        + "Russia 1 = https://www.gledaitv.fan/russia-1-live-tv.html\n"
+        + "RU TV = https://www.gledaitv.fan/ru-tv-live-tv.html\n"
+        + "1 HD TV = https://www.gledaitv.fan/1-hd-tv-live-tv.html\n"
+        + "TRT 1 = https://www.gledaitv.fan/trt-1-live-tv.html, https://www.gledaitv.live/watch-tv/71/trt-1-online, https://www.bgnow.tv/en/watch/trt-1/\n"
+        + "ATV = https://www.gledaitv.fan/atv-live-tv.html, https://www.gledaitv.live/watch-tv/68/atv-online, https://www.bgnow.tv/en/watch/atv/\n"
+        + "Kanal D = https://www.gledaitv.fan/kanal-d-live-tv.html, https://www.gledaitv.live/watch-tv/67/kanal-d-online, https://www.bgnow.tv/en/watch/kanal-d/\n"
+        + "Show TV = https://www.gledaitv.fan/show-tv-live-tv.html, https://www.gledaitv.live/watch-tv/69/show-tv-online, https://www.bgnow.tv/en/watch/show-tv/\n"
+        + "Star TV = https://www.gledaitv.fan/star-tv-live-tv.html, https://www.gledaitv.live/watch-tv/70/star-tv-online, https://www.bgnow.tv/en/watch/star-tv/\n"
+        + "Yaban TV = https://www.gledaitv.fan/yaban-tv-live-tv.html\n"
+        + "ARD = https://www.gledaitv.fan/ard-live-tv.html\n"
+        + "ZDF = https://www.gledaitv.fan/zdf-live-tv.html\n"
+        + "RTL = https://www.gledaitv.fan/rtl-live-tv.html\n"
+        + "PRO 7 = https://www.gledaitv.fan/pro-7-live-tv.html\n"
+        + "WDR = https://www.gledaitv.fan/wdr-live-tv.html\n"
+        + "Bayerischer Rundfunk = https://www.gledaitv.fan/bayerischer-rundfunk-live-tv.html\n"
+        + "TV5 Monde = https://www.gledaitv.fan/tv5-monde-live-tv.html\n"
+        + "C8 FR = https://www.gledaitv.fan/c8-fr-live-tv.html\n"
+        + "Euronews = https://www.gledaitv.live/watch-tv/81/euronews-online, https://www.bgnow.tv/en/watch/euronews/\n"
+        + "7/8 TV = https://iptv-bg.com/7-8-tv-online/, https://www.seirsanduk.online/hd-78-tv-hd-online\n"
+        + "Fashion TV = https://iptv-bg.com/fashion-tv-online/\n"
+        + "Max One = https://www.seirsanduk.online/hd-max-one-hd-online\n"
+        + "Now TV = https://www.bgnow.tv/en/watch/now-tv/\n"
+        + "TV1 = https://www.bgnow.tv/en/watch/tv1/\n"
+        + "Minika GO = https://www.bgnow.tv/en/watch/minika-go/\n"
+        + "Discovery Science = https://www.gledaitv.live/watch-tv/20/discovery-science-online\n"
+        + "History Channel = https://www.gledaitv.live/watch-tv/21/history-channel-online, https://iptv-bg.com/history-tv-online/, https://www.bgnow.tv/en/watch/history-channel/\n"
+        + "Viasat History = https://www.gledaitv.live/watch-tv/27/viasat-history-online, https://iptv-bg.com/viasat-history-online/, https://www.bgnow.tv/en/watch/viasat-history/\n"
+        + "Food Network = https://www.seirsanduk.online/hd-food-network-hd-online, https://www.bgnow.tv/en/watch/food-network/\n"
+        + "Id Xtra = https://www.seirsanduk.online/hd-id-xtra-hd-online\n"
+        + "A Spor = https://www.gledaitv.live/watch-tv/76/a-spor-online, https://www.bgnow.tv/en/watch/a-spor/\n"
+        + "BEIN SPORTS HABER = https://www.gledaitv.live/watch-tv/77/bein-sports-haber-online, https://www.bgnow.tv/en/watch/bein-sports-haber/\n"
+        + "FOX TV (TR) = https://www.gledaitv.live/watch-tv/72/fox-tv-tr-online\n"
+        + "BG Music Channel = https://iptv-bg.com/bg-music-channel-online/\n"
+        + "Box TV = https://iptv-bg.com/box-tv-online/\n"
+        + "Magic TV = https://iptv-bg.com/magic-tv-online/\n"
+        + "DSTV = https://iptv-bg.com/dstv-online/, https://www.seirsanduk.online/dstv-online\n"
+        + "Tiankov Folk = https://iptv-bg.com/tiankov-folk-online/\n"
+        + "Fen Folk = https://iptv-bg.com/fen-folk-online/\n"
+        + "Sunrise Music = https://iptv-bg.com/sunrise-music-online/\n"
+        + "Mezzo = https://iptv-bg.com/mezzo-online/\n"
+        + "VH1 = https://iptv-bg.com/vh1-online/\n"
+        + "MTV Rocks = https://iptv-bg.com/mtv-rocks-online/\n"
+        + "MTV = https://iptv-bg.com/mtv-online/\n"
+        + "Folklor Tv = https://www.seirsanduk.online/folklor-tv-online\n"
+        + "Rodina Tv = https://www.seirsanduk.online/rodina-tv-online\n"
+        + "Tiankov Tv = https://www.seirsanduk.online/tiankov-tv-online\n";
+
+    private static final String TV_CHK_UA = "Mozilla/5.0 (Linux; Android 11; TV) AppleWebKit/537.36 "
+            + "(KHTML, like Gecko) Chrome/120.0 Safari/537.36";
+    private static final long TV_CHK_GAP = 6L * 3600 * 1000;
+
+    private static String tvKeyName(String s) {
+        return s.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]", "");
+    }
+
+    private TvChan tvFindLoose(String name) {
+        TvChan c = tvFindByName(name);
+        if (c != null) return c;
+        String k = tvKeyName(name);
+        for (TvChan x : tvChans) {
+            if (tvKeyName(x.name).equals(k)) return x;
+        }
+        return null;
+    }
+
+    // Добавя само липсващото: нови канали и нови сайтове към вече съществуващи канали.
+    private void tvImportList() {
+        int newCh = 0, newLinks = 0;
+        for (String line : TV_LIST.split("\n")) {
+            line = line.trim();
+            if (line.isEmpty() || line.startsWith("#")) continue;
+            int eq = line.indexOf(" = ");
+            if (eq <= 0) continue;
+            String name = line.substring(0, eq).trim();
+            TvChan c = tvFindLoose(name);
+            boolean created = false;
+            if (c == null) {
+                c = new TvChan();
+                c.id = Long.toString(System.currentTimeMillis(), 36) + tvChans.size();
+                c.name = name;
+                created = true;
+            }
+            int added = 0;
+            for (String u : line.substring(eq + 3).split(",\\s*")) {
+                u = u.trim();
+                if (!u.startsWith("http")) continue;
+                String host = hostOf(u);
+                boolean have = false;
+                for (TvSrc x : c.srcs) {
+                    if (samePage(x.page, u) || x.site.equalsIgnoreCase(host)
+                            || (x.page != null && x.page.startsWith("http")
+                            && hostOf(x.page).equalsIgnoreCase(host))) {
+                        have = true;
+                        break;
+                    }
+                }
+                if (have) continue;
+                TvSrc s = new TvSrc();
+                s.site = host;
+                s.page = u;
+                c.srcs.add(s);
+                added++;
+            }
+            if (added == 0) continue;
+            newLinks += added;
+            if (created) {
+                tvChans.add(c);
+                newCh++;
+            }
+        }
+        tvSave();
+        String msg = newCh + " нови канала, " + newLinks + " нови линка";
+        Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
+        logEvent("ТВ: списък - " + msg);
+        if (tvPanelShown()) tvFill(null);
+    }
+
+    private void tvImportAsk() {
+        LinearLayout card = tvCard("Добави готов списък канали",
+                "Добавят се само липсващите канали и линкове. Твоите канали и потоци не се пипат.");
+        LinearLayout no = tvChoice(null, "Назад", null, 0, new Runnable() {
+            @Override
+            public void run() {
+                tvDialogClose();
+            }
+        });
+        LinearLayout yes = tvChoice(null, "Добави", null, 1, new Runnable() {
+            @Override
+            public void run() {
+                tvDialogClose();
+                tvImportList();
+            }
+        });
+        card.addView(yes, lpTopW(MP, u(62), u(24)));
+        card.addView(no, lpTopW(MP, u(62), u(10)));
+        tvDialogShow(card, 760, yes);
+    }
+
+    // ---- "не работи" ----
+
+    private static boolean tvDead(TvChan c) {
+        if (c.srcs.isEmpty()) return false;
+        for (TvSrc s : c.srcs) {
+            if (s.bad < 3) return false;
+        }
+        return true;
+    }
+
+    // Не е отговорил при последната проверка (всички източници).
+    private static boolean tvFailing(TvChan c) {
+        if (c.srcs.isEmpty()) return false;
+        for (TvSrc s : c.srcs) {
+            if (s.bad < 1) return false;
+        }
+        return true;
+    }
+
+    private static int tvMinBad(TvChan c) {
+        int m = 99;
+        for (TvSrc s : c.srcs) m = Math.min(m, s.bad);
+        return m == 99 ? 0 : m;
+    }
+
+    private static class ChkJob {
+        TvChan c;
+        TvSrc s;
+        volatile boolean good;
+    }
+
+    private volatile int chkGen;
+    private int chkDone;
+    private TextView chkTv;
+
+    // Проверява дали записаният поток или страницата отговарят. Не пуска канал.
+    private static boolean tvProbe(String url, String ref, String org, String ua, boolean stream) {
+        HttpURLConnection c = null;
+        try {
+            c = (HttpURLConnection) new URL(url).openConnection();
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(8000);
+            c.setInstanceFollowRedirects(true);
+            c.setRequestProperty("User-Agent", ua == null || ua.isEmpty() ? TV_CHK_UA : ua);
+            if (ref != null && !ref.isEmpty()) c.setRequestProperty("Referer", ref);
+            if (org != null && !org.isEmpty()) c.setRequestProperty("Origin", org);
+            int rc = c.getResponseCode();
+            if (rc >= 400) return false;
+            InputStream in = c.getInputStream();
+            byte[] buf = new byte[4096];
+            int n = 0, r;
+            while (n < buf.length && (r = in.read(buf, n, buf.length - n)) > 0) n += r;
+            String ct = c.getContentType();
+            String head = new String(buf, 0, n, "UTF-8");
+            if (stream) {
+                if (head.startsWith("#EXTM3U") || head.contains("#EXTINF")) return true;
+                if (ct != null && ct.toLowerCase(Locale.ROOT).contains("text/html")) return false;
+                return n > 0;
+            }
+            return n >= 200;
+        } catch (Exception e) {
+            return false;
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    private static boolean tvProbeSrc(TvSrc s) {
+        if (s.stream != null && !s.stream.isEmpty()
+                && tvProbe(s.stream, s.ref, s.org, s.ua, true)) return true;
+        if (s.page != null && s.page.startsWith("http")) return tvProbe(s.page, "", "", "", false);
+        return false;
+    }
+
+    private void tvCheckAll() {
+        final ArrayList<ChkJob> jobs = new ArrayList<>();
+        for (TvChan c : tvChans) {
+            for (TvSrc s : c.srcs) {
+                ChkJob j = new ChkJob();
+                j.c = c;
+                j.s = s;
+                jobs.add(j);
+            }
+        }
+        if (jobs.isEmpty()) {
+            Toast.makeText(this, "Още няма канали за проверка", Toast.LENGTH_LONG).show();
+            return;
+        }
+        final int gen = ++chkGen;
+        chkDone = 0;
+        final int total = jobs.size();
+        LinearLayout card = tvCard("Проверявам каналите",
+                "Проверява се само дали линковете отговарят. Каналите не се пускат.");
+        chkTv = text("0 от " + total, 24, T_TEXT, tfMedium, true);
+        card.addView(chkTv, lpTopW(MP, WC, u(20)));
+        LinearLayout stop = tvChoice(null, "Спри", null, 2, new Runnable() {
+            @Override
+            public void run() {
+                chkGen++;
+                tvDialogClose();
+            }
+        });
+        card.addView(stop, lpTopW(MP, u(62), u(24)));
+        tvDialogShow(card, 760, stop);
+        for (final ChkJob j : jobs) {
+            SUBNET.execute(new Runnable() {
+                @Override
+                public void run() {
+                    if (gen != chkGen) return;
+                    final boolean ok = tvProbeSrc(j.s);
+                    ui.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (gen != chkGen) return;
+                            j.good = ok;
+                            chkDone++;
+                            if (chkTv != null) chkTv.setText(chkDone + " от " + total);
+                            if (chkDone >= total) tvCheckFinish(jobs);
+                        }
+                    });
+                }
+            });
+        }
+    }
+
+    private void tvCheckFinish(ArrayList<ChkJob> jobs) {
+        int good = 0;
+        for (ChkJob j : jobs) {
+            if (j.good) good++;
+        }
+        tvDialogClose();
+        if (good == 0 && jobs.size() >= 5) {
+            // Нищо не отговаря: най-вероятно няма интернет. Нищо не се отбелязва като счупено.
+            LinearLayout card = tvCard("Нищо не отговаря",
+                    "Провери интернета на кутията и опитай пак. Каналите не са отбелязани като неработещи.");
+            LinearLayout ok = tvChoice(null, "Добре", null, 1, new Runnable() {
+                @Override
+                public void run() {
+                    tvDialogClose();
+                }
+            });
+            card.addView(ok, lpTopW(MP, u(62), u(24)));
+            tvDialogShow(card, 760, ok);
+            return;
+        }
+        long now = System.currentTimeMillis();
+        for (ChkJob j : jobs) {
+            if (j.good) {
+                j.s.bad = 0;
+                j.s.chk = now;
+            } else if (j.s.chk == 0 || now - j.s.chk > TV_CHK_GAP) {
+                j.s.bad++;
+                j.s.chk = now;
+            }
+        }
+        tvSave();
+        int failing = 0, dead = 0;
+        for (TvChan c : tvChans) {
+            if (tvFailing(c)) failing++;
+            if (tvDead(c)) dead++;
+        }
+        String sub = "Отговарят " + good + " от " + jobs.size() + " източника.\n"
+                + (failing == 0 ? "Всички канали имат поне един работещ източник."
+                : failing + " канала нямат работещ източник"
+                + (dead > 0 ? " (" + dead + " са се провалили 3 пъти)." : ".")
+                + "\nКаналът се маха от списъка само когато ти го решиш.");
+        LinearLayout card = tvCard("Проверката свърши", sub);
+        View first;
+        if (failing > 0) {
+            first = tvChoice(null, "Неработещи", String.valueOf(failing), 1, new Runnable() {
+                @Override
+                public void run() {
+                    tvDeadDialog();
+                }
+            });
+            card.addView(first, lpTopW(MP, u(62), u(24)));
+        } else {
+            first = null;
+        }
+        LinearLayout done = tvChoice(null, "Готово", null, first == null ? 1 : 0, new Runnable() {
+            @Override
+            public void run() {
+                tvDialogClose();
+                if (tvPanelShown()) tvFill(null);
+            }
+        });
+        card.addView(done, lpTopW(MP, u(62), first == null ? u(24) : u(10)));
+        tvDialogShow(card, 760, first != null ? first : done);
+        if (tvPanelShown()) tvFill(null);
+    }
+
+    private void tvDeadDialog() {
+        final ArrayList<TvChan> bad = new ArrayList<>();
+        for (TvChan c : tvChans) {
+            if (tvFailing(c)) bad.add(c);
+        }
+        LinearLayout card = tvCard("Неработещи канали",
+                bad.isEmpty() ? "Няма неработещи канали."
+                        : "Няма работещ източник при последната проверка. 3 неуспеха = „не работи“.");
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        View first = null;
+        for (final TvChan c : bad) {
+            LinearLayout r = tvChoice(null, c.name, "проверки: " + Math.min(3, tvMinBad(c)) + "/3",
+                    tvDead(c) ? 2 : 0, new Runnable() {
+                        @Override
+                        public void run() {
+                            tvChannelMenu(c);
+                        }
+                    });
+            list.addView(r, lpTopW(MP, u(62), first == null ? 0 : u(10)));
+            if (first == null) first = r;
+        }
+        int dead = 0;
+        for (TvChan c : bad) {
+            if (tvDead(c)) dead++;
+        }
+        if (dead > 0) {
+            LinearLayout del = tvChoice(null, "Изтрий " + dead + " с 3 неуспеха", null, 2,
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            ArrayList<TvChan> rm = new ArrayList<>();
+                            for (TvChan c : tvChans) {
+                                if (tvDead(c)) rm.add(c);
+                            }
+                            tvChans.removeAll(rm);
+                            tvSave();
+                            tvDialogClose();
+                            if (tvPanelShown()) tvFill(null);
+                        }
+                    });
+            list.addView(del, lpTopW(MP, u(62), first == null ? 0 : u(18)));
+            if (first == null) first = del;
+        }
+        LinearLayout reset = tvChoice(null, "Занули проверките", "всички пак са „работят“", 0,
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        for (TvChan c : tvChans) {
+                            for (TvSrc s : c.srcs) {
+                                s.bad = 0;
+                                s.chk = 0;
+                            }
+                        }
+                        tvSave();
+                        tvDialogClose();
+                        if (tvPanelShown()) tvFill(null);
+                    }
+                });
+        list.addView(reset, lpTopW(MP, u(62), first == null ? 0 : u(10)));
+        if (first == null) first = reset;
+        LinearLayout back = tvChoice(null, "Затвори", null, 0, new Runnable() {
+            @Override
+            public void run() {
+                tvDialogClose();
+            }
+        });
+        list.addView(back, lpTopW(MP, u(62), u(10)));
+        ScrollView sv = new ScrollView(this);
+        sv.setVerticalScrollBarEnabled(false);
+        sv.addView(list, new ViewGroup.LayoutParams(MP, WC));
+        card.addView(sv, lpTopW(MP, Math.min(u(420), u(72) * (bad.size() + 3)), u(24)));
+        tvDialogShow(card, 760, first);
+    }
+
+    // Редовете за списък и проверка най-горе в "Добави". Връща първия за фокус.
+    private View tvManageRows(LinearLayout list) {
+        LinearLayout a = tvChoice(null, "Добави готов списък", "само липсващите", 1, new Runnable() {
+            @Override
+            public void run() {
+                tvImportAsk();
+            }
+        });
+        list.addView(a, lp(MP, u(62)));
+        LinearLayout b = tvChoice(null, "Провери всички канали", "работят ли линковете", 0,
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        tvCheckAll();
+                    }
+                });
+        list.addView(b, lpTopW(MP, u(62), u(10)));
+        int f = 0;
+        for (TvChan c : tvChans) {
+            if (tvFailing(c)) f++;
+        }
+        if (f > 0) {
+            list.addView(tvChoice(null, "Неработещи", String.valueOf(f), 0, new Runnable() {
+                @Override
+                public void run() {
+                    tvDeadDialog();
+                }
+            }), lpTopW(MP, u(62), u(10)));
+        }
+        return a;
     }
     // ---- плочките в менюто ----
 
