@@ -398,13 +398,8 @@ private static final String[] TV_SOURCES = {
         root.postDelayed(cacheWatch, CACHE_WATCH_MS);
     }
     private final Handler ui = new Handler(Looper.getMainLooper());
-    // Ограничен кеш. Менюто пази видимите Bitmap-и в ImageView, но не и всички заредени икони.
-    private static final LruCache<String, Bitmap> ICONS = new LruCache<String, Bitmap>(2 * 1024 * 1024) {
-        @Override
-        protected int sizeOf(String key, Bitmap bitmap) {
-            return bitmap.getByteCount();
-        }
-    };
+    // Икони на сайтовете, вече прочетени от диска (само от главната нишка).
+    private static final HashMap<String, Bitmap> ICONS = new HashMap<>();
 
     // ---- нова версия, намерена при пускане ----
     private int updateAvail; // номер на по-нова версия (0 = няма)
@@ -788,9 +783,6 @@ private static final String[] TV_SOURCES = {
         if (level >= TRIM_MEMORY_RUNNING_LOW) {
             // Кориците и отговорите на каталога са само за удобство: при малко памет отиват първи.
             POSTERS.evictAll();
-            BACKDROPS.evictAll();
-            ICONS.evictAll();
-            if (!tvPanelShown()) tvLogoTrim();
             synchronized (TMDB_JSON) {
                 TMDB_JSON.clear();
                 TMDB_AT.clear();
@@ -1584,33 +1576,9 @@ private static final String[] TV_SOURCES = {
         letter.setVisibility(View.GONE);
     }
 
-    private static Bitmap decodeIconBytes(byte[] data) {
-        BitmapFactory.Options o = new BitmapFactory.Options();
-        o.inJustDecodeBounds = true;
-        BitmapFactory.decodeByteArray(data, 0, data.length, o);
-        if (o.outWidth <= 0 || o.outHeight <= 0) return null;
-        o.inSampleSize = iconSampleSize(o.outWidth, o.outHeight);
-        o.inJustDecodeBounds = false;
-        return BitmapFactory.decodeByteArray(data, 0, data.length, o);
-    }
-
-    private static Bitmap decodeIconFile(File f) {
-        BitmapFactory.Options o = new BitmapFactory.Options();
-        o.inJustDecodeBounds = true;
-        BitmapFactory.decodeFile(f.getAbsolutePath(), o);
-        if (o.outWidth <= 0 || o.outHeight <= 0) return null;
-        o.inSampleSize = iconSampleSize(o.outWidth, o.outHeight);
-        o.inJustDecodeBounds = false;
-        return BitmapFactory.decodeFile(f.getAbsolutePath(), o);
-    }
-
-    private static int iconSampleSize(int width, int height) {
-        int sample = 1;
-        while (Math.max(width / sample, height / sample) > 192 && sample < 256) sample *= 2;
-        return sample;
-    }
-
-    // Иконите остават на диска; едновременно се свалят най-много три.
+    // Иконата се сваля веднъж и се пази във файловете на приложението (не в кеша).
+    // Веднъж прочетена от диска, остава в паметта (няколко малки картинки), за да не се
+    // чете наново при всяко отваряне на менюто.
     private void loadIcon(final String host, final FrameLayout tile, final ImageView iv,
                           final TextView letter, final int radiusPx) {
         Bitmap hit = ICONS.get(host);
@@ -1620,7 +1588,7 @@ private static final String[] TV_SOURCES = {
         }
         final File f = new File(new File(getFilesDir(), "icons"), host + ".png");
         if (f.exists()) {
-            Bitmap b = decodeIconFile(f);
+            Bitmap b = BitmapFactory.decodeFile(f.getAbsolutePath());
             if (b != null) {
                 ICONS.put(host, b);
                 showIcon(tile, iv, letter, b, radiusPx);
@@ -1630,56 +1598,47 @@ private static final String[] TV_SOURCES = {
         synchronized (iconBusy) {
             if (!iconBusy.add(host)) return;
         }
-        submit(NET, new Runnable() {
+        new Thread(new Runnable() {
             @Override
             public void run() {
                 Bitmap bmp = null;
-                HttpURLConnection c = null;
                 try {
-                    c = (HttpURLConnection) new URL(
+                    HttpURLConnection c = (HttpURLConnection) new URL(
                             "https://www.google.com/s2/favicons?domain=" + host + "&sz=128")
                             .openConnection();
                     c.setConnectTimeout(8000);
                     c.setReadTimeout(8000);
                     if (c.getResponseCode() == 200) {
+                        InputStream in = c.getInputStream();
                         java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
-                        try (InputStream in = c.getInputStream()) {
-                            byte[] buf = new byte[4096];
-                            int n;
-                            while ((n = in.read(buf)) != -1) {
-                                if (bo.size() + n > 400000) break;
-                                bo.write(buf, 0, n);
-                            }
-                        }
-                        if (bo.size() <= 400000 && bo.size() > 0) {
-                            byte[] data = bo.toByteArray();
-                            bmp = decodeIconBytes(data);
-                            if (bmp != null && (f.getParentFile().isDirectory()
-                                    || f.getParentFile().mkdirs())) {
-                                try (FileOutputStream fo = new FileOutputStream(f)) {
-                                    fo.write(data);
-                                }
-                            }
+                        byte[] buf = new byte[4096];
+                        int n;
+                        while ((n = in.read(buf)) > 0 && bo.size() < 400000) bo.write(buf, 0, n);
+                        in.close();
+                        byte[] data = bo.toByteArray();
+                        bmp = BitmapFactory.decodeByteArray(data, 0, data.length);
+                        if (bmp != null) {
+                            f.getParentFile().mkdirs();
+                            FileOutputStream fo = new FileOutputStream(f);
+                            fo.write(data);
+                            fo.close();
                         }
                     }
                 } catch (Exception ignored) {
-                } finally {
-                    if (c != null) c.disconnect();
                 }
                 final Bitmap result = bmp;
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        synchronized (iconBusy) {
-                            iconBusy.remove(host);
+                if (result != null) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (isFinishing()) return;
+                            ICONS.put(host, result);
+                            showIcon(tile, iv, letter, result, radiusPx);
                         }
-                        if (result == null || isFinishing() || isDestroyed()) return;
-                        ICONS.put(host, result);
-                        if (iv.isAttachedToWindow()) showIcon(tile, iv, letter, result, radiusPx);
-                    }
-                });
+                    });
+                }
             }
-        });
+        }).start();
     }
 
     // Голяма цветна плочка на сайт.
@@ -2702,7 +2661,6 @@ private static final String[] TV_SOURCES = {
         } catch (Exception ignored) {
         }
         web = null;
-        chromeClient = null;
     }
 
     // Спира всичко, което върви в сайта, и изхвърля страницата напълно:
@@ -2723,10 +2681,6 @@ private static final String[] TV_SOURCES = {
         if (logPanel != null) logPanel.setVisibility(View.GONE);
         if (customView != null && chromeClient != null) chromeClient.onHideCustomView();
         destroyWeb();
-        synchronized (hostCounts) { hostCounts.clear(); }
-        synchronized (mediaPlaylists) { mediaPlaylists.clear(); }
-        synchronized (mediaFiles) { mediaFiles.clear(); }
-        ICONS.evictAll();
         menuHolder.setVisibility(View.VISIBLE);
         resetOverlays();
         updateState();
@@ -4187,7 +4141,7 @@ private static final String[] TV_SOURCES = {
 
         // По-малък буфер от стандартния (50 сек.): по-малко памет, а за телевизия 40 сек. стигат.
         DefaultLoadControl load = new DefaultLoadControl.Builder()
-                .setBufferDurationsMs(16000, 32000, 2000, 4000)
+                .setBufferDurationsMs(20000, 40000, 2000, 4000)
                 .build();
         vTrackSel = new androidx.media3.exoplayer.trackselection.DefaultTrackSelector(this);
         applyQuality();
@@ -5022,11 +4976,11 @@ private static final String[] TV_SOURCES = {
     protected void onDestroy() {
         ui.removeCallbacksAndMessages(null);
         closeNative(false);
-        destroyWeb();
-        POSTERS.evictAll();
-        BACKDROPS.evictAll();
-        ICONS.evictAll();
-        tvLogoTrim();
+        if (web != null) {
+            root.removeView(web);
+            web.destroy();
+            web = null;
+        }
         super.onDestroy();
         // При Изход прекратяваме и процеса, за да не остава нищо на заден фон.
         if (exiting) {
@@ -5492,13 +5446,13 @@ private static final String[] TV_SOURCES = {
                 } finally {
                     if (c != null && !reuse) c.disconnect();
                 }
-                if (b == null || gen != catGen) return;
+                if (b == null) return;
+                cache.put(key, b);
                 final Bitmap fb = b;
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
                         if (gen != catGen || isFinishing()) return;
-                        cache.put(key, fb);
                         sink.set(fb, false);
                     }
                 });
@@ -6678,10 +6632,6 @@ private static final String[] TV_SOURCES = {
         menuHolder.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
         POSTERS.evictAll();
         BACKDROPS.evictAll();
-        synchronized (TMDB_JSON) {
-            TMDB_JSON.clear();
-            TMDB_AT.clear();
-        }
         View f = catTile != null ? catTile : (heroView != null ? heroView : firstTile);
         if (f != null) f.requestFocus();
         updateState();
@@ -10658,8 +10608,8 @@ private static final String[] TV_SOURCES = {
             if (player == null) {
                 // По-малък буфер: по-малко памет, а за телевизия няколко секунди стигат.
                 DefaultLoadControl load = (tvVod
-                        ? new DefaultLoadControl.Builder().setBufferDurationsMs(24000, 48000, 2500, 5000)
-                        : new DefaultLoadControl.Builder().setBufferDurationsMs(12000, 24000, 1500, 3000))
+                        ? new DefaultLoadControl.Builder().setBufferDurationsMs(30000, 60000, 2500, 5000)
+                        : new DefaultLoadControl.Builder().setBufferDurationsMs(15000, 30000, 1500, 3000))
                         .build();
                 vTrackSel = new androidx.media3.exoplayer.trackselection.DefaultTrackSelector(this);
                 applyQuality();
