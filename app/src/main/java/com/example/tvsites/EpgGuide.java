@@ -35,6 +35,12 @@ final class EpgGuide {
         if (value.matches("бнт[1-4]")) return "bnt" + value.charAt(3);
         if (value.equals("нова") || value.equals("novatv")) return "nova";
         if (value.equals("бтв")) return "btv";
+        if (value.equals("кинонова")) return "kinonova";
+        if (value.equals("новаспорт")) return "novasport";
+        if (value.equals("нованюз")) return "novanews";
+        if (value.equals("диема")) return "diema";
+        if (value.equals("бтвекшън")) return "btvaction";
+        if (value.equals("бтвсинема")) return "btvcinema";
         if (value.equals("diemafamily") || value.equals("диемафемили")) return "diemafamily";
         return value;
     }
