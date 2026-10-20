@@ -1670,7 +1670,9 @@ private static final String[] TV_SOURCES = {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        iconBusy.remove(host);
+                        synchronized (iconBusy) {
+                            iconBusy.remove(host);
+                        }
                         if (result == null || isFinishing() || isDestroyed()) return;
                         ICONS.put(host, result);
                         if (iv.isAttachedToWindow()) showIcon(tile, iv, letter, result, radiusPx);
