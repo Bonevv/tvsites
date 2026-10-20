@@ -641,6 +641,7 @@ private static final String[] TV_SOURCES = {
 
         menuHolder.setBackgroundColor(TvTheme.BACKGROUND);
         appBar = new AppNavigation(this, U, this::showSection);
+        appBar.setContentAction(this::focusSectionContent);
         FrameLayout.LayoutParams nav = new FrameLayout.LayoutParams(MP, u(84), Gravity.TOP);
         nav.leftMargin = u(48); nav.rightMargin = u(48); nav.topMargin = u(8);
         root.addView(appBar, nav);
@@ -1024,11 +1025,11 @@ private static final String[] TV_SOURCES = {
     private Typeface tfCond = Typeface.DEFAULT;
     private Typeface tfMedium = Typeface.DEFAULT;
 
-    private static final int C_BG_TOP = 0xFF10132C;
+    private static final int C_BG_TOP = 0xFF091329;
     private static final int C_BG_BOTTOM = TvTheme.BACKGROUND;
     private static final int C_PANEL = TvTheme.SURFACE;
     private static final int C_PANEL_LINE = TvTheme.OUTLINE;
-    private static final int C_PANEL_FOCUS = 0xFF20213A;
+    private static final int C_PANEL_FOCUS = TvTheme.SURFACE_ALT;
     private static final int C_ICON_BG = 0xFF1F2B4D;
     private static final int C_ICON_FG = 0xFF7DD3FC;
     private static final int C_GREEN_BG = 0xFF12382F;
@@ -1967,8 +1968,20 @@ private static final String[] TV_SOURCES = {
     private TvGuidePanel tvOverviewGuide, tvPlayerGuide;
     private boolean tvFavouritesOnly;
 
+    private void focusAppNavigation(){
+        if(tvOverviewGuide!=null)tvOverviewGuide.rememberPosition();
+        if(appBar!=null)appBar.focusSelected();
+    }
+
+    private void focusSectionContent(){
+        if(tvPanelShown() && tvOverviewGuide!=null)tvOverviewGuide.focusChannels();
+        else if(catShown() && catMain!=null)catMain.requestFocus();
+        else if(firstTile!=null)firstTile.requestFocus();
+    }
+
     private void showSection(int section) {
         if (isFinishing() || switchingSection) return;
+        if(section==appSection && (tvPanelShown() || catShown())){focusSectionContent();return;}
         switchingSection = true;
         try {
             catReturn = null;
@@ -2054,7 +2067,7 @@ private static final String[] TV_SOURCES = {
             LinearLayout tile = new LinearLayout(this); tile.setOrientation(LinearLayout.VERTICAL);
             tile.setGravity(Gravity.CENTER_VERTICAL); tile.setPadding(u(22), u(14), u(22), u(14));
             tile.setFocusable(true); tile.setClickable(true); tile.setTag("site:" + site[0]);
-            tile.setBackground(stateBg(TvTheme.SURFACE, 0xFF20213A, TvTheme.BLUE_LIGHT, u(14), TvTheme.OUTLINE));
+            tile.setBackground(stateBg(TvTheme.SURFACE, TvTheme.SURFACE_ALT, TvTheme.BLUE_LIGHT, u(14), TvTheme.OUTLINE));
             tile.addView(text(site[0], 23, TvTheme.TEXT, Typeface.DEFAULT_BOLD, true));
             tile.addView(text(hostOf(site[1]), 15, 0xFF9BA7C7, tfMedium, true), lpTopW(MP, WC, u(8)));
             tile.setOnClickListener(v -> openSite(site));
@@ -2208,6 +2221,7 @@ private static final String[] TV_SOURCES = {
                 String key = "tvfav:" + id; prefs.edit().putBoolean(key, !prefs.getBoolean(key, false)).apply();
                 if (overVideo) tvShowList(); else tvBuildContent();
             }
+            @Override public void menu() { focusAppNavigation(); }
             @Override public void retry() { tvGuideLoadedAt=0; tvEpgLoad(); }
             @Override public View logo(String name) { TvPlate logo = new TvPlate(MainActivity.this, 8, 5, !overVideo); logo.showNameWhileLoading=true; logo.setChan(name); return logo; }
         }, overVideo);
@@ -2873,6 +2887,7 @@ private static final String[] TV_SOURCES = {
             boolean viewing = tvMode || nativeActive() || (web != null && web.getVisibility() == View.VISIBLE) || customView != null;
             appBar.setVisibility(viewing ? View.GONE : View.VISIBLE);
             if (!viewing) appBar.bringToFront();
+            updateAppMemory();
         }
         if (cursor != null) {
             boolean can = webActive() || (customView != null && !logShown() && !nativeActive());
@@ -4206,6 +4221,28 @@ private static final String[] TV_SOURCES = {
                 + "   Заявки: " + reqTotal.get() + " (блок. " + reqBlocked.get() + ")");
     }
 
+    private boolean memoryForeground=true;
+    private final Runnable appMemoryTick=()->updateAppMemory();
+    private void updateAppMemory(){
+        ui.removeCallbacks(appMemoryTick);
+        if(!memoryForeground || isFinishing() || appBar==null || appBar.getVisibility()!=View.VISIBLE)return;
+        ActivityManager.MemoryInfo info=new ActivityManager.MemoryInfo();
+        ((ActivityManager)getSystemService(Context.ACTIVITY_SERVICE)).getMemoryInfo(info);
+        appBar.setMemory(statsPssMb,info.availMem/1048576L,info.totalMem/1048576L);
+        long now=SystemClock.uptimeMillis();
+        if(!statsPssBusy && (statsPssMb<0 || now-statsPssAt>=10000)){
+            statsPssBusy=true;statsPssAt=now;
+            bg(()->{try{statsPssMb=pssMb();}finally{statsPssBusy=false;}
+                ui.post(()->{if(memoryForeground && appBar!=null && appBar.getVisibility()==View.VISIBLE){
+                    ActivityManager.MemoryInfo fresh=new ActivityManager.MemoryInfo();
+                    ((ActivityManager)getSystemService(Context.ACTIVITY_SERVICE)).getMemoryInfo(fresh);
+                    appBar.setMemory(statsPssMb,fresh.availMem/1048576L,fresh.totalMem/1048576L);
+                }});
+            });
+        }
+        ui.postDelayed(appMemoryTick,10000);
+    }
+
     private volatile long statsPssMb = -1;
     private volatile boolean statsPssBusy;
     private long statsPssAt;
@@ -4845,6 +4882,7 @@ private static final String[] TV_SOURCES = {
 
         // Чакащ клик се изпълнява веднага, ако е натиснат друг бутон (на мястото на курсора).
         if (okPending && down && !okKey) flushOk();
+        if(tvPanelShown() && code==KeyEvent.KEYCODE_MENU){if(down)focusAppNavigation();return true;}
 
         // Моята телевизия: стрелките сменят канала, OK отваря списъка.
         if (tvMode) {
@@ -5043,6 +5081,7 @@ private static final String[] TV_SOURCES = {
             return;
         }
         if (tvPanelShown()) {
+            if(appBar!=null && !appBar.hasFocus()){focusAppNavigation();return;}
             if(tvSel!=TV_HOME || tvFavouritesOnly){tvSel=TV_HOME;tvFavouritesOnly=false;tvFill(null);}
             else new AlertDialog.Builder(this).setTitle("Изход от ТВ Сайтове?")
                     .setPositiveButton("Изход",(d,w)->exitApp()).setNegativeButton("Остани",null).show();
@@ -5105,6 +5144,7 @@ private static final String[] TV_SOURCES = {
     @Override
     protected void onResume() {
         super.onResume();
+        memoryForeground=true;updateAppMemory();
         if (web != null) web.onResume();
         hideSystemBars();
         // Менюто се подготвя при връщане, а не докато системата още сменя екрана.
@@ -5124,6 +5164,7 @@ private static final String[] TV_SOURCES = {
     @Override
     protected void onStop() {
         super.onStop();
+        memoryForeground=false;ui.removeCallbacks(appMemoryTick);
         // Когато излезеш (Home), всичко се спира и при връщане започваш от менюто.
         if (!exiting && !isFinishing() && !isChangingConfigurations()) {
             logEvent("Приложението е скрито (Home, друго приложение или угаснал екран)", true);
@@ -5225,7 +5266,7 @@ private static final String[] TV_SOURCES = {
     // Цветове на каталога: тъмно синьо-зелено (като киносалон) и кехлибарено за избраното.
     private static final int K_BG = TvTheme.BACKGROUND;
     private static final int K_SURF = TvTheme.SURFACE;
-    private static final int K_SURF2 = 0xFF20213A;
+    private static final int K_SURF2 = TvTheme.SURFACE_ALT;
     private static final int K_LINE = TvTheme.OUTLINE;
     private static final int K_TEXT = TvTheme.TEXT;
     private static final int K_TEXT2 = 0xFFB8B9D5;
@@ -6003,7 +6044,7 @@ private static final String[] TV_SOURCES = {
                 float r = h * 0.14f;
                 float cx = w - h * 0.08f - r;
                 float cy = h - h * 0.08f - r;
-                fill.setColor(0xA008131A);
+                fill.setColor(0xA0050918);
                 c.drawCircle(cx, cy, r, fill);
                 fill.setColor(K_AMBER2);
                 pth.reset();
@@ -6048,7 +6089,7 @@ private static final String[] TV_SOURCES = {
                     c.drawRoundRect(rf, radius - sw / 2f, radius - sw / 2f, fill);
                     fill.setStyle(Paint.Style.FILL);
                 } else {
-                    fill.setColor(0x4008131A);
+                    fill.setColor(0x40050918);
                     c.drawRoundRect(rf, radius, radius, fill);
                 }
             }
@@ -6272,7 +6313,7 @@ private static final String[] TV_SOURCES = {
                 c.drawRoundRect(rf, radius - sw / 2f, radius - sw / 2f, fill);
                 fill.setStyle(Paint.Style.FILL);
             } else {
-                fill.setColor(0x2608131A);
+                fill.setColor(0x26050918);
                 c.drawRoundRect(rf, radius, radius, fill);
             }
         }
@@ -6634,7 +6675,7 @@ private static final String[] TV_SOURCES = {
         catScroll.addView(catBox, new ViewGroup.LayoutParams(MP, WC));
         catPanel.addView(catScroll, new FrameLayout.LayoutParams(MP, MP));
         buildHero();
-        catFade = new ScrimView(this, true, new int[]{K_BG, 0x0008131A}, new float[]{0f, 1f});
+        catFade = new ScrimView(this, true, new int[]{K_BG, 0x00050918}, new float[]{0f, 1f});
         FrameLayout.LayoutParams flp = new FrameLayout.LayoutParams(MP, u(30));
         flp.topMargin = u(HERO_H);
         catPanel.addView(catFade, flp);
@@ -6649,10 +6690,10 @@ private static final String[] TV_SOURCES = {
         catHeroLayer.addView(heroBd, new FrameLayout.LayoutParams(u(1200), MP,
                 Gravity.TOP | Gravity.END));
         catHeroLayer.addView(new ScrimView(this, false,
-                new int[]{0xFF08131A, 0xFF08131A, 0x9E08131A, 0x0008131A},
+                new int[]{0xFF050918, 0xFF050918, 0x9E050918, 0x00050918},
                 new float[]{0f, 0.33f, 0.66f, 1f}), new FrameLayout.LayoutParams(MP, MP));
         catHeroLayer.addView(new ScrimView(this, true,
-                new int[]{0x0008131A, 0x0008131A, 0xEB08131A, 0xFF08131A},
+                new int[]{0x00050918, 0x00050918, 0xEB050918, 0xFF050918},
                 new float[]{0f, 0.50f, 0.88f, 1f}), new FrameLayout.LayoutParams(MP, MP));
         catHeroLayer.addView(new ScrimView(this, true,
                 new int[]{0xBF060E12, 0x00060E12, 0x00060E12},
@@ -6763,7 +6804,7 @@ private static final String[] TV_SOURCES = {
         ts(heroTitle, t.name.length() > 34 ? 38 : (t.name.length() > 24 ? 44 : 50));
         heroOv.setText(t.overview);
         fillFacts(heroFacts, t);
-        heroBd.setTint(PALS[1][Math.abs(t.id) % PALS[1].length][0]);
+        heroBd.setTint(TvTheme.BLUE);
         if (t.backdrop.isEmpty()) {
             heroBd.setImage(null, true);
         } else {
@@ -7091,13 +7132,13 @@ private static final String[] TV_SOURCES = {
         final FrameLayout page = new FrameLayout(this);
         page.setClipChildren(false);
         final BackdropView bd = new BackdropView(this);
-        bd.setTint(PALS[1][Math.abs(t.id) % PALS[1].length][0]);
+        bd.setTint(TvTheme.BLUE);
         page.addView(bd, new FrameLayout.LayoutParams(u(1320), u(660), Gravity.TOP | Gravity.END));
         page.addView(new ScrimView(this, false,
-                new int[]{0xFF08131A, 0xFF08131A, 0xC708131A, 0x4008131A, 0x1A08131A},
+                new int[]{0xFF050918, 0xFF050918, 0xC7050918, 0x40050918, 0x1A050918},
                 new float[]{0f, 0.26f, 0.52f, 0.82f, 1f}), new FrameLayout.LayoutParams(MP, u(660)));
         page.addView(new ScrimView(this, true,
-                new int[]{0x0008131A, 0x0008131A, 0xE608131A, 0xFF08131A},
+                new int[]{0x00050918, 0x00050918, 0xE6050918, 0xFF050918},
                 new float[]{0f, 0.38f, 0.82f, 1f}), new FrameLayout.LayoutParams(MP, u(660)));
         page.addView(new ScrimView(this, true,
                 new int[]{0x99060E12, 0x00060E12, 0x00060E12},
@@ -8281,10 +8322,10 @@ private static final String[] TV_SOURCES = {
     // Пускането минава по ред: запазеният поток -> нов поток, намерен през страницата на сайта ->
     // следващият източник -> чак накрая се отваря самият сайт.
 
-    private static final int T_BG0 = 0xFF10132C;
+    private static final int T_BG0 = 0xFF091329;
     private static final int T_BG1 = TvTheme.BACKGROUND;
     private static final int T_SURF = TvTheme.SURFACE;
-    private static final int T_SURF2 = 0xFF20213A;
+    private static final int T_SURF2 = TvTheme.SURFACE_ALT;
     private static final int T_LINE = TvTheme.OUTLINE;
     private static final int T_TEXT = TvTheme.TEXT;
     private static final int T_TEXT2 = 0xFFB8B9D5;
@@ -8552,9 +8593,9 @@ private static final String[] TV_SOURCES = {
             }
             base = new LinearGradient(0, 0, 0, h, T_BG0, T_BG1, Shader.TileMode.CLAMP);
             float r = Math.max(w, h);
-            glow1 = new RadialGradient(w * 0.88f, -h * 0.06f, r * 0.56f, 0x3338BDF8, 0x0038BDF8,
+            glow1 = new RadialGradient(w * 0.88f, -h * 0.06f, r * 0.56f, 0x18006BFF, 0x00006BFF,
                     Shader.TileMode.CLAMP);
-            glow2 = new RadialGradient(0, h * 1.05f, r * 0.44f, 0x2E4F46E5, 0x004F46E5,
+            glow2 = new RadialGradient(0, h * 1.05f, r * 0.44f, 0x0C006BFF, 0x00006BFF,
                     Shader.TileMode.CLAMP);
         }
 
@@ -9017,7 +9058,7 @@ private static final String[] TV_SOURCES = {
     // Пълни екрана: празно състояние или списък. focusId е каналът, който да остане на фокус.
     private void tvFill(final String focusId) {
         tvCount(); tvLayoutFor(tvChans.isEmpty()); tvFillHead(""); tvBuildContent();
-        tvHint.setText("↑ ↓ Избор на канал    OK Гледай    Задръж OK Източници");
+        tvHint.setText("↑ ↓ Канали    OK Гледай    ← / Назад / Menu Меню    → Програма");
         tvPanel.post(()->{if(tvPanelShown() && tvOverviewGuide!=null)tvOverviewGuide.focusChannels();});
     }
 
@@ -9201,6 +9242,7 @@ private static final String[] TV_SOURCES = {
     // ---- съдържанието: „Начало“ (карта и редове) или мрежа ----
 
     private void tvBuildContent() {
+        String selected=tvOverviewGuide==null?null:tvOverviewGuide.selection();
         ui.removeCallbacks(tvHeroRun);
         if(tvHeroArtwork!=null)tvHeroArtwork.clear();
         tvHeroArtwork=null; tvEpgBox=null; tvLiveRow=null; tvMain=null;
@@ -9214,7 +9256,7 @@ private static final String[] TV_SOURCES = {
         }
         tvOverviewGuide=newGuide(false);
         TvChan last=tvLastChan();
-        tvOverviewGuide.setChannels(guideChannels(true),last==null?null:last.id);
+        tvOverviewGuide.setChannels(guideChannels(true),selected!=null?selected:last==null?null:last.id);
         tvOverviewGuide.setGuide(tvGuide,tvEpgError);
         int height=Math.max(u(450),(root.getHeight()>0?root.getHeight():u(900))-u(224));
         tvBox.addView(tvOverviewGuide,lp(MP,height)); tvMain=tvOverviewGuide;
@@ -10832,6 +10874,10 @@ private static final String[] TV_SOURCES = {
     }
 
     private void tvNextStep() {
+        if(tvVod && !tvPlaying && tvCur!=null && tvStep>=0 && tvStep<tvPlan.size()){
+            int source=tvPlan.get(tvStep)[0];
+            if(source>=0 && source<tvCur.srcs.size())prefs.edit().putLong("vodBad:"+hostOf(tvCur.srcs.get(source).page),System.currentTimeMillis()).apply();
+        }
         tvStopAttempt(false);
         tvStepGen++;
         tvStep++;
@@ -10973,7 +11019,7 @@ private static final String[] TV_SOURCES = {
             if (player == null) {
                 // По-малък буфер: по-малко памет, а за телевизия няколко секунди стигат.
                 DefaultLoadControl load = (tvVod
-                        ? new DefaultLoadControl.Builder().setBufferDurationsMs(30000, 60000, 2500, 5000)
+                        ? new DefaultLoadControl.Builder().setBufferDurationsMs(30000, 60000, 1500, 5000)
                         : new DefaultLoadControl.Builder().setBufferDurationsMs(15000, 30000, 1500, 3000))
                         .build();
                 vTrackSel = new androidx.media3.exoplayer.trackselection.DefaultTrackSelector(this);
@@ -11139,6 +11185,7 @@ private static final String[] TV_SOURCES = {
         ui.removeCallbacks(tvPokeRun);
         if (player != null) player.setVolume(1f);
         TvSrc s = tvCur.srcs.get(si);
+        if(tvVod && vodT!=null)prefs.edit().putString("vodGood:"+(vodT.tv?"t":"m"),hostOf(s.page)).remove("vodBad:"+hostOf(s.page)).apply();
         long now = System.currentTimeMillis();
         s.bad = 0;
         boolean fresh = false;
@@ -12231,10 +12278,21 @@ private static final String[] TV_SOURCES = {
     }
 
     // Пуска филма или епизода. false = не може (няма адреси): тогава се продължава постарому.
+    private void vodOrderSources(ArrayList<String> urls,boolean series){
+        final String good=prefs.getString("vodGood:"+(series?"t":"m"),"");
+        final long now=System.currentTimeMillis();
+        Collections.sort(urls,(a,b)->Integer.compare(vodSourceRank(a,good,now),vodSourceRank(b,good,now)));
+    }
+    private int vodSourceRank(String url,String good,long now){
+        String host=hostOf(url);long failed=prefs.getLong("vodBad:"+host,0);
+        return (failed>0 && now>=failed && now-failed<5*60*1000L?100:0)+(host.equals(good)?-10:0);
+    }
+
     private boolean vodStart(CTitle t, int season, int episode, Runnable back) {
         if (isFinishing()) return false;
         ArrayList<String> urls = sourceUrls(t, season, episode);
         if (urls.isEmpty()) return false;
+        vodOrderSources(urls,t.tv);
         TvChan c = new TvChan();
         c.id = "vod";
         c.name = t.name;
