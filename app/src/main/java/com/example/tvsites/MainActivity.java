@@ -65,6 +65,8 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.BaseAdapter;
+import android.widget.AdapterView;
+import android.widget.GridView;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
@@ -2018,7 +2020,7 @@ private static final String[] TV_SOURCES = {
         }
         if (!busy) menuHolder.setVisibility(View.VISIBLE);
         menu.setGravity(Gravity.TOP);
-        menu.setPadding(u(160), u(126), u(48), u(36));
+        menu.setPadding(u(340),u(116),u(40),u(36));
         if (appSection == SECTION_HOME) fillHomePage();
         else if (appSection == SECTION_RADIO) fillRadioPage();
         else if (appSection == SECTION_SETTINGS) fillSettingsPage();
@@ -2030,49 +2032,53 @@ private static final String[] TV_SOURCES = {
     }
 
     private void fillHomePage() {
-        pageTitle("Добре дошъл", "Избери какво ти се гледа или слуша");
-        LinearLayout cards = new LinearLayout(this); cards.setClipChildren(false);
-        String[] names={"Телевизия","Видеотека","Радио","Сайтове","Настройки"};
-        String[] descriptions={"Канали на живо и програма","Филми и сериали","Станции на живо","Твоите запазени адреси","Източници и предпочитания"};
-        for(int i=0;i<names.length;i++){
+        pageTitle("Какво ти се гледа?", "");
+        String[] names={"Телевизия","Видеотека","Радио","Сайтове"};
+        String[] descriptions={"Гледай любими канали","Филми и сериали","Слушай онлайн станции","Отвори любими сайтове"};
+        LinearLayout row=null;
+        for(int i=0;i<4;i++){
             final int section=i;
-            LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setGravity(Gravity.BOTTOM);card.setPadding(u(24),u(32),u(24),u(30));
+            if(i%2==0){row=new LinearLayout(this);menu.addView(row,lpTopW(MP,u(232),u(i==0?42:24)));}
+            LinearLayout card=new LinearLayout(this);card.setGravity(Gravity.CENTER_VERTICAL);card.setPadding(u(36),u(26),u(28),u(26));
             card.setFocusable(true);card.setFocusableInTouchMode(true);card.setClickable(true);card.setBackground(TvTheme.control(U,false));card.setTag("home:"+i);
-            card.addView(new AppNavigation.NavigationIcon(this,i),lp(u(52),u(52)));
-            card.addView(text(names[i],29,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true),lpTopW(MP,WC,u(26)));
-            card.addView(text(descriptions[i],18,TvTheme.MUTED,tfMedium,false),lpTopW(MP,u(56),u(14)));
-            View underline=new View(this);underline.setBackgroundColor(TvTheme.FOCUS);underline.setVisibility(View.INVISIBLE);
-            card.addView(underline,lpTopW(u(60),u(3),u(26)));
-            card.setOnFocusChangeListener((v,focus)->{underline.setVisibility(focus?View.VISIBLE:View.INVISIBLE);});
-            card.setOnClickListener(v->showSection(section));
-            LinearLayout.LayoutParams cl=new LinearLayout.LayoutParams(0,u(420),1);if(i>0)cl.leftMargin=u(18);cards.addView(card,cl);if(firstTile==null)firstTile=card;
+            LinearLayout.LayoutParams icon=lp(u(76),u(76));icon.rightMargin=u(30);card.addView(new AppNavigation.NavigationIcon(this,i),icon);
+            LinearLayout labels=new LinearLayout(this);labels.setOrientation(LinearLayout.VERTICAL);
+            labels.addView(text(names[i],30,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true));labels.addView(text(descriptions[i],21,TvTheme.MUTED,tfMedium,true),lpTopW(MP,WC,u(12)));
+            card.addView(labels,new LinearLayout.LayoutParams(0,WC,1));card.setOnClickListener(v->showSection(section));
+            LinearLayout.LayoutParams cl=new LinearLayout.LayoutParams(0,MP,1);if(i%2>0)cl.leftMargin=u(24);row.addView(card,cl);if(firstTile==null)firstTile=card;
         }
-        menu.addView(cards,lpTopW(MP,u(420),u(60)));
-        menu.addView(text("← Меню    ↑ ↓ / ← → Избор    OK Отвори",16,TvTheme.MUTED,tfMedium,true),lpTopW(MP,WC,u(35)));
     }
 
     private TextView pageTitle(String title, String subtitle) {
         TextView heading = text(title, 38, TvTheme.TEXT, Typeface.DEFAULT_BOLD, true);
         menu.addView(heading);
         TextView sub = text(subtitle, 18, TvTheme.MUTED, tfMedium, false);
-        menu.addView(sub, lpTopW(MP, WC, u(10)));
+        if(!subtitle.isEmpty())menu.addView(sub, lpTopW(MP, WC, u(10)));
         return heading;
     }
 
+    private int siteFilter=-1;
+    private View sectionHeader(String title,View action){
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(text(title,38,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true),new LinearLayout.LayoutParams(0,WC,1));
+        if(action!=null)row.addView(action,lp(WC,u(48)));menu.addView(row,lp(MP,u(60)));return row;
+    }
+    private TextView filterChip(String title,boolean selected,Runnable action){
+        TextView b=text(title,19,TvTheme.TEXT,tfMedium,true);b.setGravity(Gravity.CENTER);b.setPadding(u(22),0,u(22),0);b.setFocusable(true);b.setFocusableInTouchMode(true);b.setClickable(true);b.setBackground(TvTheme.control(U,selected));b.setOnClickListener(v->action.run());return b;
+    }
+    private void showManualSites(int family){siteFilter=family;showSection(SECTION_SITES);}
     private void fillSitesPage() {
-        pageTitle("Сайтове", "Всички запазени сайтове · отваря се само избраният сайт");
-        View manualAddress=tvDashboardPill(IC_PLUS,"Отвори адрес ръчно",()->askAddress());
-        menu.addView(manualAddress,lpTopW(WC,u(48),u(20)));
+        View manualAddress=tvDashboardPill(IC_PLUS,"Отвори адрес",()->askAddress());sectionHeader("Сайтове",manualAddress);
+        LinearLayout tabs=new LinearLayout(this);String[] labels={"Всички","ТВ","Филми","Радио"};
+        for(int i=0;i<labels.length;i++){final int family=i-1;View tab=filterChip(labels[i],siteFilter==family,()->{siteFilter=family;fillMenu();});LinearLayout.LayoutParams tl=lp(WC,u(44));tl.rightMargin=u(12);tabs.addView(tab,tl);}
+        menu.addView(tabs,lpTopW(MP,u(44),u(22)));
         ArrayList<ModuleBrowser.Entry> entries=new ArrayList<>();
-        for(String[] site:sites)entries.add(new ModuleBrowser.Entry(site[0],hostOf(site[1]),groupOf(site)+"\nОтвори сайта и го използвай ръчно както досега.",3,"Отвори сайта",()->openSite(site),"",null));
-        ModuleBrowser browser=new ModuleBrowser(this,U,entries);
-        menu.addView(browser,lpTopW(MP,u(510),u(24)));firstTile=browser.first()!=null?browser.first():manualAddress;
-        ArrayList<String[]> recent = loadRecent();
-        if (!recent.isEmpty()) {
+        for(String[] site:sites){if(siteFilter>=0 && family(groupOf(site))!=siteFilter)continue;entries.add(new ModuleBrowser.Entry(site[0],hostOf(site[1]),groupOf(site),3,"Отвори сайта",()->openSite(site),"",null));}
+        ModuleBrowser browser=new ModuleBrowser(this,U,entries);menu.addView(browser,lpTopW(MP,WC,u(26)));firstTile=browser.first()!=null?browser.first():manualAddress;
+        ArrayList<String[]> recent=loadRecent();
+        if(siteFilter<0 && !recent.isEmpty()){
             menu.addView(text("Последно отваряни",25,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true),lpTopW(MP,WC,u(28)));
-            for (String[] entry : recent) {
-                menu.addView(tvDashboardPill(IC_CLOCK,entry[0]+" · "+entry[2],()->openRecent(entry)),lpTopW(MP,u(52),u(10)));
-            }
+            for(String[] entry:recent)menu.addView(tvDashboardPill(IC_CLOCK,entry[0]+" · "+entry[2],()->openRecent(entry)),lpTopW(MP,u(52),u(10)));
         }
     }
 
@@ -2116,14 +2122,13 @@ private static final String[] TV_SOURCES = {
     private Player.Listener radioListener;
 
     private void fillRadioPage() {
-        pageTitle("Радио", "Избери станция за директно слушане или отвори сайта ѝ");
+        sectionHeader("Радио",tvDashboardPill(IC_MONITOR,"Сайтове за радио",()->showManualSites(2)));
         ArrayList<ModuleBrowser.Entry> entries=new ArrayList<>();
-        for(RadioStation station:RadioStation.DEFAULTS)entries.add(new ModuleBrowser.Entry(station.name,"Радио · на живо","Слушай директния поток или отвори сайта на станцията за ръчно ползване.",2,"Слушай",()->playRadio(station),"Отвори сайта",()->openRadioWebsite(station)));
-        ModuleBrowser browser=new ModuleBrowser(this,U,entries);menu.addView(browser,lpTopW(MP,u(570),u(24)));firstTile=browser.first();
-        menu.addView(text("Сайтове за ръчно слушане", 25, TvTheme.TEXT, Typeface.DEFAULT_BOLD, true), lpTopW(MP, WC, u(30)));
-        ArrayList<String[]> manual = new ArrayList<>();
-        for (String[] site : sites) if (site.length > 3 && "Радио".equals(site[3])) manual.add(site);
-        addWebsiteGrid(menu, manual);
+        for(RadioStation station:RadioStation.DEFAULTS)entries.add(new ModuleBrowser.Entry(station.name,"На живо","",2,"Слушай",()->playRadio(station),"Отвори сайта",()->openRadioWebsite(station)));
+        ModuleBrowser browser=new ModuleBrowser(this,U,entries);menu.addView(browser,lpTopW(MP,WC,u(28)));firstTile=browser.first();
+        menu.addView(text("OK Слушай · Задръж OK за сайта на станцията",16,TvTheme.MUTED,tfMedium,true),lpTopW(MP,WC,u(14)));
+        ArrayList<String[]> manual=new ArrayList<>();for(String[] site:sites)if(site.length>3 && "Радио".equals(site[3]))manual.add(site);
+        if(!manual.isEmpty()){menu.addView(text("Сайтове за ръчно слушане",25,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true),lpTopW(MP,WC,u(26)));addWebsiteGrid(menu,manual);}
     }
 
     private void openRadioWebsite(RadioStation station) {
@@ -2221,7 +2226,7 @@ private static final String[] TV_SOURCES = {
         labels.add("Всички канали"); ids.add(TV_HOME);
         for (int i = 0; i < TV_CAT_NAMES.length; i++) if (tvCatCnt[i] > 0) { labels.add(TV_CAT_NAMES[i]); ids.add(i); }
         new AlertDialog.Builder(this).setTitle("Категории").setItems(labels.toArray(new String[0]),
-                (d, which) -> { tvFavouritesOnly = false; tvSelect(ids.get(which)); }).show();
+                (d, which) -> { tvFavouritesOnly = false; tvSelect(ids.get(which));tvFillHead(""); }).show();
     }
 
     private TvChan tvById(String id) {
@@ -5297,14 +5302,11 @@ private static final String[] TV_SOURCES = {
     private static final int K_ERR = 0xFFFF9A8A;
     private static final int R_TITLE = 0x7f0b0002; // ключ за таг: заглавието на клетката
 
-    private static final int HERO_H = 440; // височина на горната част на началото (единици)
 
     private Typeface tfSerif = Typeface.SERIF;
 
     private FrameLayout catPanel;
     private LinearLayout catToolbar;
-    private FrameLayout catHeroLayer; // горната част на началото: картина, надписи и бутони
-    private ScrimView catFade;        // мек преход под нея
     private ScrollView catScroll;
     private LinearLayout catBox;
     private Runnable catUp;      // какво прави "Назад" на текущия екран
@@ -5972,7 +5974,7 @@ private static final String[] TV_SOURCES = {
         }
 
         void setBitmap(Bitmap b, boolean animate) {
-            if (b == null) return;
+            if (b == null) { if(anim!=null)anim.cancel();bmp=null;shader=null;img.setShader(null);fade=1f;invalidate();return; }
             bmp = b;
             shader = new BitmapShader(b, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
             img.setShader(shader);
@@ -6062,7 +6064,7 @@ private static final String[] TV_SOURCES = {
                 float r = h * 0.14f;
                 float cx = w - h * 0.08f - r;
                 float cy = h - h * 0.08f - r;
-                fill.setColor(0xA01C1A29);
+                fill.setColor(0xA0040313);
                 c.drawCircle(cx, cy, r, fill);
                 fill.setColor(K_AMBER2);
                 pth.reset();
@@ -6085,7 +6087,7 @@ private static final String[] TV_SOURCES = {
                 float pw = padL + sz + gap + tw + padR;
                 float px = w - u(8) - pw;
                 float py = u(8);
-                fill.setColor(0xBA1C1A29);
+                fill.setColor(0xBA040313);
                 c.drawRoundRect(px, py, px + pw, py + ph, ph / 2f, ph / 2f, fill);
                 fill.setColor(K_AMBER);
                 starPath(pth);
@@ -6098,7 +6100,7 @@ private static final String[] TV_SOURCES = {
                 c.drawText(rating, px + padL + sz + gap, py + ph / 2f + tp.getTextSize() * 0.35f, tp);
             }
             if (cell) {
-                if (isFocused()) {
+                if (isFocused() || isActivated()) {
                     float sw = u(3);
                     fill.setStyle(Paint.Style.STROKE);
                     fill.setStrokeWidth(sw);
@@ -6107,7 +6109,7 @@ private static final String[] TV_SOURCES = {
                     c.drawRoundRect(rf, radius - sw / 2f, radius - sw / 2f, fill);
                     fill.setStyle(Paint.Style.FILL);
                 } else {
-                    fill.setColor(0x401C1A29);
+                    fill.setColor(0x10040313);
                     c.drawRoundRect(rf, radius, radius, fill);
                 }
             }
@@ -6331,7 +6333,7 @@ private static final String[] TV_SOURCES = {
                 c.drawRoundRect(rf, radius - sw / 2f, radius - sw / 2f, fill);
                 fill.setStyle(Paint.Style.FILL);
             } else {
-                fill.setColor(0x261C1A29);
+                fill.setColor(0x26040313);
                 c.drawRoundRect(rf, radius, radius, fill);
             }
         }
@@ -6659,14 +6661,16 @@ private static final String[] TV_SOURCES = {
         return catPanel != null && catPanel.getVisibility() == View.VISIBLE;
     }
 
-    private BackdropView heroBd;
-    private LinearLayout heroInfo;
-    private LinearLayout heroFacts;
-    private TextView heroTitle;
-    private TextView heroOv;
-    private FrameLayout heroCta;
-    private CTitle heroWant;
     private boolean heroActive;
+    private FrameLayout libraryBrowser;
+    private GridView libraryGrid;
+    private BaseAdapter libraryAdapter;
+    private LinearLayout libraryMessage;
+    private TextView libraryStatus;
+    private View libraryRetry;
+    private final ArrayList<CTitle> libraryItems=new ArrayList<>();
+    private boolean librarySeries,libraryTopRated,libraryBusy,libraryDone;
+    private int libraryPage,libraryRestorePages=1;
 
     private void buildCatalogUi() {
         tfSerif = Typeface.create("sans-serif", Typeface.BOLD);
@@ -6682,165 +6686,63 @@ private static final String[] TV_SOURCES = {
         catBox.setClipChildren(false);
         catScroll.addView(catBox, new ViewGroup.LayoutParams(MP, WC));
         catPanel.addView(catScroll, new FrameLayout.LayoutParams(MP, MP));
-        buildHero();
-        catFade = new ScrimView(this, true, new int[]{K_BG, 0x001C1A29}, new float[]{0f, 1f});
-        FrameLayout.LayoutParams flp = new FrameLayout.LayoutParams(MP, u(30));
-        flp.topMargin = u(HERO_H);
-        catPanel.addView(catFade, flp);
+        buildLibraryToolbar();
+        libraryBrowser=new FrameLayout(this);FrameLayout.LayoutParams browserLp=new FrameLayout.LayoutParams(MP,MP);
+        browserLp.leftMargin=u(340);browserLp.rightMargin=u(40);browserLp.topMargin=u(206);browserLp.bottomMargin=u(36);catPanel.addView(libraryBrowser,browserLp);
         catPanel.setVisibility(View.GONE);
         root.addView(catPanel, new FrameLayout.LayoutParams(MP, MP));
     }
 
-    // Горната част на началото: голяма картина, име на каталога, бутони и данни за избраното.
-    private void buildHero() {
-        catHeroLayer = new FrameLayout(this);
-        catHeroLayer.setBackground(TvTheme.panel(u(12),TvTheme.SURFACE,TvTheme.OUTLINE,U));
-        catHeroLayer.setClipToOutline(true);
-        heroBd = new BackdropView(this);
-        catHeroLayer.addView(heroBd,new FrameLayout.LayoutParams(MP,u(220),Gravity.TOP));
-        catHeroLayer.addView(new ScrimView(this,true,
-                new int[]{0x002C293B,0xDD302D40},new float[]{0f,1f}),new FrameLayout.LayoutParams(MP,u(220),Gravity.TOP));
-
-        LinearLayout bar = new LinearLayout(this);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setClipChildren(false);
-        bar.setPadding(0, 0, 0, 0);
-        catToolbar=bar;
-        LinearLayout brand = new LinearLayout(this);
-        brand.setOrientation(LinearLayout.HORIZONTAL);
-        brand.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams mlp = lp(u(40), u(40));
-        mlp.rightMargin = u(14);
-
-        brand.addView(serifText("Видеотека", 28, K_TEXT, true));
-        bar.addView(brand, new LinearLayout.LayoutParams(0, WC, 1f));
-        String[] labels = {"Търсене", "Категории", "Предложи ми", "Източници"};
-        int[] icons = {IC_SEARCH, IC_GRID, IC_DICE, IC_SLIDERS};
-        Runnable[] acts = {
-                new Runnable() {
-                    @Override
-                    public void run() {
-                        showSearchDialog();
-                    }
-                },
-                new Runnable() {
-                    @Override
-                    public void run() {
-                        catGenres(false);
-                    }
-                },
-                new Runnable() {
-                    @Override
-                    public void run() {
-                        catGenres(true);
-                    }
-                },
-                new Runnable() {
-                    @Override
-                    public void run() {
-                        showSourcesDialog();
-                    }
-                }};
-        for (int i = 0; i < labels.length; i++) {
-            LinearLayout.LayoutParams l = lp(WC, u(52));
-            l.leftMargin = u(12);
-            bar.addView(kPill(icons[i], labels[i], acts[i]), l);
-        }
-        FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(MP, u(60), Gravity.TOP);
-        blp.topMargin = u(124); blp.leftMargin=u(160);blp.rightMargin=u(48);
-        catPanel.addView(bar, blp);
-
-        heroInfo = new LinearLayout(this);
-        heroInfo.setOrientation(LinearLayout.VERTICAL);
-        heroInfo.setClipChildren(false);
-        heroFacts = new LinearLayout(this);
-        heroFacts.setOrientation(LinearLayout.HORIZONTAL);
-        heroFacts.setGravity(Gravity.CENTER_VERTICAL);
-        heroInfo.addView(heroFacts, lp(WC, u(30)));
-        heroTitle = serifText("", 34, K_TEXT, false);
-        heroTitle.setMaxLines(2);heroTitle.setEllipsize(TextUtils.TruncateAt.END);
-        heroInfo.addView(heroTitle, lpTop(u(10)));
-        heroOv = text("", 19, K_TEXT2, tfMedium, false);
-        heroOv.setMaxLines(4);
-        heroOv.setEllipsize(TextUtils.TruncateAt.END);
-        heroOv.setLineSpacing(0, 1.15f);
-        LinearLayout.LayoutParams olp = new LinearLayout.LayoutParams(MP, WC);
-        olp.topMargin = u(8);
-        heroInfo.addView(heroOv, olp);
-        heroCta = new FrameLayout(this);
-        heroCta.setClipChildren(false);
-        heroCta.setVisibility(View.GONE);
-        heroInfo.addView(heroCta, lpTop(u(18)));
-        FrameLayout.LayoutParams ilp = new FrameLayout.LayoutParams(MP, WC,Gravity.TOP);
-        ilp.leftMargin=u(26);ilp.rightMargin=u(26);ilp.topMargin=u(234);
-        catHeroLayer.addView(heroInfo, ilp);
-        FrameLayout.LayoutParams detail=new FrameLayout.LayoutParams(u(550),MP,Gravity.TOP|Gravity.END);
-        detail.topMargin=u(210);detail.rightMargin=u(48);detail.bottomMargin=u(56);
-        catPanel.addView(catHeroLayer,detail);
+    private void buildLibraryToolbar(){
+        catToolbar=new LinearLayout(this);catToolbar.setGravity(Gravity.CENTER_VERTICAL);
+        FrameLayout.LayoutParams l=new FrameLayout.LayoutParams(MP,u(64));l.leftMargin=u(340);l.rightMargin=u(40);l.topMargin=u(112);catPanel.addView(catToolbar,l);
     }
-
-    // Начало (true): горната картина отгоре и редовете под нея. Другите екрани са на цяла височина.
-    private void catMode(boolean home) {
-        FrameLayout.LayoutParams l = (FrameLayout.LayoutParams) catScroll.getLayoutParams();
-        l.topMargin=home?u(202):u(108);l.bottomMargin=u(36);l.leftMargin=u(160);l.rightMargin=home?u(624):u(48);
-        catScroll.setLayoutParams(l);
-        catHeroLayer.setVisibility(home ? View.VISIBLE : View.GONE);
-        catToolbar.setVisibility(home ? View.VISIBLE : View.GONE);
-        catFade.setVisibility(View.GONE);
-        heroActive = home;
-        catBox.setPadding(0, u(8), 0, u(40));
-        updateState();
-        ui.removeCallbacks(focusTick);
-        focusAct = null;
-        focusTitle = null;
+    private void libraryToolbar(){
+        catToolbar.removeAllViews();catToolbar.addView(text("Видеотека",36,K_TEXT,Typeface.DEFAULT_BOLD,true),new LinearLayout.LayoutParams(0,WC,1));
+        View movies=filterChip("Филми",!librarySeries,()->{librarySeries=false;catFocusKey=null;catHome();});catToolbar.addView(movies,lp(WC,u(46)));
+        LinearLayout.LayoutParams tab=lp(WC,u(46));tab.leftMargin=u(10);catToolbar.addView(filterChip("Сериали",librarySeries,()->{librarySeries=true;catFocusKey=null;catHome();}),tab);
+        LinearLayout.LayoutParams search=lp(WC,u(48));search.leftMargin=u(24);catToolbar.addView(kPill(IC_SEARCH,"Търси…",()->showSearchDialog()),search);
+        LinearLayout.LayoutParams sources=lp(WC,u(48));sources.leftMargin=u(12);catToolbar.addView(kPill(IC_SLIDERS,"Източници",()->showSourcesDialog()),sources);
+        LinearLayout.LayoutParams more=lp(WC,u(48));more.leftMargin=u(12);catToolbar.addView(kPill(-1,"⋯",()->libraryOptions()),more);
     }
-
-    // Показва данните за заглавието в горната картина.
-    private void heroShow(final CTitle t) {
-        if (!heroActive) return;
-        heroWant = t;
-        heroInfo.setVisibility(View.VISIBLE);
-        heroCta.setVisibility(View.GONE);
-        heroCta.removeAllViews();
-        heroCta.addView(kPrimary(IC_PLAY,"Отвори",()->catDetail(t)),new FrameLayout.LayoutParams(WC,u(54)));
-        heroCta.setVisibility(View.VISIBLE);
-        heroTitle.setText(t.name);
-        ts(heroTitle, 34);
-        heroOv.setText(t.overview);
-        fillFacts(heroFacts, t);
-        heroBd.setTint(TvTheme.BLUE);
-        if (t.backdrop.isEmpty()) {
-            heroBd.setImage(null, true);
-        } else {
-            loadImage(backdropSize(), t.backdrop, catGen, true, new ImageSink() {
-                @Override
-                public void set(Bitmap b, boolean instant) {
-                    if (heroWant == t && heroActive) heroBd.setImage(b, !instant);
-                }
-            });
+    private void libraryOptions(){
+        new AlertDialog.Builder(this).setTitle("Видеотека").setItems(new String[]{"Популярни","Най-добре оценени","Категории","Предложи ми","Сайтове за филми"},(d,i)->{
+            if(i<2){libraryTopRated=i==1;catFocusKey=null;catHome();}else if(i==2)catGenres(false);else if(i==3)catGenres(true);else showManualSites(1);
+        }).show();
+    }
+    private void libraryRelease(){
+        if(libraryGrid!=null)libraryGrid.setAdapter(null);libraryGrid=null;libraryAdapter=null;libraryItems.clear();libraryBusy=false;
+        if(libraryBrowser!=null)libraryBrowser.removeAllViews();libraryMessage=null;libraryStatus=null;libraryRetry=null;
+    }
+    private void catMode(boolean home){
+        FrameLayout.LayoutParams l=(FrameLayout.LayoutParams)catScroll.getLayoutParams();l.topMargin=u(108);l.bottomMargin=u(36);l.leftMargin=u(340);l.rightMargin=u(40);catScroll.setLayoutParams(l);
+        catScroll.setVisibility(home?View.GONE:View.VISIBLE);catToolbar.setVisibility(home?View.VISIBLE:View.GONE);libraryBrowser.setVisibility(home?View.VISIBLE:View.GONE);
+        if(!home)libraryRelease();heroActive=home;catBox.setPadding(0,u(8),0,u(40));updateState();
+        ui.removeCallbacks(focusTick);focusAct=null;focusTitle=null;
+    }
+    private final class LibraryCell extends LinearLayout {
+        final ArtView art;final TextView title,year;
+        LibraryCell(){super(MainActivity.this);setOrientation(VERTICAL);setPadding(u(3),u(3),u(3),u(6));setDescendantFocusability(FOCUS_BLOCK_DESCENDANTS);
+            art=new ArtView(MainActivity.this,0,"",u(8),true);art.setFocusable(false);art.setClickable(false);addView(art,lp(MP,u(162)));
+            title=text("",21,K_TEXT,tfMedium,true);addView(title,lpTopW(MP,WC,u(10)));year=text("",17,K_TEXT2,tfMedium,true);addView(year,lpTopW(MP,WC,u(4)));
         }
     }
-
-    // Показва, докато няма ключ за TMDB: какво да се направи.
-    private void heroKeyHelp() {
-        heroWant = null;
-        heroInfo.setVisibility(View.VISIBLE);
-        heroFacts.removeAllViews();
-        heroTitle.setText("Добави ключ за TMDB");
-        ts(heroTitle, 44);
-        heroOv.setText("Безплатният ключ дава корици, оценки и описания. Вземи го от themoviedb.org "
-                + "(Профил, Настройки, API) и го въведи от бутона Източници.");
-        heroCta.removeAllViews();
-        LinearLayout b = kPrimary(IC_SLIDERS, "Въведи ключ", new Runnable() {
-            @Override
-            public void run() {
-                showSourcesDialog();
+    private void libraryLoadPage(int gen){
+        if(libraryBusy || libraryDone || gen!=catGen || !heroActive)return;libraryBusy=true;
+        final int page=libraryPage+1;String path=(librarySeries?"/tv/":"/movie/")+(libraryTopRated?"top_rated":"popular")+"?language=bg-BG&page="+page;
+        tmdbFetch(path,(json,error)->{
+            if(gen!=catGen || !heroActive || libraryGrid==null)return;libraryBusy=false;
+            ArrayList<CTitle> items=json==null?null:parseList(json,librarySeries,20);
+            if(items==null || items.isEmpty()){
+                libraryDone=error==null;if(libraryItems.isEmpty()){libraryStatus.setText(error!=null?error:"Няма заглавия в този списък.");libraryRetry.setVisibility(View.VISIBLE);catMain=libraryRetry;}
+                else if(error!=null)Toast.makeText(this,error,Toast.LENGTH_SHORT).show();return;
             }
+            libraryPage=page;libraryDone=page>=5 || items.size()<20;libraryItems.addAll(items);libraryAdapter.notifyDataSetChanged();catMain=libraryGrid;
+            int restore=-1;for(int i=0;i<libraryItems.size();i++){CTitle t=libraryItems.get(i);if(("t"+t.id+(t.tv?"t":"m")).equals(catFocusKey))restore=i;}
+            if(restore>=0){libraryGrid.setSelection(restore);libraryGrid.requestFocusFromTouch();catFocusKey=null;libraryRestorePages=1;}
+            else if(catFocusKey!=null && page<libraryRestorePages && !libraryDone){libraryLoadPage(gen);return;}
+            else if(page==1 && catPanel.findFocus()==null && (appBar==null || !appBar.hasFocus())){libraryGrid.setSelection(0);libraryGrid.requestFocusFromTouch();}
         });
-        heroCta.addView(b, new FrameLayout.LayoutParams(WC, u(72)));
-        heroCta.setVisibility(View.VISIBLE);
-        catMain = b;
     }
 
     // Показва каталога. first е екранът, с който да започне (по подразбиране началото).
@@ -6870,12 +6772,10 @@ private static final String[] TV_SOURCES = {
         focusAct = null;
         focusTitle = null;
         heroActive = false;
-        heroWant = null;
         if (catPanel != null) {
             catPanel.setVisibility(View.GONE);
             catBox.removeAllViews();
-            heroCta.removeAllViews();
-            heroBd.setImage(null, false);
+            libraryRelease();
         }
         catMain = null;
         synchronized (TMDB_JSON) { TMDB_JSON.clear(); TMDB_AT.clear(); }
@@ -6956,152 +6856,32 @@ private static final String[] TV_SOURCES = {
         });
     }
 
-    private int catRowsLeft;
-
-    // Ред от началния екран: като се стигне до края, се дозареждат още (до 5 страници по 20).
-    private void addCatRow(String title, final String path, final boolean tv, final int gen,
-                           final boolean first) {
-        final LinearLayout strip = addRowShell(title);
-        fillSkeleton(strip, 8, 168, 252, 16);
-        final int[] page = {0};
-        final int[] count = {0};
-        final boolean[] busy = {false};
-        final boolean[] done = {false};
-        final Runnable[] more = new Runnable[1];
-        more[0] = new Runnable() {
-            @Override
-            public void run() {
-                if (busy[0] || done[0] || gen != catGen) return;
-                busy[0] = true;
-                final int p = ++page[0];
-                tmdbFetch(path + "?language=bg-BG&page=" + p, new Done() {
-                    @Override
-                    public void run(String json, String err) {
-                        busy[0] = false;
-                        if (gen != catGen) return;
-                        ArrayList<CTitle> list = json == null ? null : parseList(json, tv, 20);
-                        if (p == 1) strip.removeAllViews();
-                        if (list == null || list.isEmpty()) {
-                            if(first && p==1 && heroWant==null && heroActive)heroOv.setText(err!=null?err:"Няма заглавия в този списък.");
-                            if (p == 1 || err == null) done[0] = true;
-                            else page[0]--;
-                            if (p == 1) {
-                                strip.addView(errorBlock(err != null ? err : "Няма резултати.",
-                                        new Runnable() {
-                                            @Override
-                                            public void run() {
-                                                if (gen != catGen) return;
-                                                strip.removeAllViews();
-                                                fillSkeleton(strip, 8, 168, 252, 16);
-                                                page[0] = 0;
-                                                count[0] = 0;
-                                                done[0] = false;
-                                                more[0].run();
-                                            }
-                                        }));
-                            }
-                        } else {
-                            if (p >= 5) done[0] = true; // най-много 100 заглавия на ред: пази паметта
-                            int base = count[0];
-                            for (int i = 0; i < list.size(); i++) {
-                                final CTitle t = list.get(i);
-                                ArtView cell = posterCard(t, rowSize(), new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        catDetail(t);
-                                    }
-                                });
-                                strip.addView(cell, posterLp(168, 252, 16));
-                                watchEnd(cell, base + i, count, 6, more[0]);
-                            }
-                            count[0] += list.size();
-                            if (p == 1) {
-                                if (first && heroWant == null) heroShow(list.get(0));
-                                if (catFocusKey != null) {
-                                    View want = findByTag(strip, catFocusKey);
-                                    if (want != null) {
-                                        want.requestFocus();
-                                        catFocusKey = null;
-                                    }
-                                } else if (first && catPanel.findFocus() == null) {
-                                    View f0 = strip.getChildAt(0);
-                                    if (f0 != null) f0.requestFocus();
-                                }
-                            }
-                        }
-                        if (p == 1 && --catRowsLeft <= 0 && catPanel.findFocus() == null) {
-                            catFocusKey = null;
-                            View f1 = firstFocusable();
-                            if (f1 != null) f1.requestFocus();
-                        }
-                    }
-                });
+    private void catHome(){
+        final int gen=++catGen;
+        catUp=()->{if(appBar!=null && !appBar.hasFocus())focusAppNavigation();else showSection(SECTION_HOME);};catParent=null;catBox.removeAllViews();libraryRelease();catMode(true);libraryToolbar();
+        libraryPage=0;libraryDone=false;libraryGrid=new GridView(this);libraryGrid.setNumColumns(4);libraryGrid.setHorizontalSpacing(u(18));libraryGrid.setVerticalSpacing(u(22));libraryGrid.setStretchMode(GridView.STRETCH_COLUMN_WIDTH);
+        libraryGrid.setPadding(0,u(3),0,u(12));libraryGrid.setClipToPadding(false);libraryGrid.setVerticalScrollBarEnabled(false);libraryGrid.setSelector(new ColorDrawable(Color.TRANSPARENT));libraryGrid.setFocusable(true);libraryGrid.setFocusableInTouchMode(true);
+        libraryAdapter=new BaseAdapter(){
+            @Override public int getCount(){return libraryItems.size();}
+            @Override public Object getItem(int position){return libraryItems.get(position);}
+            @Override public long getItemId(int position){return libraryItems.get(position).id;}
+            @Override public View getView(int position,View convert,ViewGroup parent){
+                LibraryCell cell=convert instanceof LibraryCell?(LibraryCell)convert:new LibraryCell();CTitle t=libraryItems.get(position);
+                cell.setTag("t"+t.id+(t.tv?"t":"m"));cell.setContentDescription(t.name+", "+t.year);cell.title.setText(t.name);cell.year.setText(t.year);cell.art.setRating(t.rating);cell.art.setActivated(position==libraryGrid.getSelectedItemPosition() && libraryGrid.hasFocus());cell.art.setBitmap(null,false);
+                String path=t.backdrop.isEmpty()?t.poster:t.backdrop;loadImage(t.backdrop.isEmpty()?"w342":"w500",path,gen,false,(bitmap,instant)->{if(cell.getTag().equals("t"+t.id+(t.tv?"t":"m")))cell.art.setBitmap(bitmap,!instant);});return cell;
             }
         };
-        more[0].run();
-    }
-
-    // Начало: горна картина и редове с корици (или примерни карти, докато няма ключ).
-    private void catHome() {
-        final int gen = ++catGen;
-        catUp = new Runnable() {
-            @Override
-            public void run() {
-                if(appBar!=null && !appBar.hasFocus())focusAppNavigation();else showSection(SECTION_HOME);
-            }
-        };
-        catParent = null;
-        catBox.removeAllViews();
-        catMain = null;
-        catMode(true);
-        heroWant = null;
-        heroInfo.setVisibility(View.VISIBLE);
-        heroFacts.removeAllViews();heroTitle.setText("Избери филм или сериал");ts(heroTitle,34);
-        heroOv.setText("Зареждане на видеотеката…");heroCta.removeAllViews();heroCta.setVisibility(View.GONE);
-        heroBd.setImage(null, false);
-        focusAct = new Runnable() {
-            @Override
-            public void run() {
-                if (focusTitle != null) heroShow(focusTitle);
-            }
-        };
-        if (tmdbKey().isEmpty()) {
-            heroKeyHelp();
-            LinearLayout strip = addRowShell("Пример (отворени филми на Blender)");
-            String[] names = {"Big Buck Bunny", "Sintel", "Tears of Steel", "Elephants Dream",
-                    "Cosmos Laundromat", "Spring", "Agent 327"};
-            String[] years = {"2008", "2010", "2012", "2006", "2015", "2019", "2017"};
-            for (int i = 0; i < names.length; i++) {
-                CTitle t = new CTitle();
-                t.id = -(i + 1);
-                t.name = names[i];
-                t.year = years[i];
-                strip.addView(posterCard(t, rowSize(), new Runnable() {
-                    @Override
-                    public void run() {
-                        Toast.makeText(MainActivity.this,
-                                "Примерна карта. Въведи ключ за TMDB от бутона Източници.",
-                                Toast.LENGTH_LONG).show();
-                    }
-                }), posterLp(168, 252, 16));
-            }
-            if (catMain != null) catMain.requestFocus();
-        } else {
-            catRowsLeft = 4;
-            addCatRow("Популярни филми", "/movie/popular", false, gen, true);
-            addCatRow("Най-добре оценени филми", "/movie/top_rated", false, gen, false);
-            addCatRow("Популярни сериали", "/tv/popular", true, gen, false);
-            addCatRow("Най-добре оценени сериали", "/tv/top_rated", true, gen, false);
-        }
-        ArrayList<String[]> movieSites = new ArrayList<>();
-        for (String[] site : sites) if (family(groupOf(site)) == 1) movieSites.add(site);
-        if (!movieSites.isEmpty()) {
-            TextView manual = text("Сайтове за ръчно ползване", 25, K_TEXT, Typeface.DEFAULT_BOLD, true);
-            manual.setPadding(u(16), u(22), u(16), 0); catBox.addView(manual);
-            LinearLayout links = new LinearLayout(this); links.setOrientation(LinearLayout.VERTICAL); links.setPadding(u(16),0,u(16),0);
-            addWebsiteGrid(links, movieSites); catBox.addView(links);
-        }
-        if (catFocusKey == null) catScroll.scrollTo(0, 0);
+        libraryGrid.setAdapter(libraryAdapter);libraryBrowser.addView(libraryGrid,new FrameLayout.LayoutParams(MP,MP));
+        libraryMessage=new LinearLayout(this);libraryMessage.setOrientation(LinearLayout.VERTICAL);libraryMessage.setGravity(Gravity.CENTER);
+        libraryStatus=text("Зареждане на видеотеката…",23,K_TEXT2,tfMedium,false);libraryStatus.setGravity(Gravity.CENTER);libraryMessage.addView(libraryStatus);
+        libraryRetry=kPill(IC_REFRESH,"Опитай пак",()->{libraryDone=false;libraryLoadPage(gen);});libraryRetry.setVisibility(View.GONE);libraryMessage.addView(libraryRetry,lpTopW(WC,u(52),u(24)));
+        libraryBrowser.addView(libraryMessage,new FrameLayout.LayoutParams(MP,MP));libraryGrid.setEmptyView(libraryMessage);
+        libraryGrid.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){@Override public void onItemSelected(AdapterView<?> parent,View view,int position,long id){libraryAdapter.notifyDataSetChanged();if(position>=libraryItems.size()-8)libraryLoadPage(gen);}@Override public void onNothingSelected(AdapterView<?> parent){}});
+        libraryGrid.setOnFocusChangeListener((v,focus)->{if(libraryAdapter!=null)libraryAdapter.notifyDataSetChanged();});
+        libraryGrid.setOnItemClickListener((parent,view,position,id)->{CTitle t=libraryItems.get(position);catFocusKey="t"+t.id+(t.tv?"t":"m");libraryRestorePages=libraryPage;catDetail(t);});
+        libraryGrid.setOnKeyListener((v,key,event)->{if(key==KeyEvent.KEYCODE_DPAD_LEFT && libraryGrid.getSelectedItemPosition()%4==0){if(event.getAction()==KeyEvent.ACTION_DOWN)focusAppNavigation();return true;}return false;});
+        catMain=libraryGrid;
+        if(tmdbKey().isEmpty()){libraryStatus.setText("Въведи ключ за TMDB от Източници, за да заредиш видеотеката.");libraryRetry.setVisibility(View.VISIBLE);libraryRetry.setOnClickListener(v->showSourcesDialog());catMain=libraryRetry;}else libraryLoadPage(gen);
     }
 
     // ---- страница на филм или сериал ----
@@ -7143,13 +6923,13 @@ private static final String[] TV_SOURCES = {
         bd.setTint(TvTheme.BLUE);
         page.addView(bd, new FrameLayout.LayoutParams(u(1320), u(660), Gravity.TOP | Gravity.END));
         page.addView(new ScrimView(this, false,
-                new int[]{0xFF1C1A29, 0xFF1C1A29, 0xC71C1A29, 0x401C1A29, 0x1A1C1A29},
+                new int[]{0xFF040313, 0xFF040313, 0xC7040313, 0x40040313, 0x1A040313},
                 new float[]{0f, 0.26f, 0.52f, 0.82f, 1f}), new FrameLayout.LayoutParams(MP, u(660)));
         page.addView(new ScrimView(this, true,
-                new int[]{0x001C1A29, 0x001C1A29, 0xE61C1A29, 0xFF1C1A29},
+                new int[]{0x00040313, 0x00040313, 0xE6040313, 0xFF040313},
                 new float[]{0f, 0.38f, 0.82f, 1f}), new FrameLayout.LayoutParams(MP, u(660)));
         page.addView(new ScrimView(this, true,
-                new int[]{0x991C1A29, 0x001C1A29, 0x001C1A29},
+                new int[]{0x99040313, 0x00040313, 0x00040313},
                 new float[]{0f, 0.22f, 1f}), new FrameLayout.LayoutParams(MP, u(660)));
 
         LinearLayout content = new LinearLayout(this);
@@ -7267,7 +7047,7 @@ private static final String[] TV_SOURCES = {
         ov.setMaxLines(t.tv ? 3 : 4);
         ov.setEllipsize(TextUtils.TruncateAt.END);
         ov.setLineSpacing(0, 1.18f);
-        LinearLayout.LayoutParams olp = new LinearLayout.LayoutParams(u(900), WC);
+        LinearLayout.LayoutParams olp = new LinearLayout.LayoutParams(MP, WC);
         olp.topMargin = u(16);
         info.addView(ov, olp);
         if (loaded && t.tv) seriesActions(t, info);
@@ -8601,9 +8381,9 @@ private static final String[] TV_SOURCES = {
             }
             base = new LinearGradient(0, 0, 0, h, T_BG0, T_BG1, Shader.TileMode.CLAMP);
             float r = Math.max(w, h);
-            glow1 = new RadialGradient(w * 0.88f, -h * 0.06f, r * 0.56f, 0x185F536F, 0x005F536F,
+            glow1 = new RadialGradient(w * 0.88f, -h * 0.06f, r * 0.56f, 0x10136BFF, 0x00136BFF,
                     Shader.TileMode.CLAMP);
-            glow2 = new RadialGradient(0, h * 1.05f, r * 0.44f, 0x0C5F536F, 0x005F536F,
+            glow2 = new RadialGradient(0, h * 1.05f, r * 0.44f, 0x08136BFF, 0x00136BFF,
                     Shader.TileMode.CLAMP);
         }
 
@@ -8884,7 +8664,7 @@ private static final String[] TV_SOURCES = {
 
     private void tvBuildPanel() {
         tvPanel = new FrameLayout(this);
-        tvPanel.addView(new TvBgView(this), new FrameLayout.LayoutParams(MP, MP));
+        tvPanel.setBackground(TvTheme.background());
 
         tvScroll = new CatScroll(this);
         tvScroll.setVerticalScrollBarEnabled(false);
@@ -8898,7 +8678,7 @@ private static final String[] TV_SOURCES = {
         tvPanel.addView(tvScroll, new FrameLayout.LayoutParams(MP, MP));
 
         // Мек преход най-долу, за да се чете подсказката.
-        tvFade = new ScrimView(this, true, new int[]{0x001C1A29, 0xEB1C1A29}, new float[]{0f, 1f});
+        tvFade = new ScrimView(this, true, new int[]{0x00040313, 0xEB040313}, new float[]{0f, 1f});
         tvPanel.addView(tvFade, new FrameLayout.LayoutParams(MP, u(80), Gravity.BOTTOM));
         tvHint = text("", 16, T_TEXT3, tfMedium, true);
         tvHint.setGravity(Gravity.CENTER);
@@ -8936,13 +8716,9 @@ private static final String[] TV_SOURCES = {
 
     // Празно състояние: целият екран за съдържанието; иначе съдържанието е вдясно от лентата.
     private void tvLayoutFor(boolean empty) {
-        FrameLayout.LayoutParams sl = (FrameLayout.LayoutParams) tvScroll.getLayoutParams();
-        sl.leftMargin = u(empty?160:390); sl.rightMargin = u(48); sl.topMargin = u(196); sl.bottomMargin = u(56);
-        tvScroll.setLayoutParams(sl); tvRail.setVisibility(empty?View.GONE:View.VISIBLE);
-        FrameLayout.LayoutParams rail=(FrameLayout.LayoutParams)tvRail.getLayoutParams();rail.leftMargin=u(152);rail.topMargin=u(196);rail.width=u(220);tvRail.setLayoutParams(rail);tvFillRail();
-        tvBox.setPadding(0,0,0,0);
-        FrameLayout.LayoutParams h = (FrameLayout.LayoutParams) tvHead.getLayoutParams();
-        h.topMargin = u(124); h.height = u(56); h.leftMargin=u(160); h.rightMargin=u(48); tvHead.setLayoutParams(h);
+        FrameLayout.LayoutParams sl=(FrameLayout.LayoutParams)tvScroll.getLayoutParams();sl.leftMargin=u(340);sl.rightMargin=u(40);sl.topMargin=u(196);sl.bottomMargin=u(36);tvScroll.setLayoutParams(sl);
+        tvRail.setVisibility(View.GONE);tvRail.removeAllViews();tvBox.setPadding(0,0,0,0);
+        FrameLayout.LayoutParams h=(FrameLayout.LayoutParams)tvHead.getLayoutParams();h.topMargin=u(116);h.height=u(60);h.leftMargin=u(340);h.rightMargin=u(40);tvHead.setLayoutParams(h);
     }
 
     private void tvShowPanel() {
@@ -9042,16 +8818,12 @@ private static final String[] TV_SOURCES = {
         ui.postDelayed(tvPanelClockRun,60000-now%60000+150);
     }
 
-    private void tvFillHead(String sub) {
-        tvHead.removeAllViews();
-        tvHead.addView(text("Телевизия",30,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true),new LinearLayout.LayoutParams(0,WC,1f));
-        Runnable all = () -> { tvFavouritesOnly=false; tvSelect(TV_HOME); };
-        tvHead.addView(tvDashboardPill(IC_TV,"Всички канали",all),lp(WC,u(46)));
-        View favourites=tvDashboardPill(IC_STAR,"Любими",()->{tvFavouritesOnly=true;tvSelect(TV_HOME);});
-        tvHead.addView(favourites,lpTopW(WC,u(46),0));
-        tvHead.addView(tvDashboardPill(IC_GRID,"Категории",()->tvCategories()),lp(WC,u(46)));
-        tvHead.addView(tvDashboardPill(IC_PLUS,"Добави",()->tvAddFromSite()),lp(WC,u(46)));
-        tvPanelClockTick();
+    private void tvFillHead(String sub){
+        tvHead.removeAllViews();tvHead.addView(text("Телевизия",36,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true),new LinearLayout.LayoutParams(0,WC,1));
+        tvHead.addView(filterChip("Всички",!tvFavouritesOnly && tvSel<0,()->{tvFavouritesOnly=false;tvSelect(TV_HOME);tvFillHead("");}),lp(WC,u(46)));
+        LinearLayout.LayoutParams fav=lp(WC,u(46));fav.leftMargin=u(12);tvHead.addView(filterChip("Любими",tvFavouritesOnly,()->{tvFavouritesOnly=true;tvSelect(TV_HOME);tvFillHead("");}),fav);
+        LinearLayout.LayoutParams cat=lp(WC,u(46));cat.leftMargin=u(12);tvHead.addView(filterChip("Категории",!tvFavouritesOnly && tvSel>=0,()->tvCategories()),cat);
+        LinearLayout.LayoutParams add=lp(WC,u(46));add.leftMargin=u(12);tvHead.addView(tvDashboardPill(IC_PLUS,"Добави",()->tvAddFromSite()),add);tvPanelClockTick();
     }
 
     // Пълни екрана: празно състояние или списък. focusId е каналът, който да остане на фокус.
@@ -9259,7 +9031,7 @@ private static final String[] TV_SOURCES = {
         TvChan last=tvLastChan();
         tvOverviewGuide.setChannels(guideChannels(true),selected!=null?selected:last==null?null:last.id);
         tvOverviewGuide.setGuide(tvGuide,tvEpgError);
-        int height=Math.max(u(450),(root.getHeight()>0?root.getHeight():u(900))-u(252));
+        int height=Math.max(u(450),(root.getHeight()>0?root.getHeight():u(900))-u(232));
         tvBox.addView(tvOverviewGuide,lp(MP,height)); tvMain=tvOverviewGuide;
     }
 
@@ -9546,7 +9318,7 @@ private static final String[] TV_SOURCES = {
             tvEpgLoader=null;tvGuide=guide;tvGuideLoadedAt=SystemClock.elapsedRealtime();tvEpgError=error;
             if(tvOverviewGuide!=null)tvOverviewGuide.setGuide(guide,error);
             if(tvPlayerGuide!=null)tvPlayerGuide.setGuide(guide,error);
-            if(tvMode && !tvVod && tvCur!=null && tvBanner!=null && tvBanner.getVisibility()==View.VISIBLE)tvFillBanner(tvCur,tvLine());
+            if(tvMode && !tvVod && tvCur!=null && tvBanner!=null && tvBanner.getVisibility()==View.VISIBLE)tvBannerRefresh();
         }));
     }
 
@@ -9673,7 +9445,7 @@ private static final String[] TV_SOURCES = {
         card.addView(artwork, art);
         tvHeroArtwork = new TvArtwork(this);
         card.addView(tvHeroArtwork, new FrameLayout.LayoutParams(MP, MP));
-        card.addView(new ScrimView(this, false, new int[]{0xFF1C1A29, 0xE61C1A29, 0x261C1A29},
+        card.addView(new ScrimView(this, false, new int[]{0xFF040313, 0xE6040313, 0x26040313},
                 new float[]{0f, 0.45f, 1f}), new FrameLayout.LayoutParams(MP, MP));
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
@@ -11759,7 +11531,8 @@ private static final String[] TV_SOURCES = {
     private FrameLayout tvWait;
     private TextView tvWaitNo, tvWaitName, tvWaitMsg;
     private LinearLayout tvWaitChips;
-    private LinearLayout tvBanner, tvKeys;
+    private FrameLayout tvBanner;
+    private LinearLayout tvKeys;
     private View tvChipZap, tvChipSrc, tvChipStream;
     private TextView tvBnNo, tvBnName, tvBnSub, tvBnCat;
     private TvPlate tvBnPlate;
@@ -11780,7 +11553,7 @@ private static final String[] TV_SOURCES = {
         c.setGravity(Gravity.CENTER_VERTICAL);
         c.setPadding(u(16), 0, u(18), 0);
         GradientDrawable g = new GradientDrawable();
-        g.setColor(0x50302D40);
+        g.setColor(0x5009081C);
         g.setCornerRadius(u(19));
         g.setStroke(Math.max(1, u(1)), 0x1FFFFFFF);
         c.setBackground(g);
@@ -11827,50 +11600,39 @@ private static final String[] TV_SOURCES = {
         tvWait.setVisibility(View.GONE);
         nativeLayer.addView(tvWait, new FrameLayout.LayoutParams(MP, MP));
 
-        // One quiet overlay: programme information above the same round controls as films.
-        tvBanner=new LinearLayout(this);tvBanner.setOrientation(LinearLayout.VERTICAL);
-        tvBanner.setPadding(u(56),u(36),u(56),u(28));
-        tvBanner.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0x001C1A29,0xC91C1A29,0xF51C1A29}));
-        LinearLayout headline=new LinearLayout(this);headline.setGravity(Gravity.CENTER_VERTICAL);
-        tvBnPlate=new TvPlate(this,12,8,false);LinearLayout.LayoutParams logoLp=lp(u(100),u(64));logoLp.rightMargin=u(22);headline.addView(tvBnPlate,logoLp);
-        LinearLayout info=new LinearLayout(this);info.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout channel=new LinearLayout(this);channel.setGravity(Gravity.CENTER_VERTICAL);
-        tvBnNo=text("",16,TvTheme.MUTED,tfMedium,true);channel.addView(tvBnNo,lp(u(32),WC));
-        tvBnName=text("",19,TvTheme.TEXT,tfMedium,true);channel.addView(tvBnName,new LinearLayout.LayoutParams(0,WC,1f));
-        tvBnClock=text("",22,TvTheme.TEXT,tfMedium,true);channel.addView(tvBnClock);info.addView(channel,lp(MP,WC));
-        tvBnProgramme=text("",30,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true);info.addView(tvBnProgramme,lpTopW(MP,WC,u(6)));
-        tvBnNext=text("",16,TvTheme.MUTED,tfMedium,true);info.addView(tvBnNext,lpTopW(MP,WC,u(6)));
-        tvBnSub=text("",14,TvTheme.MUTED,tfMedium,true);info.addView(tvBnSub,lpTopW(MP,WC,u(4)));
-        headline.addView(info,new LinearLayout.LayoutParams(0,WC,1f));tvBanner.addView(headline,lp(MP,WC));
-        tvBnProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);tvBnProgress.setMax(1000);tvBnProgress.setProgressTintList(android.content.res.ColorStateList.valueOf(TvTheme.BLUE_LIGHT));
-        tvBanner.addView(tvBnProgress,lpTopW(MP,u(3),u(16)));
-        FrameLayout controls=new FrameLayout(this);
-        LinearLayout transport=new LinearLayout(this);transport.setGravity(Gravity.CENTER);
-        transport.addView(playerControl("|◀","Предишен канал",()->tvZap(-1),false));
-        tvPauseControl=playerControl("❚❚","Пауза / Пусни",()->tvTogglePause(),true);transport.addView(tvPauseControl);
-        transport.addView(playerControl("▶|","Следващ канал",()->tvZap(1),false));
-        controls.addView(transport,new FrameLayout.LayoutParams(WC,WC,Gravity.CENTER));
+        tvBanner=new FrameLayout(this);
+        tvBanner.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0x00040313,0x00040313,0xF0040313}));
+        tvPauseControl=playerControl("❚❚","Пауза / Пусни",()->tvTogglePause(),true);
+        FrameLayout.LayoutParams pauseLp=new FrameLayout.LayoutParams(u(86),u(86),Gravity.CENTER);tvBanner.addView(tvPauseControl,pauseLp);
+        LinearLayout programme=new LinearLayout(this);programme.setOrientation(LinearLayout.VERTICAL);
+        TextView live=text("НА ЖИВО",13,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true);live.setPadding(u(8),u(4),u(8),u(4));live.setBackground(TvTheme.panel(u(4),T_LIVE,0,0));programme.addView(live,lp(WC,WC));
+        tvBnProgramme=text("",28,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true);programme.addView(tvBnProgramme,lpTopW(MP,WC,u(8)));
+        LinearLayout channel=new LinearLayout(this);channel.setGravity(Gravity.CENTER_VERTICAL);tvBnNo=text("",16,TvTheme.MUTED,tfMedium,true);channel.addView(tvBnNo,lp(u(28),WC));tvBnName=text("",18,TvTheme.MUTED,tfMedium,true);channel.addView(tvBnName,new LinearLayout.LayoutParams(0,WC,1));programme.addView(channel,lpTopW(MP,WC,u(4)));
+        tvBnNext=text("",18,TvTheme.TEXT,tfMedium,true);programme.addView(tvBnNext,lpTopW(MP,WC,u(6)));
+        FrameLayout.LayoutParams infoLp=new FrameLayout.LayoutParams(u(420),WC,Gravity.BOTTOM|Gravity.START);infoLp.leftMargin=u(40);infoLp.bottomMargin=u(40);tvBanner.addView(programme,infoLp);
         LinearLayout actions=new LinearLayout(this);actions.setGravity(Gravity.CENTER_VERTICAL);
-        actions.addView(playerControl("≡","Канали и програма",()->tvShowList(),false));
-        tvFavouriteControl=playerControl("☆","Любим канал",()->{if(tvCur!=null){String key="tvfav:"+tvCur.id;prefs.edit().putBoolean(key,!prefs.getBoolean(key,false)).apply();tvShowBanner(4500,null);}},false);actions.addView(tvFavouriteControl);
-        actions.addView(playerControl("⚙","Качество",()->tvQualityDialog(),false));
-        controls.addView(actions,new FrameLayout.LayoutParams(WC,WC,Gravity.END|Gravity.CENTER_VERTICAL));
-        TextView live=text("НА ЖИВО",15,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true);live.setPadding(u(12),u(6),u(12),u(6));live.setBackground(TvTheme.panel(u(4),T_LIVE,0,0));
-        controls.addView(live,new FrameLayout.LayoutParams(WC,WC,Gravity.START|Gravity.CENTER_VERTICAL));
-        tvBanner.addView(controls,lpTopW(MP,u(74),u(16)));
-        FrameLayout.LayoutParams bannerLp=new FrameLayout.LayoutParams(MP,WC,Gravity.BOTTOM);tvBanner.setVisibility(View.GONE);nativeLayer.addView(tvBanner,bannerLp);
-        // Remote shortcuts remain available; no second visual toolbar above the video.
-        tvKeys=new LinearLayout(this);tvKeys.setVisibility(View.GONE);
-        tvChipZap=tvKeyChip("↑↓","канал");tvChipStream=tvKeyChip("◀","друг поток");tvChipSrc=tvKeyChip("▶","друг сайт");
-        tvKeys.addView(tvChipZap);tvKeys.addView(tvChipStream);tvKeys.addView(tvChipSrc);
-        tvListBox=new FrameLayout(this);tvListBox.setBackgroundColor(0xE51C1A29);tvListBox.setVisibility(View.GONE);
+        actions.addView(tvDashboardPill(IC_BARS,"Канали",()->tvShowList()),lp(WC,u(48)));
+        tvStreamControl=text("Поток",19,TvTheme.TEXT,tfMedium,true);tvStreamControl.setGravity(Gravity.CENTER);tvStreamControl.setPadding(u(22),0,u(22),0);tvStreamControl.setClickable(true);tvStreamControl.setBackground(TvTheme.control(U,false));tvStreamControl.setOnClickListener(v->tvSwitchStream(1));tvStreamControl.setLongClickable(true);tvStreamControl.setOnLongClickListener(v->{if(tvCur!=null)tvChannelMenu(tvCur);return true;});
+        LinearLayout.LayoutParams streamLp=lp(WC,u(48));streamLp.leftMargin=u(14);actions.addView(tvStreamControl,streamLp);
+        LinearLayout.LayoutParams qualityLp=lp(WC,u(48));qualityLp.leftMargin=u(14);actions.addView(tvDashboardPill(IC_SLIDERS,"Качество",()->tvQualityDialog()),qualityLp);
+        FrameLayout.LayoutParams actionLp=new FrameLayout.LayoutParams(WC,u(48),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);actionLp.bottomMargin=u(92);tvBanner.addView(actions,actionLp);
+        tvBnSub=text("",18,TvTheme.BLUE_LIGHT,tfMedium,true);tvBnSub.setGravity(Gravity.CENTER);tvBnSub.setMaxLines(2);tvBnSub.setSingleLine(false);tvBnSub.setEllipsize(TextUtils.TruncateAt.END);
+        FrameLayout.LayoutParams statusLp=new FrameLayout.LayoutParams(u(620),u(54),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);statusLp.bottomMargin=u(34);tvBanner.addView(tvBnSub,statusLp);
+        tvBnClock=text("",23,TvTheme.TEXT,tfMedium,true);FrameLayout.LayoutParams clockLp=new FrameLayout.LayoutParams(WC,WC,Gravity.TOP|Gravity.END);clockLp.topMargin=u(20);clockLp.rightMargin=u(40);tvBanner.addView(tvBnClock,clockLp);
+        tvKeys=new LinearLayout(this);tvKeys.setGravity(Gravity.CENTER_VERTICAL);tvChipZap=text("↑↓ Канал",15,TvTheme.MUTED,tfMedium,true);tvChipStream=text("← Поток",15,TvTheme.MUTED,tfMedium,true);tvChipSrc=text("→ Сайт",15,TvTheme.MUTED,tfMedium,true);
+        for(View keyHint:new View[]{tvChipZap,tvChipStream,tvChipSrc,text("OK Програма",15,TvTheme.MUTED,tfMedium,true)}){LinearLayout.LayoutParams kl=lp(WC,WC);kl.leftMargin=u(18);tvKeys.addView(keyHint,kl);}
+        FrameLayout.LayoutParams keyLp=new FrameLayout.LayoutParams(WC,WC,Gravity.BOTTOM|Gravity.END);keyLp.bottomMargin=u(12);keyLp.rightMargin=u(40);tvBanner.addView(tvKeys,keyLp);
+        tvBanner.setVisibility(View.GONE);nativeLayer.addView(tvBanner,new FrameLayout.LayoutParams(MP,MP));
+        tvListBox=new FrameLayout(this);tvListBox.setBackgroundColor(0xE5040313);tvListBox.setVisibility(View.GONE);
         nativeLayer.addView(tvListBox,new FrameLayout.LayoutParams(MP,MP));
     }
 
-    private TextView tvPauseControl,tvFavouriteControl,vodPauseControl;
+    private TextView tvPauseControl,tvFavouriteControl,vodPauseControl,tvStreamControl;
+    private String tvBannerStatus;
+    private long tvBannerStatusUntil;
     private TextView playerControl(String symbol,String description,Runnable action,boolean main){
         TextView b=text(symbol,main?27:23,TvTheme.TEXT,tfMedium,true);b.setGravity(Gravity.CENTER);b.setContentDescription(description);b.setClickable(true);
-        b.setBackground(TvTheme.panel(u(40),main?0x705E586F:0x203F394E,main?TvTheme.OUTLINE:0,U));
+        b.setBackground(TvTheme.panel(u(40),main?0x99040313:0x60040313,main?TvTheme.OUTLINE:0,U));
         LinearLayout.LayoutParams l=lp(u(main?72:60),u(main?72:60));l.leftMargin=u(10);l.rightMargin=u(10);b.setLayoutParams(l);b.setOnClickListener(v->action.run());return b;
     }
 
@@ -11907,7 +11669,7 @@ private static final String[] TV_SOURCES = {
         long now = System.currentTimeMillis();
         String t = new java.text.SimpleDateFormat("HH:mm", Locale.US).format(new java.util.Date(now));
         if (tvBnClock != null) tvBnClock.setText(t);
-        if(live && tvCur!=null)tvFillBanner(tvCur,tvLine());
+        if(live && tvCur!=null)tvBannerRefresh();
         if (vodBarClock != null) vodBarClock.setText(t);
         ui.postDelayed(tvClockRun, 60000 - now % 60000 + 150);
     }
@@ -11936,6 +11698,7 @@ private static final String[] TV_SOURCES = {
 
     private void tvHideBannerNow() {
         ui.removeCallbacks(tvBannerHideRun);
+        tvBannerStatus=null;tvBannerStatusUntil=0;
         tvHideNow(tvBanner);
         tvHideNow(tvKeys);
         vodHideBarNow();
@@ -12054,7 +11817,9 @@ private static final String[] TV_SOURCES = {
             return;
         }
         if (tvBanner == null || tvCur == null) return;
-        tvFillBanner(tvCur, status != null ? status : tvLine());
+        tvBannerStatus=status;
+        tvBannerStatusUntil=status==null?0:hideMs>0?SystemClock.uptimeMillis()+hideMs:Long.MAX_VALUE;
+        tvBannerRefresh();
         // Подсказки само за това, което има смисъл: един канал не се сменя, един източник също.
         tvChipZap.setVisibility(tvChans.size() > 1 ? View.VISIBLE : View.GONE);
         // ◀ има смисъл и когато няма втори поток: тогава търси още в сайта.
@@ -12066,19 +11831,23 @@ private static final String[] TV_SOURCES = {
         if (hideMs > 0) ui.postDelayed(tvBannerHideRun, hideMs);
     }
 
+    private void tvBannerRefresh(){
+        TvChan channel=tvZapIdx>=0 && tvZapIdx<tvChans.size()?tvChans.get(tvZapIdx):tvCur;if(channel==null)return;
+        if(tvBannerStatus!=null && SystemClock.uptimeMillis()>=tvBannerStatusUntil)tvBannerStatus=null;
+        tvFillBanner(channel,tvBannerStatus!=null?tvBannerStatus:tvLine());
+    }
+
     private void tvFillBanner(TvChan c, String line) {
         if(tvPauseControl!=null)tvPauseControl.setText(player!=null && player.getPlayWhenReady()?"❚❚":"▶");
         if(tvFavouriteControl!=null){boolean fav=prefs.getBoolean("tvfav:"+c.id,false);tvFavouriteControl.setText(fav?"★":"☆");tvFavouriteControl.setTextColor(fav?TvTheme.ACCENT:TvTheme.TEXT);}
-        tvBnNo.setText(String.valueOf(tvChans.indexOf(c)+1));tvBnName.setText(c.name);tvBnPlate.setChan(c.name);
+        tvBnNo.setText(String.valueOf(tvChans.indexOf(c)+1));tvBnName.setText(c.name);if(tvBnPlate!=null)tvBnPlate.setChan(c.name);
         tvBnSub.setText(line==null?"":line);
         long now=System.currentTimeMillis();
         EpgGuide.Event event=tvGuide==null?null:tvGuide.current(c.name,now);
-        tvBnProgramme.setText(event==null?"На живо · "+c.name:tvEventTime(event)+"   "+event.title);
-        tvBnProgress.setProgress(event==null?0:tvEventProgress(event));
-        EpgGuide.Event next=null;
-        if(tvGuide!=null)for(EpgGuide.Event e:tvGuide.forChannel(c.name,now))if(e.start>now){next=e;break;}
-        tvBnNext.setText(next!=null?"Следва: "+tvEventTime(next)+"   "+next.title:
-                tvEpgError!=null?"Програмата временно не е достъпна · OK за канали":"OK · Канали и програма");
+        tvBnProgramme.setText(event==null?"На живо · "+c.name:event.title);
+        if(tvBnProgress!=null)tvBnProgress.setProgress(event==null?0:tvEventProgress(event));
+        if(tvStreamControl!=null){int count=tvStreamCount();tvStreamControl.setText(count>0?"Поток "+(tvStreamNowIdx()+1)+"/"+count:"Поток");}
+        tvBnNext.setText(event!=null?tvEventTime(event):"OK · Канали и програма");
     }
 
     private void tvHideBanner() {
@@ -12099,7 +11868,8 @@ private static final String[] TV_SOURCES = {
         int base = tvZapIdx >= 0 ? tvZapIdx : tvChans.indexOf(tvCur);
         tvZapIdx = ((base + dir) % n + n) % n;
         TvChan t = tvChans.get(tvZapIdx);
-        tvFillBanner(t, t.srcs.get(0).site + "  ·  източник 1 от " + t.srcs.size());
+        tvBannerStatus=t.srcs.get(0).site+" · сайт 1 от "+t.srcs.size();tvBannerStatusUntil=SystemClock.uptimeMillis()+2500;
+        tvBannerRefresh();
         tvFadeIn(tvBanner);
         tvFadeIn(tvKeys);
         ui.removeCallbacks(tvBannerHideRun);
@@ -12765,7 +12535,7 @@ private static final String[] TV_SOURCES = {
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(u(56), u(36), u(56), u(28));
-        col.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0x001C1A29,0xC91C1A29,0xF51C1A29}));
+        col.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0x00040313,0xC9040313,0xF5040313}));
 
         LinearLayout r1 = new LinearLayout(this);
         r1.setOrientation(LinearLayout.HORIZONTAL);
@@ -15154,7 +14924,7 @@ private static final String[] TV_SOURCES = {
         if (si < 0 || si >= c.srcs.size()) return;
         TvSrc s = c.srcs.get(si);
         if (!tvPlaying || tvCapturing || !tvCapturable(s) || tvSearched.contains(si)) {
-            tvShowBanner(2500, "Няма друг поток на този сайт");
+            tvShowBanner(2500, "Няма друг поток на този сайт · → за друг сайт");
             return;
         }
         tvSearched.add(si);
@@ -15427,7 +15197,7 @@ private static final String[] TV_SOURCES = {
         logEvent("ТВ: още потоци в " + s.site + ": страницата поиска " + candidates
                 + " плейлиста, нови потоци " + added);
         if (added == 0) {
-            tvShowBanner(3500, "Няма други потоци на този сайт");
+            tvShowBanner(3500, "Няма други потоци на този сайт · → за друг сайт");
             return;
         }
         if (thenTune) {

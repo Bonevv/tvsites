@@ -17,32 +17,34 @@ final class AppNavigation extends FrameLayout {
     AppNavigation(Context context, float unit, Listener listener) {
         super(context); this.unit = unit;
         setClipChildren(false); setClipToPadding(false); setElevation(px(24));
-        LinearLayout header = new LinearLayout(context); header.setGravity(Gravity.CENTER_VERTICAL);
-        TextView brand = label("ТВ Сайтове", 25, true); header.addView(brand);
-        header.addView(new View(context), new LinearLayout.LayoutParams(0,1,1));
-        memory = label("RAM процес: …\nСвободна RAM: …", 16, false); memory.setSingleLine(false); memory.setTextColor(TvTheme.MUTED);
-        LinearLayout.LayoutParams ram=new LinearLayout.LayoutParams(px(260),LayoutParams.WRAP_CONTENT);ram.rightMargin=px(28);header.addView(memory,ram);
-        TextClock clock = new TextClock(context);clock.setFormat24Hour("HH:mm");clock.setFormat12Hour("HH:mm");
-        clock.setTextColor(TvTheme.TEXT);clock.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,px(28));
-        clock.setTypeface(Typeface.create("sans-serif-light",Typeface.NORMAL));header.addView(clock);
-        LayoutParams hp=new LayoutParams(LayoutParams.MATCH_PARENT,px(80),Gravity.TOP);hp.setMargins(px(54),px(14),px(54),0);addView(header,hp);
-        LinearLayout rail = new LinearLayout(context); rail.setOrientation(LinearLayout.VERTICAL);rail.setGravity(Gravity.CENTER_HORIZONTAL);
-        int[] sections={5,0,1,2,3,4};String[] names={"Начало","ТВ","Видеотека","Радио","Сайтове","Настройки"};
+        View sidebar=new View(context);sidebar.setBackgroundColor(0xB3040313);
+        addView(sidebar,new LayoutParams(px(300),LayoutParams.MATCH_PARENT,Gravity.START));
+        View divider=new View(context);divider.setBackgroundColor(TvTheme.OUTLINE);
+        LayoutParams dl=new LayoutParams(Math.max(1,px(1)),LayoutParams.MATCH_PARENT);dl.leftMargin=px(300);addView(divider,dl);
+        LinearLayout brand=new LinearLayout(context);brand.setGravity(Gravity.CENTER_VERTICAL);
+        brand.addView(new NavigationIcon(context,0),new LinearLayout.LayoutParams(px(30),px(30)));
+        TextView name=label("ТВ Сайтове",23,true);LinearLayout.LayoutParams nl=new LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT,LayoutParams.WRAP_CONTENT);nl.leftMargin=px(14);brand.addView(name,nl);
+        LayoutParams bp=new LayoutParams(px(240),px(64),Gravity.TOP|Gravity.START);bp.leftMargin=px(36);bp.topMargin=px(26);addView(brand,bp);
+        TextClock clock=new TextClock(context);clock.setFormat24Hour("HH:mm");clock.setFormat12Hour("HH:mm");clock.setTextColor(TvTheme.TEXT);clock.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,px(23));
+        LayoutParams cp=new LayoutParams(LayoutParams.WRAP_CONTENT,px(50),Gravity.TOP|Gravity.END);cp.topMargin=px(32);cp.rightMargin=px(40);addView(clock,cp);
+        int[] sections={5,0,1,2,3,4};String[] names={"Начало","Телевизия","Видеотека","Радио","Сайтове","Настройки"};
         for(int j=0;j<sections.length;j++){
-            final int index=sections[j];LinearLayout tab=new LinearLayout(context);tab.setOrientation(LinearLayout.VERTICAL);tab.setGravity(Gravity.CENTER);
-            tab.setFocusable(true);tab.setFocusableInTouchMode(true);tab.setClickable(true);tab.setTag("nav:"+index);tab.setContentDescription(names[j]);
-            tab.addView(new NavigationIcon(context,index),new LinearLayout.LayoutParams(px(24),px(24)));
-            TextView caption=label(names[j],12,false);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT,LayoutParams.WRAP_CONTENT);cp.topMargin=px(7);tab.addView(caption,cp);
+            final int index=sections[j];LinearLayout tab=new LinearLayout(context);tab.setOrientation(LinearLayout.HORIZONTAL);tab.setGravity(Gravity.CENTER_VERTICAL);tab.setPadding(px(18),0,px(14),0);
+            tab.setId(View.generateViewId());tab.setFocusable(true);tab.setFocusableInTouchMode(true);tab.setClickable(true);tab.setTag("nav:"+index);tab.setContentDescription(names[j]);
+            tab.addView(new NavigationIcon(context,index),new LinearLayout.LayoutParams(px(26),px(26)));
+            TextView caption=label(names[j],21,false);LinearLayout.LayoutParams textLp=new LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT,LayoutParams.WRAP_CONTENT);textLp.leftMargin=px(16);tab.addView(caption,textLp);
             tab.setOnClickListener(v->listener.select(index));
             tab.setOnKeyListener((v,key,event)->{
                 if(key==KeyEvent.KEYCODE_DPAD_RIGHT && contentAction!=null){if(event.getAction()==KeyEvent.ACTION_DOWN)contentAction.run();return true;}return false;
             });
-            LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(px(90),px(92));tp.bottomMargin=px(10);rail.addView(tab,tp);tabs[index]=tab;
+            LayoutParams tp=new LayoutParams(px(252),px(62),j==5?Gravity.START|Gravity.BOTTOM:Gravity.START|Gravity.TOP);tp.leftMargin=px(24);if(j==5)tp.bottomMargin=px(110);else tp.topMargin=px(112+j*72);addView(tab,tp);tabs[index]=tab;
         }
-        LayoutParams rp=new LayoutParams(px(100),LayoutParams.WRAP_CONTENT,Gravity.TOP|Gravity.START);rp.leftMargin=px(30);rp.topMargin=px(136);addView(rail,rp);
+        for(int j=0;j<sections.length;j++){View tab=tabs[sections[j]];tab.setNextFocusUpId(tabs[sections[Math.max(0,j-1)]].getId());tab.setNextFocusDownId(tabs[sections[Math.min(5,j+1)]].getId());}
+        memory=label("RAM процес: …",15,false);memory.setSingleLine(false);memory.setTextColor(TvTheme.MUTED);
+        LayoutParams mp=new LayoutParams(px(252),px(64),Gravity.START|Gravity.BOTTOM);mp.leftMargin=px(36);mp.bottomMargin=px(20);addView(memory,mp);
         setSection(5);
     }
-    void setSection(int section){selected=Math.max(0,Math.min(5,section));for(int i=0;i<tabs.length;i++){tabs[i].setBackground(TvTheme.control(unit,i==selected));tabs[i].setSelected(i==selected);}}
+    void setSection(int section){selected=Math.max(0,Math.min(5,section));for(int i=0;i<tabs.length;i++){tabs[i].setBackground(TvTheme.navigation(unit,i==selected));tabs[i].setSelected(i==selected);}}
     void setContentAction(Runnable action){contentAction=action;}
     void setMemory(long processMb,long freeMb,long totalMb){memory.setText("RAM процес: "+(processMb>0?"≈ "+processMb+" МБ":"…")+"\nСвободна: "+freeMb+" / "+totalMb+" МБ");}
     void focusSelected(){tabs[selected].requestFocusFromTouch();}
