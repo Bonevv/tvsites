@@ -2710,7 +2710,7 @@ private static final String[] TV_SOURCES = {
                 maybeRecordMedia(r);
                 // Discovery only needs the addresses. A player in a cross-origin frame
                 // must not decode media behind the native player.
-                if (v == tvSearchWeb && tvSearchMedia(r.getUrl())) {
+                if (v == tvSearchWeb && tvSearchMedia(r)) {
                     return new WebResourceResponse("text/plain", "utf-8",
                             new java.io.ByteArrayInputStream(new byte[0]));
                 }
@@ -10526,7 +10526,9 @@ private static final String[] TV_SOURCES = {
     }
 
     private boolean tvIsBad(String u) {
-        return tvBad.contains(u) || tvSessBad.contains(u);
+        // Новата страница може да поднови бисквитките и заглавията за същия адрес.
+        // Тук се пропускат само неуспешните опити от текущото зареждане.
+        return tvBad.contains(u);
     }
 
     // Източник без пресен неуспех: нито заседнал поток скоро, нито провал на проверката.
@@ -10593,7 +10595,6 @@ private static final String[] TV_SOURCES = {
     }
 
     private int[] tvForce;
-    private boolean tvPreferSource;
     private boolean tvPinned;   // {източник, -1 = основен поток | номер на резервния}
 
     // Пуска точно определен поток на източника (k = -1 основен, 0.. резервните).
@@ -10651,7 +10652,6 @@ private static final String[] TV_SOURCES = {
         tvSwitches = 0;
         tvSessBad.clear();
         tvCapMap.clear();
-        tvPreferSource=firstSrc>=0;
         if (tvMoreChan != null && tvMoreChan != c) tvMoreChan = null;
         tvTune(c, firstSrc);
     }
@@ -10660,7 +10660,6 @@ private static final String[] TV_SOURCES = {
     private void tvTune(TvChan c, int firstSrc) {
         tvCloseTimeline();
         if (c == null || c.srcs.isEmpty() || isFinishing()) return;
-        boolean preferSource=tvPreferSource;tvPreferSource=false;
         ensureLayers();
         tvBuildOsd();
         if (!tvMode && player != null) closeNative(false); // чужд плеър (не е на телевизията)
@@ -10696,7 +10695,6 @@ private static final String[] TV_SOURCES = {
         for (int i = 0; i < n; i++) {
             if (i != tvFirstSrc && !tvSrcSound(c.srcs.get(i))) order.add(i);
         }
-        ArrayList<int[]> captures=new ArrayList<>();
         for (int i : order) {
             TvSrc s = c.srcs.get(i);
             boolean cap = tvCapturable(s);
@@ -10711,12 +10709,8 @@ private static final String[] TV_SOURCES = {
                     if (!tvSessBad.contains(s.alts.get(k)[0])) tvPlan.add(new int[]{i, TV_DIRECT, k});
                 }
             }
-            if (capOk) {
-                if(tvVod || (preferSource && i==tvFirstSrc))tvPlan.add(new int[]{i, TV_CAPTURE});
-                else captures.add(new int[]{i, TV_CAPTURE});
-            }
+            if (capOk) tvPlan.add(new int[]{i, TV_CAPTURE});
         }
-        tvPlan.addAll(captures); // TV: exhaust saved streams before opening any website.
         if (tvForce != null && tvForce[0] >= 0 && tvForce[0] < n) {
             // Избран поток (от менюто или със ▲▼): пробва се пръв, дори да е бил отбелязан за счупен.
             TvSrc fs = c.srcs.get(tvForce[0]);
@@ -11126,6 +11120,7 @@ private static final String[] TV_SOURCES = {
         }
         tvPlaying = true;
         tvTrying = false;
+        tvSessBad.remove(url);
         ui.removeCallbacks(tvStepTimeout);
         ui.removeCallbacks(tvTryTimeout);
         ui.removeCallbacks(tvCheckRun);
@@ -11537,7 +11532,7 @@ private static final String[] TV_SOURCES = {
                     tvPokeN = 1;
                 }
                 // Плеър в чужда рамка не се достига със скрипт: натискаме върху него като потребител.
-                if (!tvSearching && (n == 3 || n == 6)) tvTapPlayer();
+                if (tvSearching || n == 3 || n == 6) tvTapPlayer();
             }
             if (n < 9) ui.postDelayed(this, n < 3 ? 2300 : 3500);
         }
@@ -14124,14 +14119,14 @@ private static final String[] TV_SOURCES = {
     }
 
     private void subSet(SubCues c, SubItem it, boolean auto) {
+        subReadSaved();
         subFrom = c.from;
         subTo = c.to;
         subTxt = c.txt;
         subCur = it;
         subOff = false;
         subShown = "";
-        if (auto && it.uid().equals(subSavedUid)) subShift = subSavedShift;
-        else if (!auto) subShift = 0;
+        subShift = it.uid().equals(subSavedUid) ? subSavedShift : 0;
         subSaveChoice();
         subEnsureView();
         subStatusChanged();
@@ -14180,7 +14175,7 @@ private static final String[] TV_SOURCES = {
         }
     }
 
-    // Започна ли филмът: автоматичното търсене на субтитри.
+    // При пускане се прочита само запомненият избор. Търсене и сваляне — от менюто.
     private void subOnPlaying() {
         if (subAutoDone) {
             subEnsureView();
@@ -14188,12 +14183,7 @@ private static final String[] TV_SOURCES = {
         }
         subAutoDone = true;
         subReadSaved();
-        if (subOff) {
-            subStatusChanged();
-            return;
-        }
-        if (!prefs.getBoolean("subAuto", true)) return;
-        subStartSearch(true);
+        subStatusChanged();
     }
 
     // ---- рисуване ----
@@ -14423,7 +14413,7 @@ private static final String[] TV_SOURCES = {
     }
 
     private void subSettingsDialog() {
-        LinearLayout card = tvCard("Настройки на субтитрите", null);
+        LinearLayout card = tvCard("Настройки на субтитрите", "Търсене и сваляне — само по твой избор.");
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         LinearLayout first = tvChoice(null, "Езици", SUB_LANG_NAMES[subLangSet()], 1, new Runnable() {
@@ -14434,14 +14424,6 @@ private static final String[] TV_SOURCES = {
             }
         });
         list.addView(first, lpTopW(MP, u(62), 0));
-        list.addView(tvChoice(null, "Автоматично търсене", prefs.getBoolean("subAuto", true) ? "включено" : "изключено",
-                0, new Runnable() {
-                    @Override
-                    public void run() {
-                        prefs.edit().putBoolean("subAuto", !prefs.getBoolean("subAuto", true)).apply();
-                        subSettingsDialog();
-                    }
-                }), lpTopW(MP, u(62), u(10)));
         list.addView(tvChoice(null, "Размер на текста", subSizeName(), 0, new Runnable() {
             @Override
             public void run() {
@@ -15251,14 +15233,24 @@ private static final String[] TV_SOURCES = {
     private int tvSearchGen;
     private TvChan tvMoreChan;                   // канал, за който от менюто е поискано търсене след пускане
     private final HashSet<String> tvSearchSelectors = new HashSet<>();
+    private long tvSearchNextAt;
+    private boolean tvSearchSelecting;
     private static final long TV_SEARCH_MS = 30000;
-    private static final long TV_SEARCH_PROBE_MS = 8000;
+    private static final long TV_SEARCH_PROBE_MS = 24000;
     private long tvSearchBusyUntil;              // до кога скритата страница може да натоварва кутията
 
-    private static boolean tvSearchMedia(Uri uri){
+    private static boolean tvSearchMedia(WebResourceRequest request){
+        Uri uri=request.getUrl();
         if(mediaKind(uri.toString())!=0)return true;
         String path=nz(uri.getPath()).toLowerCase(Locale.ROOT);
-        return path.matches(".*\\.(ts|m4s|aac|mp3|webm|ogg|m4a)$");
+        if(path.matches(".*\\.(ts|m4s|aac|mp3|webm|ogg|m4a)$"))return true;
+        Map<String,String> headers=request.getRequestHeaders();
+        if(headers!=null)for(Map.Entry<String,String> header:headers.entrySet()){
+            if("Range".equalsIgnoreCase(header.getKey()))return true;
+            if("Sec-Fetch-Dest".equalsIgnoreCase(header.getKey())
+                    && ("audio".equalsIgnoreCase(header.getValue()) || "video".equalsIgnoreCase(header.getValue())))return true;
+        }
+        return false;
     }
 
     // Страницата е без звук; текущият поток продължава в родния плеър.
@@ -15276,10 +15268,16 @@ private static final String[] TV_SOURCES = {
 
     private void tvSearchNextSource(){
         final WebView page=tvSearchWeb;final int generation=tvSearchGen;
-        if(page==null || !tvSearching || tvSearchChecking || tvSearchSelectors.size()>=6)return;
+        if(page==null || !tvSearching || tvSearchChecking || tvSearchSelecting
+                || SystemClock.uptimeMillis()<tvSearchNextAt || tvSearchSelectors.size()>=6)return;
+        tvSearchSelecting=true;
         page.evaluateJavascript(TV_NEXT_SOURCE_JS.replace("__SEEN__",new JSONArray(tvSearchSelectors).toString()),value->{
-            if(page!=tvSearchWeb || generation!=tvSearchGen || value==null)return;
-            try{String key=new JSONArray("["+value+"]").optString(0);if(!key.isEmpty())tvSearchSelectors.add(key);}catch(Exception ignored){}
+            if(page!=tvSearchWeb || generation!=tvSearchGen)return;
+            tvSearchSelecting=false;
+            if(value==null)return;
+            try{String key=new JSONArray("["+value+"]").optString(0);if(!key.isEmpty()){
+                tvSearchSelectors.add(key);tvSearchNextAt=SystemClock.uptimeMillis()+5000;
+            }}catch(Exception ignored){}
         });
     }
 
@@ -15314,6 +15312,8 @@ private static final String[] TV_SOURCES = {
         tvSearchSi = si;
         tvSearchTune = thenTune;
         tvSearchSelectors.clear();
+        tvSearchNextAt=0;
+        tvSearchSelecting=false;
         ++tvSearchGen;
         tvCapturing = true;
         tvReloaded = true; // страницата не се презарежда: плеърът свири и търсенето е кратко
@@ -15516,7 +15516,7 @@ private static final String[] TV_SOURCES = {
         java.net.HttpURLConnection con = null;
         try {
             con = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
-            int timeout=(int)Math.max(1,Math.min(2000,deadline-SystemClock.uptimeMillis()));
+            int timeout=(int)Math.max(1,Math.min(6000,deadline-SystemClock.uptimeMillis()));
             con.setConnectTimeout(timeout);
             con.setReadTimeout(timeout);
             con.setInstanceFollowRedirects(true);
