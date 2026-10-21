@@ -15367,11 +15367,14 @@ private static final String[] TV_SOURCES = {
         TvSrc s = c.srcs.get(si);
         // Известните потоци не се дублират; резервите могат да идват от различен CDN.
         final HashSet<String> known = new HashSet<>();
-        if (!s.stream.isEmpty()) {
+        if (!s.stream.isEmpty() && (s.stream.equals(tvTryUrl)
+                || (s.fails == 0 && !tvSessBad.contains(s.stream)))) {
             known.add(tvStreamKey(s.stream));
         }
         for (String[] al : s.alts) {
-            known.add(tvStreamKey(al[0]));
+            if (al[0].equals(tvTryUrl) || (tvAltFails(al) == 0 && !tvSessBad.contains(al[0]))) {
+                known.add(tvStreamKey(al[0]));
+            }
         }
         final String ua = tvUaOf(s);
         if (urls.isEmpty()) {
