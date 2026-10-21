@@ -9225,6 +9225,8 @@ private static final String[] TV_SOURCES = {
 
     private LinearLayout tvDashboardPill(int icon, String title, Runnable action) {
         LinearLayout button = tvPill(icon, title, action);
+        // The shared focus border stays inside tight toolbar and dialog rows.
+        button.setOnFocusChangeListener(null);
         button.setBackground(TvTheme.control(U,false));
         for (int i = 0; i < button.getChildCount(); i++) {
             View child = button.getChildAt(i);
@@ -11743,8 +11745,8 @@ private static final String[] TV_SOURCES = {
         LinearLayout.LayoutParams programmeLp=lp(WC,u(55));programmeLp.leftMargin=u(14);actions.addView(tvDashboardPill(IC_CLOCK,"Програма",()->tvProgrammeDialog()),programmeLp);
         tvStreamControl=text("Потоци",20,TvTheme.TEXT,tfMedium,true);tvStreamControl.setGravity(Gravity.CENTER);tvStreamControl.setPadding(u(24),0,u(24),0);tvStreamControl.setFocusable(true);tvStreamControl.setClickable(true);tvStreamControl.setBackground(TvTheme.control(U,false));tvStreamControl.setOnClickListener(v->tvStreamPicker());tvStreamControl.setOnLongClickListener(v->{if(tvCur!=null)tvChannelMenu(tvCur);return true;});LinearLayout.LayoutParams stream=lp(WC,u(55));stream.leftMargin=u(14);actions.addView(tvStreamControl,stream);
         LinearLayout.LayoutParams quality=lp(WC,u(55));quality.leftMargin=u(14);actions.addView(tvDashboardPill(IC_SLIDERS,"Качество",()->tvQualityDialog()),quality);
-        tvPauseControl=playerControl("❚❚","Пауза / Пусни",()->tvTogglePause(),false);actions.addView(tvPauseControl,lp(u(60),u(55)));
-        tvFavouriteControl=playerControl("☆","Любим канал",()->{if(tvCur!=null){String key="tvfav:"+tvCur.id;prefs.edit().putBoolean(key,!prefs.getBoolean(key,false)).apply();tvShowBanner(0,null);}},false);actions.addView(tvFavouriteControl,lp(u(60),u(55)));bottom.addView(actions,lpTopW(MP,u(55),u(25)));
+        tvPauseControl=playerControl("❚❚","Пауза / Пусни",()->tvTogglePause(),false);LinearLayout.LayoutParams pauseLp=lp(u(60),u(55));pauseLp.leftMargin=u(14);actions.addView(tvPauseControl,pauseLp);
+        tvFavouriteControl=playerControl("☆","Любим канал",()->{if(tvCur!=null){String key="tvfav:"+tvCur.id;prefs.edit().putBoolean(key,!prefs.getBoolean(key,false)).apply();tvShowBanner(0,null);}},false);LinearLayout.LayoutParams favouriteLp=lp(u(60),u(55));favouriteLp.leftMargin=u(14);actions.addView(tvFavouriteControl,favouriteLp);bottom.addView(actions,lpTopW(MP,u(55),u(25)));
         for(int i=0;i<actions.getChildCount();i++){View control=actions.getChildAt(i);control.setId(View.generateViewId());control.setNextFocusUpId(control.getId());control.setNextFocusDownId(control.getId());if(i>0){control.setNextFocusLeftId(actions.getChildAt(i-1).getId());actions.getChildAt(i-1).setNextFocusRightId(control.getId());}}
         tvKeys=new LinearLayout(this);tvKeys.setGravity(Gravity.CENTER_VERTICAL);tvChipZap=text("↑↓ Канал",16,TvTheme.MUTED,tfMedium,true);tvChipStream=text("← Поток",16,TvTheme.MUTED,tfMedium,true);tvChipSrc=text("→ Сайт",16,TvTheme.MUTED,tfMedium,true);tvKeyEnd=text("OK Управление · MENU Раздели",16,TvTheme.MUTED,tfMedium,true);
         for(View hintView:new View[]{tvChipZap,tvChipStream,tvChipSrc,tvKeyEnd}){LinearLayout.LayoutParams hintLp=lp(WC,WC);hintLp.rightMargin=u(28);tvKeys.addView(hintView,hintLp);}bottom.addView(tvKeys,lpTopW(MP,WC,u(22)));tvBanner.addView(bottom,new FrameLayout.LayoutParams(MP,WC,Gravity.BOTTOM));
