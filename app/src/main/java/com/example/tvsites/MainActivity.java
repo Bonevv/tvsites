@@ -40,7 +40,9 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.Settings;
 import android.text.InputType;
+import android.text.Editable;
 import android.text.TextUtils;
+import android.text.TextWatcher;
 import android.util.LruCache;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -2766,7 +2768,7 @@ private static final String[] TV_SOURCES = {
                 }
                 if (u != null && u.startsWith("http")) hideSplash();
                 if (u != null && u.startsWith("http")) srcDone();
-                if (tvCapturing && u != null && u.startsWith("http")) tvPageFinished();
+                if (tvCapturing && u != null && u.startsWith("http")) tvPageFinished(true);
             }
 
             // Страница с код 404 или 5xx (няма такъв филм там): минава на следващия източник.
@@ -3309,12 +3311,6 @@ private static final String[] TV_SOURCES = {
                 target.remove(eldest);
             }
         }
-        if(kind==1 && tvSearchWeb!=null){final int generation=tvSearchGen;ui.post(()->{
-            if(generation!=tvSearchGen || !tvSearching || tvSearchChecking || tvCur==null || tvSearchSi<0 || tvSearchSi>=tvCur.srcs.size())return;
-            TvSrc source=tvCur.srcs.get(tvSearchSi);String identity=tvStreamKey(url);boolean known=identity.equals(tvStreamKey(source.stream));
-            for(String[] alternate:source.alts)if(identity.equals(tvStreamKey(alternate[0])))known=true;
-            if(!known){ui.removeCallbacks(tvSearchEndRun);ui.postDelayed(tvSearchEndRun,700);}
-        });}
         // Скритото търсене на канал: след кратко изчакване се проверява новият поток.
         if ((kind == 1 || (kind == 2 && tvVod)) && tvCapturing) {
             ui.removeCallbacks(tvCheckRun);
@@ -4576,7 +4572,7 @@ private static final String[] TV_SOURCES = {
         cy = ny;
         updateCursor();
         // Истинско движение на мишката към страницата: плеърите показват лентата си.
-        hoverAt(customView != null ? customView : web, cx, cy);
+        hoverAt(root, cx, cy);
         pokeCursor();
     }
 
@@ -4753,7 +4749,7 @@ private static final String[] TV_SOURCES = {
     private void cursorArrow(View target, int code, int rep) {
         boolean vert = code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN;
         if (scrollMode && vert) {
-            swipeStep(target, code == KeyEvent.KEYCODE_DPAD_DOWN ? 1 : -1, rep);
+            swipeStep(root, code == KeyEvent.KEYCODE_DPAD_DOWN ? 1 : -1, rep);
             pokeCursor();
             return;
         }
@@ -5108,7 +5104,7 @@ private static final String[] TV_SOURCES = {
             okPending = false;
             if (customView != null) {
                 if (!okWasIdle) {
-                    tapAt(customView, cx, cy);
+                    tapAt(root, cx, cy);
                     pokeCursor();
                 } else {
                     togglePlayback();
@@ -5118,7 +5114,7 @@ private static final String[] TV_SOURCES = {
                     // Ако курсорът е бил скрит, първото натискане само го показва.
                     pokeCursor();
                 } else {
-                    tapAt(web, cx, cy);
+                    tapAt(root, cx, cy);
                     pokeCursor();
                     checkEditableSoon();
                 }
@@ -8245,7 +8241,7 @@ private static final String[] TV_SOURCES = {
         final ArrayList<String[]> alts = new ArrayList<>();
     }
 
-    private static final int TV_MAX_ALTS = 4; // резервни потоци на един сайт (освен основния)
+    private static final int TV_MAX_ALTS = 2; // до три потока на сайт, включително основния
 
     private static class TvChan {
         String id = "", name = "";
@@ -10050,6 +10046,64 @@ private static final String[] TV_SOURCES = {
         tvDialogShow(card, 840, newRow);
     }
 
+    private static boolean tvSameWebsite(TvSrc a,TvSrc b){
+        if(a.site.equalsIgnoreCase(b.site))return true;
+        String host=hostOf(a.page),other=hostOf(b.page);
+        if(!host.isEmpty() && host.equalsIgnoreCase(other))return true;
+        return mediaKind(b.page)!=0 && !host.isEmpty() && host.equalsIgnoreCase(hostOf(b.ref));
+    }
+
+    // 1 = записан, 0 = дубликат, -1 = трите работещи места са заети.
+    private int tvKeepStream(TvChan channel,TvSrc source,String[] incoming){
+        String active=tvMode && tvCur==channel?nz(tvTryUrl):"";
+        String key=tvStreamKey(incoming[0]);
+        if(!source.stream.isEmpty() && key.equals(tvStreamKey(source.stream))){
+            if(!source.stream.equals(active) && (source.fails>0 || tvSessBad.contains(source.stream))){
+                source.stream=incoming[0];source.ref=incoming[1];source.org=incoming[2];source.ua=incoming[3];source.fails=0;return 1;
+            }
+            return 0;
+        }
+        for(int i=0;i<source.alts.size();i++){
+            String[] old=source.alts.get(i);
+            if(key.equals(tvStreamKey(old[0]))){
+                if(!old[0].equals(active) && (tvAltFails(old)>0 || tvSessBad.contains(old[0]))){source.alts.set(i,incoming);return 1;}
+                return 0;
+            }
+        }
+        if(source.stream.isEmpty() || (!source.stream.equals(active) && (source.fails>0 || tvSessBad.contains(source.stream)))){
+            source.stream=incoming[0];source.ref=incoming[1];source.org=incoming[2];source.ua=incoming[3];source.fails=0;return 1;
+        }
+        int replace=-1,worst=0;
+        for(int i=0;i<source.alts.size();i++){
+            String[] old=source.alts.get(i);if(old[0].equals(active))continue;
+            int failed=tvAltFails(old)+(tvSessBad.contains(old[0])?100:0);
+            if(failed>worst){worst=failed;replace=i;}
+        }
+        if(replace>=0){source.alts.set(replace,incoming);return 1;}
+        if(source.alts.size()>=TV_MAX_ALTS)return -1;
+        source.alts.add(incoming);return 1;
+    }
+
+    private void tvAddStreamDialog(final TvChan channel,final int site,Runnable done){
+        if(site<0 || site>=channel.srcs.size())return;final TvSrc source=channel.srcs.get(site);
+        tvDialogClose();
+        EditText input=new EditText(this);input.setSingleLine(true);input.setHint("https://…");input.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Добави поток · "+source.site).setView(input)
+                .setPositiveButton("Запази",null).setNegativeButton("Отказ",null).create();
+        tvDialog=dialog;
+        dialog.setOnDismissListener(d->{if(tvDialog==dialog)tvDialog=null;hideSystemBars();});
+        dialog.show();
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            String url=input.getText().toString().trim();Uri uri=Uri.parse(url);
+            if((!"https".equalsIgnoreCase(uri.getScheme()) && !"http".equalsIgnoreCase(uri.getScheme())) || nz(uri.getHost()).isEmpty()){
+                input.setError("Въведи пълен HTTP или HTTPS адрес");return;
+            }
+            int saved=tvKeepStream(channel,source,new String[]{url,source.ref,source.org,source.ua,"0"});
+            if(saved<0){input.setError("Има 3 работещи потока. Премахни ненужния от управлението на канала.");return;}
+            if(saved>0)tvSave();tvBannerRefresh();dialog.dismiss();if(done!=null)done.run();
+        });
+    }
+
     // Записва източника в канала. Същото име = същият канал; същият сайт = заменя стария източник.
     // Избор на качество за родния плеър: оригинал или най-много 720p, 576p, 480p.
     private void tvQualityDialog() {
@@ -10108,24 +10162,13 @@ private static final String[] TV_SOURCES = {
         boolean extra = false;
         for (int i = 0; i < c.srcs.size(); i++) {
             TvSrc old = c.srcs.get(i);
-            if (old.site.equalsIgnoreCase(src.site)) {
-                if (!old.stream.isEmpty() && !src.stream.isEmpty()
-                        && !old.stream.equals(src.stream)) {
-                    // Същата страница, друг поток: пази се като резервен за този източник.
-                    boolean have = false;
-                    for (String[] al : old.alts) {
-                        if (al[0].equals(src.stream)) have = true;
-                    }
-                    if (!have) {
-                        if (old.alts.size() >= TV_MAX_ALTS) old.alts.remove(0);
-                        old.alts.add(new String[]{src.stream, src.ref, src.org, src.ua, "0"});
-                    }
-                    extra = true;
-                } else {
-                    src.alts.addAll(old.alts);
-                    src.alts.remove(null);
-                    c.srcs.set(i, src);
+            if (tvSameWebsite(old,src)) {
+                if(!src.stream.isEmpty()){
+                    int saved=tvKeepStream(c,old,new String[]{src.stream,src.ref,src.org,src.ua,"0"});
+                    if(saved<0){Toast.makeText(this,"Този сайт вече има 3 работещи потока",Toast.LENGTH_LONG).show();return;}
+                    extra=saved>0;
                 }
+                if(old.page.isEmpty())old.page=src.page;
                 replaced = true;
                 break;
             }
@@ -10196,8 +10239,8 @@ private static final String[] TV_SOURCES = {
             @Override
             public void run() {
                 tvDialogClose();
-                tvMoreChan = c;
-                tvTuneUser(c, -1);
+                if(tvMode && !tvVod && tvCur==c && tvPlaying)tvMoreStart(false);
+                else{tvMoreChan=c;tvTuneUser(c,-1);}
             }
         }), lpTopW(MP, u(62), u(10)));
         list.addView(tvChoice(null, "Източници", String.valueOf(c.srcs.size()), 0, new Runnable() {
@@ -10301,6 +10344,8 @@ private static final String[] TV_SOURCES = {
                 if (first == null) first = row;
             }
         }
+        LinearLayout addStream=tvChoice(null,"Добави поток",null,0,()->{tvDialogClose();tvAddStreamDialog(c,i,()->tvSourceMenu(c,i));});
+        list.addView(addStream,lpTopW(MP,u(62),first==null?0:u(10)));if(first==null)first=addStream;
         if (i > 0) {
             LinearLayout mk = tvChoice(null, "Направи основен", null, 1, new Runnable() {
                 @Override
@@ -10548,6 +10593,7 @@ private static final String[] TV_SOURCES = {
     }
 
     private int[] tvForce;
+    private boolean tvPreferSource;
     private boolean tvPinned;   // {източник, -1 = основен поток | номер на резервния}
 
     // Пуска точно определен поток на източника (k = -1 основен, 0.. резервните).
@@ -10605,7 +10651,7 @@ private static final String[] TV_SOURCES = {
         tvSwitches = 0;
         tvSessBad.clear();
         tvCapMap.clear();
-        tvSearched.clear();
+        tvPreferSource=firstSrc>=0;
         if (tvMoreChan != null && tvMoreChan != c) tvMoreChan = null;
         tvTune(c, firstSrc);
     }
@@ -10614,6 +10660,7 @@ private static final String[] TV_SOURCES = {
     private void tvTune(TvChan c, int firstSrc) {
         tvCloseTimeline();
         if (c == null || c.srcs.isEmpty() || isFinishing()) return;
+        boolean preferSource=tvPreferSource;tvPreferSource=false;
         ensureLayers();
         tvBuildOsd();
         if (!tvMode && player != null) closeNative(false); // чужд плеър (не е на телевизията)
@@ -10665,7 +10712,7 @@ private static final String[] TV_SOURCES = {
                 }
             }
             if (capOk) {
-                if(tvVod)tvPlan.add(new int[]{i, TV_CAPTURE});
+                if(tvVod || (preferSource && i==tvFirstSrc))tvPlan.add(new int[]{i, TV_CAPTURE});
                 else captures.add(new int[]{i, TV_CAPTURE});
             }
         }
@@ -10712,7 +10759,6 @@ private static final String[] TV_SOURCES = {
         tvSearching = false;
         tvSearchChecking = false;
         tvSearchTune = false;
-        tvSearchPlayer = null;
         tvSearchWeb = null;
         if(tvSearchTask!=null){tvSearchTask.cancel(true);tvSearchTask=null;}
         TV_SEARCH_NET.purge();
@@ -11452,12 +11498,17 @@ private static final String[] TV_SOURCES = {
     private final Runnable tvPokeFallback = new Runnable() {
         @Override
         public void run() {
-            if (tvMode && tvCapturing) tvPageFinished();
+            if (tvMode && tvCapturing) tvPageFinished(false);
         }
     };
 
     // Страницата се е заредила: започва да се "буткат" плеърите да тръгнат.
-    private void tvPageFinished() {
+    private void tvPageFinished(boolean loaded) {
+        if(loaded && tvSearching && !tvSearchPageReady){
+            tvSearchPageReady=true;tvPokeN=0;ui.removeCallbacks(tvPokeRun);
+            ui.removeCallbacks(tvSearchEndRun);
+            ui.postDelayed(tvSearchEndRun,Math.max(0,Math.min(TV_SEARCH_MS,tvSearchDeadline-SystemClock.uptimeMillis())));
+        }
         if (tvPokeN > 0 || !tvCapturing) return;
         tvPokeN = 1;
         ui.removeCallbacks(tvPokeRun);
@@ -11471,6 +11522,7 @@ private static final String[] TV_SOURCES = {
             int n = tvPokeN++;
             if (!tvTrying) {
                 web.evaluateJavascript(TV_MUTE_JS, null);
+                if(tvSearching)tvSearchNextSource();
                 web.evaluateJavascript(TV_PLAY_JS, null);
                 tvScanResources();
                 // Страница, която виси или не е показала плеър: едно презареждане често я оправя.
@@ -11485,7 +11537,7 @@ private static final String[] TV_SOURCES = {
                     tvPokeN = 1;
                 }
                 // Плеър в чужда рамка не се достига със скрипт: натискаме върху него като потребител.
-                if (n == 3 || n == 6) tvTapPlayer();
+                if (!tvSearching && (n == 3 || n == 6)) tvTapPlayer();
             }
             if (n < 9) ui.postDelayed(this, n < 3 ? 2300 : 3500);
         }
@@ -12047,7 +12099,6 @@ private static final String[] TV_SOURCES = {
 
     private void tvTogglePause() {
         if (player == null || !tvPlaying) return;
-        if(tvSearchWeb!=null){tvSearchResumePlayback=!tvSearchResumePlayback;tvShowBanner(0,"Търся още потоци…");return;}
         boolean play = !player.getPlayWhenReady();
         player.setPlayWhenReady(play);
         tvShowBanner(2500, play ? "▶  Пуснато" : "❚❚  Пауза");
@@ -12065,7 +12116,8 @@ private static final String[] TV_SOURCES = {
             for(int i=0;i<channel.srcs.size();i++){final int source=i;TvSrc s=channel.srcs.get(i);TextView site=filterChip(s.site+"\n"+(s.stream.isEmpty()?"Търсене от сайта":(1+s.alts.size())+" потока"),i==selected[0],()->{selected[0]=source;refill[0].run();sitesPanel.getChildAt(source).requestFocusFromTouch();});site.setSingleLine(false);site.setMaxLines(2);site.setGravity(Gravity.CENTER_VERTICAL);sitesPanel.addView(site,lpTopW(MP,u(80),u(i==0?0:12)));}
             TvSrc source=channel.srcs.get(selected[0]);int count=source.stream.isEmpty()?0:1+source.alts.size();
             for(int i=0;i<count;i++){final int stream=i;boolean active=tvSrcNowIdx()==selected[0] && tvStreamNowIdx()==i;View choice=tvDashboardPill(active?IC_CHECK:IC_PLAY,"Поток "+(i+1)+(active?" · избран":" · резервен"),()->{int site=selected[0];streamDialog.dismiss();tvTuneStream(channel,site,stream-1);});choice.setBackground(TvTheme.control(U,active));streamsPanel.addView(choice,lpTopW(MP,u(68),u(i==0?0:12)));}
-            streamsPanel.addView(tvDashboardPill(IC_REFRESH,"Провери за още потоци",()->{int site=selected[0];streamDialog.dismiss();if(tvMode && tvCur==channel && tvSrcNowIdx()==site && tvPlaying)tvMoreStart(true);else{tvMoreChan=channel;tvTuneUser(channel,site);}}),lpTopW(MP,u(56),u(16)));
+            streamsPanel.addView(tvDashboardPill(IC_PLUS,"Добави поток",()->{int site=selected[0];streamDialog.dismiss();tvAddStreamDialog(channel,site,()->tvStreamPicker());}),lpTopW(MP,u(56),u(16)));
+            streamsPanel.addView(tvDashboardPill(IC_REFRESH,"Провери за още потоци",()->{int site=selected[0];streamDialog.dismiss();if(tvMode && tvCur==channel && tvSrcNowIdx()==site && tvPlaying)tvMoreStart(false);else{tvMoreChan=channel;tvTuneUser(channel,site);}}),lpTopW(MP,u(56),u(16)));
         };refill[0].run();
         panel.addView(text("При прекъсване: потоците тук → другите сайтове за същия канал",17,TvTheme.MUTED,tfMedium,true),lpTopW(MP,WC,u(20)));
         LinearLayout footer=new LinearLayout(this);footer.addView(tvDashboardPill(IC_SLIDERS,"Управление на канала",()->{streamDialog.dismiss();tvChannelMenu(channel);}),lp(WC,u(52)));LinearLayout.LayoutParams back=lp(WC,u(52));back.leftMargin=u(16);footer.addView(tvDashboardPill(IC_CHECK,"Готово",()->streamDialog.dismiss()),back);panel.addView(footer,lpTopW(MP,u(52),u(22)));
@@ -14415,7 +14467,7 @@ private static final String[] TV_SOURCES = {
         subDlg = null;
     }
 
-    // Синхрон: ◀ ▶ местят субтитрите по-рано или по-късно (задържане = по-бързо), OK затваря.
+    // Ръчно отместване или изчисляване по началото на избрана реплика.
     private void subSyncDialog() {
         if (subCur == null) return;
         LinearLayout card = tvCard("Синхрон на субтитрите",
@@ -14436,14 +14488,14 @@ private static final String[] TV_SOURCES = {
                 if (keyCode != KeyEvent.KEYCODE_DPAD_LEFT && keyCode != KeyEvent.KEYCODE_DPAD_RIGHT) return false;
                 long step = ev.getRepeatCount() >= 8 ? 1000 : 250;
                 subShift += keyCode == KeyEvent.KEYCODE_DPAD_LEFT ? -step : step;
-                if (subShift < -120000) subShift = -120000;
-                if (subShift > 120000) subShift = 120000;
                 val.setText(subShiftText());
                 subSeeked();
                 return true;
             }
         });
         card.addView(row, lpTopW(MP, u(110), u(22)));
+        card.addView(tvChoice(null, "По реплика", "изчисли автоматично", 0,
+                () -> subLineDialog()), lpTopW(MP, u(60), u(12)));
         LinearLayout reset = tvChoice(null, "Нулирай", null, 0, new Runnable() {
             @Override
             public void run() {
@@ -14466,6 +14518,144 @@ private static final String[] TV_SOURCES = {
                 }
             });
         }
+    }
+
+    private boolean subSyncCurrent(long[] times, String[] lines, String movie) {
+        return tvVod && player != null && subCur != null && subFrom == times
+                && subTxt == lines && vodKey.equals(movie);
+    }
+
+    private void subLineDialog() {
+        if (!tvVod || player == null || subCur == null || subTxt.length == 0) return;
+        final long[] times = subFrom;
+        final String[] lines = subTxt;
+        final String movie = vodKey;
+        LinearLayout card = tvCard("Синхрон по реплика",
+                "Избери реплика. После натисни „Репликата е сега“, когато започнеш да я чуваш.");
+        EditText search = new EditText(this);
+        search.setSingleLine(true);
+        search.setHint("Търси реплика…");
+        search.setContentDescription("Търси реплика");
+        search.setTextColor(T_TEXT);
+        search.setHintTextColor(T_TEXT3);
+        search.setPadding(u(20), u(8), u(20), u(8));
+        search.setBackground(stateBg(0x14FFFFFF, 0x1FFFFFFF, T_SKY, u(18), 0x40FFFFFF));
+        ts(search, 24);
+        search.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        card.addView(search, lpTopW(MP, u(60), u(18)));
+
+        final ArrayList<Integer> visible = new ArrayList<>();
+        for (int i = 0; i < lines.length; i++) visible.add(i);
+        ListView list = new ListView(this);
+        list.setDivider(new ColorDrawable(Color.TRANSPARENT));
+        list.setDividerHeight(u(6));
+        list.setSelector(tvPrimaryBg(u(14)));
+        list.setDrawSelectorOnTop(false);
+        list.setVerticalScrollBarEnabled(true);
+        list.setFocusable(true);
+        list.setContentDescription("Реплики от субтитрите");
+        BaseAdapter adapter = new BaseAdapter() {
+            @Override public int getCount() { return visible.size(); }
+            @Override public Object getItem(int position) { return visible.get(position); }
+            @Override public long getItemId(int position) { return visible.get(position); }
+            @Override public View getView(int position, View convert, ViewGroup parent) {
+                LinearLayout row;
+                if (convert instanceof LinearLayout) row = (LinearLayout) convert;
+                else {
+                    row = new LinearLayout(MainActivity.this);
+                    row.setOrientation(LinearLayout.VERTICAL);
+                    row.setPadding(u(20), u(10), u(20), u(10));
+                    row.addView(text("", 16, T_TEXT3, tfMedium, true));
+                    TextView line = text("", 25, T_TEXT, tfMedium, false);
+                    line.setMaxLines(3);
+                    line.setEllipsize(TextUtils.TruncateAt.END);
+                    row.addView(line);
+                }
+                int index = visible.get(position);
+                ((TextView) row.getChildAt(0)).setText(vodFmt(times[index]));
+                ((TextView) row.getChildAt(1)).setText(lines[index]);
+                return row;
+            }
+        };
+        list.setAdapter(adapter);
+        FrameLayout results = new FrameLayout(this);
+        results.addView(list, new FrameLayout.LayoutParams(MP, MP));
+        TextView empty = text("Няма такава реплика", 24, T_TEXT2, tfMedium, false);
+        empty.setGravity(Gravity.CENTER);
+        results.addView(empty, new FrameLayout.LayoutParams(MP, MP));
+        list.setEmptyView(empty);
+        card.addView(results, lpTopW(MP, u(300), u(14)));
+        list.setOnItemClickListener((parent, view, position, id) -> {
+            if (!subSyncCurrent(times, lines, movie)) { tvDialogClose(); return; }
+            ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE))
+                    .hideSoftInputFromWindow(search.getWindowToken(), 0);
+            subLineConfirm(visible.get(position), times, lines, movie);
+        });
+        search.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                String query = s.toString().trim().toLowerCase(Locale.ROOT);
+                visible.clear();
+                for (int i = 0; i < lines.length; i++) {
+                    if (lines[i].toLowerCase(Locale.ROOT).contains(query)) visible.add(i);
+                }
+                adapter.notifyDataSetChanged();
+                list.setSelection(0);
+            }
+            @Override public void afterTextChanged(Editable s) { }
+        });
+        search.setOnEditorActionListener((v, action, event) -> {
+            ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE))
+                    .hideSoftInputFromWindow(search.getWindowToken(), 0);
+            list.requestFocus();
+            return true;
+        });
+        card.addView(tvChoice(null, "Назад", null, 0, () -> subSyncDialog()),
+                lpTopW(MP, u(54), u(14)));
+        long at = player.getCurrentPosition() - subShift;
+        int lo = 0, hi = times.length - 1;
+        while (lo < hi) {
+            int mid = (lo + hi + 1) >>> 1;
+            if (times[mid] <= at) lo = mid;
+            else hi = mid - 1;
+        }
+        tvDialogShow(card, 900, list);
+        list.setSelection(lo);
+        subDlg = null;
+    }
+
+    private void subLineConfirm(int index, long[] times, String[] lines, String movie) {
+        if (!subSyncCurrent(times, lines, movie) || index < 0 || index >= times.length) return;
+        LinearLayout card = tvCard("Синхрон по реплика",
+                "Пусни филма и натисни „Репликата е сега“ при началото на избраната реплика.");
+        TextView line = text(lines[index], 30, T_TEXT, tfMedium, false);
+        line.setMaxLines(4);
+        line.setEllipsize(TextUtils.TruncateAt.END);
+        card.addView(line, lpTopW(MP, WC, u(20)));
+        LinearLayout now = tvChoice(null, "Репликата е сега", null, 1, () -> {
+            if (!subSyncCurrent(times, lines, movie)) { tvDialogClose(); return; }
+            if (player.getPlaybackState() != Player.STATE_READY) {
+                Toast.makeText(this, "Изчакай филмът да се зареди", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            subShift = player.getCurrentPosition() - times[index];
+            subSaveChoice();
+            subSeeked();
+            tvDialogClose();
+            vodShowBar(5000, "Синхрон: " + subShiftText());
+        });
+        card.addView(now, lpTopW(MP, u(68), u(22)));
+        card.addView(tvChoice(null, player.getPlayWhenReady() ? "Пауза" : "Продължи филма", null, 0, () -> {
+            if (!subSyncCurrent(times, lines, movie)) { tvDialogClose(); return; }
+            player.setPlayWhenReady(!player.getPlayWhenReady());
+            subLineConfirm(index, times, lines, movie);
+        }), lpTopW(MP, u(58), u(12)));
+        card.addView(tvChoice(null, "Избери друга реплика", null, 0, () -> subLineDialog()),
+                lpTopW(MP, u(58), u(12)));
+        card.addView(tvChoice(null, "Отказ", null, 0, () -> tvDialogClose()),
+                lpTopW(MP, u(58), u(12)));
+        tvDialogShow(card, 840, now);
+        subDlg = null;
     }
 
     // ---- готов списък канали, проверка на линковете, неработещи ----
@@ -15046,14 +15236,13 @@ private static final String[] TV_SOURCES = {
     // „Обнови потоците“ в менюто на канала. Скритата страница на сайта се отваря за кратко, събират
     // се плейлистите, които тя поиска, и всеки се проверява с една малка заявка: истински ли е,
     // на живо ли е, и не е ли просто вариант (качество) на поток, който вече имаме. Новите
-    // стават резервни потоци на сайта (най-много 4 резервни).
+    // стават резервни потоци на сайта (до три общо с основния).
 
     private boolean tvSearching;
     private boolean tvSearchChecking;
+    private boolean tvSearchPageReady;
+    private long tvSearchDeadline;
     private volatile WebView tvSearchWeb;
-    private ExoPlayer tvSearchPlayer;
-    private boolean tvSearchResumePlayback;
-    private float tvSearchVolume;
     private Future<?> tvSearchTask;
     private static final ThreadPoolExecutor TV_SEARCH_NET = new ThreadPoolExecutor(0,1,15,TimeUnit.SECONDS,
             new LinkedBlockingQueue<Runnable>(),lowPriority("tvs-stream"));
@@ -15061,8 +15250,8 @@ private static final String[] TV_SOURCES = {
     private boolean tvSearchTune;                // след търсенето да се мине на първия нов поток
     private int tvSearchGen;
     private TvChan tvMoreChan;                   // канал, за който от менюто е поискано търсене след пускане
-    private final HashSet<Integer> tvSearched = new HashSet<>(); // сайтове, търсени в това гледане
-    private static final long TV_SEARCH_MS = 18000;
+    private final HashSet<String> tvSearchSelectors = new HashSet<>();
+    private static final long TV_SEARCH_MS = 30000;
     private static final long TV_SEARCH_PROBE_MS = 8000;
     private long tvSearchBusyUntil;              // до кога скритата страница може да натоварва кутията
 
@@ -15072,14 +15261,7 @@ private static final String[] TV_SOURCES = {
         return path.matches(".*\\.(ts|m4s|aac|mp3|webm|ogg|m4a)$");
     }
 
-    private void tvSearchRestorePlayback(){
-        ExoPlayer previous=tvSearchPlayer;tvSearchPlayer=null;
-        if(previous!=null && previous==player && tvMode && !tvVod && tvPlaying){
-            previous.setVolume(tvSearchVolume);previous.setPlayWhenReady(tvSearchResumePlayback);
-        }
-    }
-
-    // Допълнително заглушаване на страницата; родният плеър е спрян до унищожаването ѝ.
+    // Страницата е без звук; текущият поток продължава в родния плеър.
     private static final String TV_MUTE_JS =
             "(function(){try{function m(){var a=document.querySelectorAll('video,audio');"
                     + "for(var i=0;i<a.length;i++){try{a[i].muted=true;a[i].volume=0;}catch(e){}}}"
@@ -15089,6 +15271,17 @@ private static final String[] TV_SOURCES = {
                     + "var t=0;new MutationObserver(function(){if(t)return;"
                     + "t=setTimeout(function(){t=0;m();},500);}).observe(document.documentElement,"
                     + "{childList:true,subtree:true});}}catch(e){}})()";
+
+    private static final String TV_NEXT_SOURCE_JS = "(function(seen){\n  var chosen='';\n  function walk(d,depth){\n    if(chosen || depth>3)return;\n    try{\n      var items=d.querySelectorAll('button,a,[role=\"button\"],input[type=\"button\"],input[type=\"submit\"],option,[data-player],[data-source],[data-server],[data-stream]');\n      for(var i=0;i<items.length;i++){\n        var e=items[i],label=(e.getAttribute('aria-label')||e.textContent||e.value||'').replace(/\\s+/g,' ').trim();\n        var marked=e.getAttribute('data-player')||e.getAttribute('data-source')||e.getAttribute('data-server')||e.getAttribute('data-stream')||'';\n        if(!/^(?:пле(?:йъ|й|ъ|е)?р|player|поток|stream|източник|source|сървър|server)\\s*[#№:_-]?\\s*(?:[1-6]|[a-f])(?:\\s*(?:hd|sd|резервен|backup))?$/i.test(label) && !/^[1-6]$/.test(marked))continue;\n        var r=e.getBoundingClientRect();if(e.tagName!=='OPTION' && (r.width<2 || r.height<2))continue;\n        var key=(d.URL||'').split('?')[0]+'|'+label+'|'+marked;\n        if(seen.indexOf(key)>=0)continue;\n        chosen=key;\n        if(e.tagName==='OPTION'){e.parentNode.value=e.value;e.parentNode.dispatchEvent(new Event('change',{bubbles:true}));}else e.click();\n        return;\n      }\n      var frames=d.querySelectorAll('iframe');\n      for(var n=0;n<frames.length&&!chosen;n++){try{if(frames[n].contentDocument)walk(frames[n].contentDocument,depth+1);}catch(ignored){}}\n    }catch(ignored){}\n  }\n  walk(document,0);return chosen;\n})(__SEEN__)\n";
+
+    private void tvSearchNextSource(){
+        final WebView page=tvSearchWeb;final int generation=tvSearchGen;
+        if(page==null || !tvSearching || tvSearchChecking || tvSearchSelectors.size()>=6)return;
+        page.evaluateJavascript(TV_NEXT_SOURCE_JS.replace("__SEEN__",new JSONArray(tvSearchSelectors).toString()),value->{
+            if(page!=tvSearchWeb || generation!=tvSearchGen || value==null)return;
+            try{String key=new JSONArray("["+value+"]").optString(0);if(!key.isEmpty())tvSearchSelectors.add(key);}catch(Exception ignored){}
+        });
+    }
 
     // Има ли смисъл да се търси: текущият сайт има страница, която сочи точно към канала.
     private boolean tvSearchable() {
@@ -15109,26 +15302,23 @@ private static final String[] TV_SOURCES = {
         int si = tvSrcNowIdx();
         if (si < 0 || si >= c.srcs.size()) return;
         TvSrc s = c.srcs.get(si);
-        if (!tvPlaying || tvCapturing || !tvCapturable(s) || tvSearched.contains(si)) {
+        if (!tvPlaying || tvCapturing || !tvCapturable(s)) {
             tvShowBanner(2500, "Няма друг поток на този сайт · → за друг сайт");
             return;
         }
-        tvSearched.add(si);
         tvSearching = true;
         tvSearchChecking = false;
-        tvSearchBusyUntil = SystemClock.uptimeMillis() + TV_SEARCH_MS + 12000;
+        tvSearchPageReady=false;
+        tvSearchDeadline=SystemClock.uptimeMillis()+60000;
+        tvSearchBusyUntil = tvSearchDeadline + TV_SEARCH_PROBE_MS + 500;
         tvSearchSi = si;
         tvSearchTune = thenTune;
+        tvSearchSelectors.clear();
         ++tvSearchGen;
         tvCapturing = true;
         tvReloaded = true; // страницата не се презарежда: плеърът свири и търсенето е кратко
         tvCapSrc = si;
         tvTrying = false;
-        tvSearchPlayer=player;
-        if(player!=null){
-            tvSearchResumePlayback=player.getPlayWhenReady();tvSearchVolume=player.getVolume();
-            player.setVolume(0f);player.pause();
-        }
         ui.removeCallbacks(tvStallRun);
         tvPokeN = 0;
         logEvent("ТВ: търся още потоци в " + s.site, true);
@@ -15141,7 +15331,7 @@ private static final String[] TV_SOURCES = {
             return;
         }
         ui.removeCallbacks(tvSearchEndRun);
-        ui.postDelayed(tvSearchEndRun, TV_SEARCH_MS);
+        ui.postDelayed(tvSearchEndRun,Math.max(0,tvSearchDeadline-SystemClock.uptimeMillis()));
     }
 
     private final Runnable tvSearchEndRun = new Runnable() {
@@ -15173,23 +15363,17 @@ private static final String[] TV_SOURCES = {
         ui.removeCallbacks(tvPokeFallback);
         if(web==tvSearchWeb)tvDropWeb();
         tvSearchWeb=null;
-        tvSearchRestorePlayback();
         if (!tvMode || tvVod || c == null || si < 0 || si >= c.srcs.size()) return;
         TvSrc s = c.srcs.get(si);
-        // Вече известните потоци на сайта и сайтовете (CDN), от които е позволено да идват новите.
+        // Известните потоци не се дублират; резервите могат да идват от различен CDN.
         final HashSet<String> known = new HashSet<>();
-        final HashSet<String> fams = new HashSet<>();
         if (!s.stream.isEmpty()) {
             known.add(tvStreamKey(s.stream));
-            fams.add(siteBase(hostOf(s.stream)));
         }
         for (String[] al : s.alts) {
             known.add(tvStreamKey(al[0]));
-            fams.add(siteBase(hostOf(al[0])));
         }
-        if (!s.page.isEmpty()) fams.add(siteBase(hostOf(s.page)));
         final String ua = tvUaOf(s);
-        final String site = s.site;
         if (urls.isEmpty()) {
             tvSearchDone(c, si, new ArrayList<String[]>(), 0, thenTune, gen);
             return;
@@ -15200,7 +15384,7 @@ private static final String[] TV_SOURCES = {
         tvSearchTask=TV_SEARCH_NET.submit(new Runnable() {
             @Override
             public void run() {
-                final ArrayList<String[]> found = tvSearchProbe(urls, hs, known, fams, ua);
+                final ArrayList<String[]> found = tvSearchProbe(urls, hs, known, ua);
                 ui.post(new Runnable() {
                     @Override
                     public void run() {
@@ -15220,7 +15404,7 @@ private static final String[] TV_SOURCES = {
     // истински и отделен поток. Работи в отделна нишка.
     private ArrayList<String[]> tvSearchProbe(ArrayList<String> urls,
                                               HashMap<String, HashMap<String, String>> hs,
-                                              HashSet<String> known, HashSet<String> fams,
+                                              HashSet<String> known,
                                               String defUa) {
         ArrayList<String[]> out = new ArrayList<>();
         HashSet<String> covered = new HashSet<>();
@@ -15228,14 +15412,13 @@ private static final String[] TV_SOURCES = {
         int tried = 0;
         for (String u : urls) {
             if (Thread.currentThread().isInterrupted() || SystemClock.uptimeMillis()>=deadline
-                    || out.size() >= TV_MAX_ALTS - 1 || tried >= 10) break;
+                    || out.size() >= TV_MAX_ALTS || tried >= 10) break;
             String key = tvStreamKey(u);
             boolean isKnown = known.contains(key);
             // Вариант (качество) на плейлист, който вече сме видели: не е отделен поток.
             if (!isKnown && covered.contains(key)) continue;
             String host = hostOf(u);
             if (isBlocked(host)) continue;
-            if (!isKnown && !fams.contains(siteBase(host))) continue; // чужд домейн: може да е друг канал
             tried++;
             HashMap<String, String> h = hs.get(u);
             String ua = h != null && h.get("User-Agent") != null ? h.get("User-Agent") : defUa;
@@ -15301,39 +15484,28 @@ private static final String[] TV_SOURCES = {
         }
     }
 
-    // Ключ на потока без променливите части (параметри и дълги знакови низове в пътя):
+    // Ключ на потока без временните параметри за достъп и качеството:
     // същият поток с нов знак (token) е същият поток.
     private static String tvStreamKey(String url) {
         if (url == null) return "";
         try {
             Uri u = Uri.parse(url);
             StringBuilder sb = new StringBuilder(nz(u.getHost()).toLowerCase(Locale.ROOT));
+            if(u.getPort()!=-1)sb.append(':').append(u.getPort());
             for (String seg : nz(u.getPath()).split("/")) {
                 if (seg.isEmpty()) continue;
-                sb.append('/').append(tvTokenSeg(seg) ? "*" : seg.toLowerCase(Locale.ROOT));
+                sb.append('/').append(seg);
             }
             ArrayList<String> parameters=new ArrayList<>(u.getQueryParameterNames());Collections.sort(parameters);
             for(String parameter:parameters){String name=parameter.toLowerCase(Locale.ROOT);
-                if(name.equals("id") || name.equals("ch") || name.equals("channel") || name.equals("stream") || name.equals("source") || name.equals("server") || name.equals("player") || name.equals("cid") || name.equals("sid") || name.equals("video") || name.equals("playlist"))sb.append('&').append(name).append('=').append(u.getQueryParameter(parameter));
+                if(!name.matches("token|access_token|auth|authorization|signature|sig|sign|expires|expiry|exp|hdnea|hmac|hash|session|sessionid|quality|resolution|bitrate|bandwidth|_=.*|_")){
+                    sb.append('&').append(parameter).append('=');for(String value:u.getQueryParameters(parameter))sb.append(value).append(',');
+                }
             }
             return sb.toString();
         } catch (Exception e) {
             return url;
         }
-    }
-
-    private static boolean tvTokenSeg(String seg) {
-        if (seg.length() < 14) return false;
-        boolean digit = false;
-        for (int i = 0; i < seg.length(); i++) {
-            char ch = seg.charAt(i);
-            if (ch >= '0' && ch <= '9') digit = true;
-            else if (!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '-' || ch == '_'
-                    || ch == '=')) {
-                return false; // точка или друг знак: това е име на файл
-            }
-        }
-        return digit;
     }
 
     // Малка заявка за плейлиста: {краен адрес, текст} или null.
@@ -15384,35 +15556,17 @@ private static final String[] TV_SOURCES = {
         if(tvSearchTask!=null){tvSearchTask.cancel(true);tvSearchTask=null;}
         TvSrc s = c.srcs.get(si);
         int added = 0;
-        for (String[] f : found) {
-            boolean have = f[0].equals(s.stream);
-            for (String[] al : s.alts) {
-                if (al[0].equals(f[0])) have = true;
-            }
-            if (have) continue;
-            // Няма място: отпада най-неуспешният от старите резервни (не и от току-що добавените).
-            while (s.alts.size() >= TV_MAX_ALTS) {
-                int limit = s.alts.size() - added;
-                if (limit <= 0) break;
-                int worst = 0;
-                for (int k = 1; k < limit; k++) {
-                    if (tvAltFails(s.alts.get(k)) > tvAltFails(s.alts.get(worst))) worst = k;
-                }
-                s.alts.remove(worst);
-            }
-            if (s.alts.size() >= TV_MAX_ALTS) break;
-            s.alts.add(new String[]{f[0], f[1], f[2], f[3], "0"});
-            added++;
-        }
+        int full=0;
+        for(String[] f:found){int saved=tvKeepStream(c,s,new String[]{f[0],f[1],f[2],f[3],"0"});if(saved>0)added++;else if(saved<0)full++;}
         if (added > 0) tvSave();
         logEvent("ТВ: още потоци в " + s.site + ": страницата поиска " + candidates
                 + " плейлиста, нови потоци " + added);
         if (added == 0) {
-            tvShowBanner(3500, "Няма други потоци на този сайт · → за друг сайт");
+            tvShowBanner(3500, full>0?"Запазени са 3 работещи потока":"Не намерих нов работещ поток · → за друг сайт");
             return;
         }
-        if (thenTune) {
-            tvTuneStream(c, si, s.alts.size() - added);
+        if (thenTune && !tvPlaying) {
+            tvTuneStream(c, si, 0);
         } else {
             tvShowBanner(4000, "Добавих " + added + (added == 1 ? " нов поток" : " нови потока")
                     + " към " + s.site);
