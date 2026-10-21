@@ -93,7 +93,7 @@ final class TvGuidePanel extends LinearLayout {
         for(int i=0;i<channels.size();i++)if(channels.get(i).id.equals(id)){position=i;break;}
         final int target=position,top=returnTop;returnId=null;
         list.requestFocusFromTouch();list.setSelectionFromTop(target,top);
-        list.post(()->{if(list.hasFocus() && target<channels.size())list.setSelectionFromTop(target,top);});
+        list.post(()->{if(list.hasFocus() && target<channels.size() && list.getSelectedItemPosition()==target)list.setSelectionFromTop(target,top);});
     }
     String selection(){return selectedId;}
     private void select(String id){

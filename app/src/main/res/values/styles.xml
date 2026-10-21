@@ -3,13 +3,13 @@
     <!-- Native popups and text inputs use the same palette as the Java screen components. -->
     <style name="AppTheme" parent="android:style/Theme.DeviceDefault.NoActionBar.Fullscreen">
         <item name="android:fontFamily">sans-serif</item>
-        <item name="android:colorAccent">#136BFF</item>
-        <item name="android:colorBackground">#040313</item>
-        <item name="android:windowBackground">#040313</item>
-        <item name="android:colorButtonNormal">#09081C</item>
-        <item name="android:colorControlNormal">#80FCFCFC</item>
-        <item name="android:colorControlHighlight">#40136BFF</item>
-        <item name="android:textColorPrimary">#FCFCFC</item>
-        <item name="android:textColorSecondary">#80FCFCFC</item>
+        <item name="android:colorAccent">#4589FF</item>
+        <item name="android:colorBackground">#0D1119</item>
+        <item name="android:windowBackground">#0D1119</item>
+        <item name="android:colorButtonNormal">#171E2A</item>
+        <item name="android:colorControlNormal">#A6B2C5</item>
+        <item name="android:colorControlHighlight">#404589FF</item>
+        <item name="android:textColorPrimary">#F5F7FB</item>
+        <item name="android:textColorSecondary">#A6B2C5</item>
     </style>
 </resources>
