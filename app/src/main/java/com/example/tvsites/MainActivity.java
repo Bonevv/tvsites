@@ -772,11 +772,12 @@ public class MainActivity extends Activity {
     // Един ред на събитие във файл: време, вид, милисекунди, канал, сайт, текст.
     // B - спиране, което се оправи само; D - картината заседна или се скъса (смяна на поток);
     // F - опит, който не тръгна; N - хванат е нов поток; T - бавен старт; P - четене на програмата;
-    // V - бавен запис на каналите. Пише се на заден план и не пречи на видеото.
+    // V - бавен запис на каналите; S - снимка на плеъра при заседване (редовете са разделени със знака ¦);
+    // R - скок към живия край и дали след него картината тръгна. Пише се на заден план и не пречи на видеото.
 
     private static final Object JOURNAL_LOCK = new Object();
-    private static final long JOURNAL_MAX_BYTES = 120L * 1024;       // над това най-старото се изтрива
-    private static final int JOURNAL_KEEP = 450;                     // толкова най-нови реда остават
+    private static final long JOURNAL_MAX_BYTES = 240L * 1024;       // над това най-старото се изтрива
+    private static final int JOURNAL_KEEP = 800;                     // толкова най-нови реда остават
     private static final long JOURNAL_MAX_AGE = 30L * 24 * 3600 * 1000; // по-старо от 30 дни се изтрива
     private static boolean journalPruned;
 
@@ -850,8 +851,11 @@ public class MainActivity extends Activity {
                 if (age || f.length() > JOURNAL_MAX_BYTES) {
                     ArrayList<String> all = journalLinesLocked();
                     long oldest = System.currentTimeMillis() - JOURNAL_MAX_AGE;
-                    StringBuilder sb = new StringBuilder();
-                    for (int i = Math.max(0, all.size() - JOURNAL_KEEP); i < all.size(); i++) {
+                    // От най-новия към най-стария: остават до JOURNAL_KEEP реда и до 3/4 от най-големия размер,
+                    // за да не се подрязва при всеки нов запис, когато снимките са дълги.
+                    ArrayList<String> keep = new ArrayList<>();
+                    long bytes = 0;
+                    for (int i = all.size() - 1; i >= 0 && keep.size() < JOURNAL_KEEP; i--) {
                         String l = all.get(i);
                         int tab = l.indexOf('\t');
                         try {
@@ -859,8 +863,12 @@ public class MainActivity extends Activity {
                         } catch (NumberFormatException ignored) {
                             continue; // повреден ред
                         }
-                        sb.append(l).append('\n');
+                        bytes += l.getBytes(java.nio.charset.StandardCharsets.UTF_8).length + 1;
+                        if (bytes > JOURNAL_MAX_BYTES / 4 * 3) break;
+                        keep.add(l);
                     }
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = keep.size() - 1; i >= 0; i--) sb.append(keep.get(i)).append('\n');
                     FileOutputStream fo = new FileOutputStream(f);
                     fo.write(sb.toString().getBytes("UTF-8"));
                     fo.close();
@@ -929,10 +937,11 @@ public class MainActivity extends Activity {
                 }
                 final String sum = journalSummary(rows);
                 final String last = journalLast(rows, 10);
+                final String snaps = journalSnapshots(rows, 2);
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        if (!isFinishing()) journalDialog(sum, last);
+                        if (!isFinishing()) journalDialog(sum, last, snaps);
                     }
                 });
             }
@@ -942,6 +951,7 @@ public class MainActivity extends Activity {
     private String journalSummary(ArrayList<String[]> rows) {
         long from = System.currentTimeMillis() - 7L * 24 * 3600 * 1000;
         int b = 0, d = 0, f = 0, n = 0, t = 0, p = 0, pv = 0, v = 0, used = 0;
+        int rOk = 0, rNo = 0, rWin = 0;
         long bSum = 0, bMax = 0, tMax = 0, pMax = 0, pvMax = 0, vMax = 0;
         HashMap<String, Integer> sites = new HashMap<>();
         int[] hours = new int[24];
@@ -987,6 +997,10 @@ public class MainActivity extends Activity {
             } else if (type.equals("V")) {
                 v++;
                 vMax = Math.max(vMax, ms);
+            } else if (type.equals("R")) {
+                if (r[5].startsWith("тръгна")) rOk++;
+                else if (r[5].startsWith("не тръгна")) rNo++;
+                else rWin++;
             }
         }
         if (used == 0) return "Още няма записани събития. Дневникът се пълни, докато гледаш.";
@@ -995,6 +1009,10 @@ public class MainActivity extends Activity {
         s.append("Спирания, които се оправиха сами: ").append(b);
         if (b > 0) s.append(" (общо ").append(journalDur(bSum)).append(", най-дългото ").append(journalDur(bMax)).append(')');
         s.append("\nКартината заседна и се смени потокът: ").append(d);
+        if (rOk + rNo > 0) {
+            s.append("\nСкок към живия край при заседване: тръгна ").append(rOk).append(", не тръгна ").append(rNo);
+        }
+        if (rWin > 0) s.append("\nГрешка „изостанал от живия край“: ").append(rWin).append(" (лекувана със скок)");
         s.append("\nОпити, които не тръгнаха: ").append(f);
         s.append("\nХванати нови потоци: ").append(n);
         s.append("\nБавни стартове (над 5 сек): ").append(t);
@@ -1036,7 +1054,12 @@ public class MainActivity extends Activity {
         return s.toString();
     }
 
-    private String journalLast(ArrayList<String[]> rows, int count) {
+    private String journalLast(ArrayList<String[]> all, int count) {
+        // Снимките на плеъра са дълги: те се показват отделно (journalSnapshots).
+        ArrayList<String[]> rows = new ArrayList<>();
+        for (String[] r : all) {
+            if (!r[1].equals("S")) rows.add(r);
+        }
         StringBuilder s = new StringBuilder();
         java.text.SimpleDateFormat fmt = new java.text.SimpleDateFormat("dd.MM HH:mm:ss", Locale.US);
         for (int i = Math.max(0, rows.size() - count); i < rows.size(); i++) {
@@ -1050,7 +1073,7 @@ public class MainActivity extends Activity {
             String type = r[1];
             String label = type.equals("B") ? "спря" : type.equals("D") ? "смяна" : type.equals("F") ? "не тръгна"
                     : type.equals("N") ? "нов поток" : type.equals("T") ? "бавен старт" : type.equals("P") ? "програма"
-                    : type.equals("V") ? "запис" : type;
+                    : type.equals("V") ? "запис" : type.equals("R") ? "скок" : type;
             s.append(fmt.format(new java.util.Date(when))).append("  ").append(label);
             if (!r[2].equals("0")) {
                 try {
@@ -1067,7 +1090,30 @@ public class MainActivity extends Activity {
         return s.length() == 0 ? "Няма." : s.toString();
     }
 
-    private void journalDialog(String summary, String last) {
+    // Последните снимки на плеъра при заседване, най-новата първа.
+    private String journalSnapshots(ArrayList<String[]> rows, int count) {
+        StringBuilder s = new StringBuilder();
+        java.text.SimpleDateFormat fmt = new java.text.SimpleDateFormat("dd.MM HH:mm:ss", Locale.US);
+        int shown = 0;
+        for (int i = rows.size() - 1; i >= 0 && shown < count; i--) {
+            String[] r = rows.get(i);
+            if (!r[1].equals("S")) continue;
+            long when;
+            try {
+                when = Long.parseLong(r[0]);
+            } catch (NumberFormatException e) {
+                continue;
+            }
+            shown++;
+            s.append(fmt.format(new java.util.Date(when)));
+            if (!r[3].isEmpty()) s.append("  ").append(r[3]);
+            if (!r[4].isEmpty()) s.append(" (").append(r[4]).append(')');
+            s.append('\n').append(r[5].replace("¦", "\n")).append("\n\n");
+        }
+        return s.toString().trim();
+    }
+
+    private void journalDialog(String summary, String last, String snaps) {
         LinearLayout card = tvCard("Дневник на потоците",
                 "↑ ↓ превърта. Снимай екрана, ако искаш да го видя.");
         LinearLayout box = new LinearLayout(this);
@@ -1075,6 +1121,10 @@ public class MainActivity extends Activity {
         box.addView(text(summary, 20, T_TEXT, tfMedium, false), lp(MP, WC));
         box.addView(text("Последни събития", 22, T_SKY2, Typeface.DEFAULT_BOLD, true), lpTopW(MP, WC, u(18)));
         box.addView(text(last, 16, T_TEXT2, tfMedium, false), lpTopW(MP, WC, u(8)));
+        if (!snaps.isEmpty()) {
+            box.addView(text("Снимки при заседване (най-новата първа)", 22, T_SKY2, Typeface.DEFAULT_BOLD, true), lpTopW(MP, WC, u(18)));
+            box.addView(text(snaps, 15, T_TEXT2, tfMedium, false), lpTopW(MP, WC, u(8)));
+        }
         ScrollView sv = new ScrollView(this);
         sv.setVerticalScrollBarEnabled(false);
         sv.setFocusable(true);
@@ -8547,6 +8597,15 @@ public class MainActivity extends Activity {
     private int tvZapIdx = -1;              // канал, към който се превключва
     private final HashSet<String> tvBad = new HashSet<>();
     private Player.Listener tvLis;
+    // Запис на събитията на плеъра за дневника (StreamTrace) и скок към живия край при заседване.
+    private StreamTrace trace;
+    private ExoPlayer traceOn;          // плеърът, към който е закачен записът
+    private int tvBufGen;               // номер на текущото буфериране
+    private int tvSeekGen;              // за кое буфериране е насрочен скокът
+    private boolean tvSeekTried;        // скокът е правен в този опит (най-много веднъж)
+    private boolean tvBlwTried;         // „изостанал от живия край“ е лекуван в този опит (най-много веднъж)
+    private long tvSeekAt;              // кога е направен скокът (0 = няма скок, който чака резултат)
+    private long tvSeekPos;             // позицията, от която се мери дали картината върви след скока
 
     // Едно гледане = от избора на канала до следващия избор от потребителя. В него потоците, които
     // не тръгнаха или заседнаха, не се пробват пак, а търсенето в един сайт е най-много два пъти.
@@ -8557,6 +8616,7 @@ public class MainActivity extends Activity {
     private static final long TV_STABLE_MS = 45000;        // толкова добра картина = потокът е здрав
     private static final long TV_SAVED_START_MS = 8000;    // колко се чака запазен поток да тръгне
     private static final long TV_STALL_MS = 10000;         // колко се търпи заседнала картина (на живо)
+    private static final long TV_SEEK_MS = 5000;           // колко заседнала картина, преди да се опита скок към живия край
     private static final long TV_FAIL_MEMORY = 6 * 3600 * 1000L; // толкова време сайтът с неуспех се пробва последен
     private String tvStableUrl = "";
     private int tvStableSi = -1;
@@ -8787,6 +8847,9 @@ public class MainActivity extends Activity {
         ui.removeCallbacks(tvPokeRun);
         ui.removeCallbacks(tvPokeFallback);
         ui.removeCallbacks(tvStallRun);
+        ui.removeCallbacks(tvSeekRun);
+        ui.removeCallbacks(tvSeekCheckRun);
+        tvSeekAt = 0;
         ui.removeCallbacks(tvStableRun);
         // Търсенето на още потоци (ако върви) се прекратява; закъснелият му резултат се пренебрегва.
         tvSearchGen++;
@@ -8814,6 +8877,7 @@ public class MainActivity extends Activity {
                 } catch (Exception ignored) {
                 }
                 player = null;
+                traceOn = null;
             }
         }
         tvLis = null;
@@ -8990,6 +9054,11 @@ public class MainActivity extends Activity {
         ui.removeCallbacks(tvTryTimeout);
         final int my = ++tvTryGen;
         tvBufAt = 0;
+        tvSeekTried = false;
+        tvBlwTried = false;
+        tvSeekAt = 0;
+        ui.removeCallbacks(tvSeekRun);
+        ui.removeCallbacks(tvSeekCheckRun);
         tvTrying = true;
         tvTryUrl = url;
         final HashMap<String, String> fprops = props;
@@ -9011,6 +9080,7 @@ public class MainActivity extends Activity {
                         .setTrackSelector(vTrackSel).build();
                 player.setVideoSurfaceView(nativeSurface);
             }
+            tvTraceAttach();
             // Докато се проверява поток, намерен през страницата, плеърът е без звук:
             // страницата може да свири сама и два звука заедно не трябва да се чуват.
             player.setVolume(viaCapture ? 0f : 1f);
@@ -9030,6 +9100,21 @@ public class MainActivity extends Activity {
                 @Override
                 public void onPlayerError(PlaybackException error) {
                     if (my != tvTryGen || !tvMode) return;
+                    if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW
+                            && !tvBlwTried && player != null) {
+                        // Препоръката на Media3 за тази грешка: обратно към живия край и ново приготвяне.
+                        // Само веднъж за опит; ако не помогне, потокът се сменя както преди.
+                        tvBlwTried = true;
+                        try {
+                            journal("R", 0, "изостанал от живия край (BEHIND_LIVE_WINDOW): скок и ново приготвяне", false);
+                            logEvent("ТВ: изостанал от живия край, скачам към него");
+                            player.seekToDefaultPosition();
+                            player.prepare();
+                            return;
+                        } catch (Exception ignored) {
+                            // не стана: смяна на потока
+                        }
+                    }
                     tvTryFailed(tvErrInfo(error));
                 }
 
@@ -9149,6 +9234,17 @@ public class MainActivity extends Activity {
         if (tvPlaying) {
             // Върнало се е от буфериране.
             ui.removeCallbacks(tvStallRun);
+            ui.removeCallbacks(tvSeekRun);
+            if (tvSeekAt != 0) {
+                // След скока: успехът се отчита чак след 3 секунди реално вървене, не при самото READY.
+                try {
+                    tvSeekPos = player != null ? player.getCurrentPosition() : 0;
+                } catch (Exception e) {
+                    tvSeekPos = 0;
+                }
+                ui.removeCallbacks(tvSeekCheckRun);
+                ui.postDelayed(tvSeekCheckRun, 3000);
+            }
             if (tvBufAt != 0) {
                 long dur = SystemClock.uptimeMillis() - tvBufAt;
                 String before = tvBufInfo;
@@ -9282,6 +9378,7 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {
                 // без подробност в записа
             }
+            tvTraceJournal("10 сек. буфериране" + (tvSeekAt != 0 ? " (след скока)" : ""), false);
             tvDropped("потокът заседна" + info);
         }
     };
@@ -9311,15 +9408,121 @@ public class MainActivity extends Activity {
     };
 
     private void tvBuffering() {
-        if (tvBufAt == 0) {
+        boolean fresh = tvBufAt == 0;
+        if (fresh) {
             tvBufAt = SystemClock.uptimeMillis();
             tvBufInfo = journalPlayer() + (tvSearchWeb != null ? " · върви търсене" : "");
+            tvBufGen++;
+            try {
+                if (trace != null && player != null) trace.bufferingStarted(player);
+            } catch (Throwable ignored) {
+                // записът не бива да пречи на видеото
+            }
         }
         if(tvSearchWeb!=null)return;
         tvShowBanner(0, "Зареждане…");
-        ui.removeCallbacks(tvStallRun);
         // На живо картина, която не помръдва 10 секунди, е заседнала; филмът има повече търпение.
-        ui.postDelayed(tvStallRun, TV_STALL_MS);
+        // Срокът се брои от първото влизане в буфериране и не се удължава от по-късни повиквания.
+        ui.removeCallbacks(tvStallRun);
+        ui.postDelayed(tvStallRun, Math.max(0, TV_STALL_MS - (SystemClock.uptimeMillis() - tvBufAt)));
+        if (fresh) {
+            tvSeekGen = tvBufGen;
+            ui.removeCallbacks(tvSeekRun);
+            ui.postDelayed(tvSeekRun, TV_SEEK_MS);
+        }
+    }
+
+    // Закача записа на събитията към плеъра (веднъж за всеки плеър) и го нулира за новия опит.
+    @androidx.annotation.OptIn(markerClass=androidx.media3.common.util.UnstableApi.class)
+    private void tvTraceAttach() {
+        try {
+            if (player == null) return;
+            if (trace == null) trace = new StreamTrace();
+            if (traceOn != player) {
+                if (traceOn != null) {
+                    try {
+                        traceOn.removeAnalyticsListener(trace);
+                    } catch (Throwable ignored) {
+                        // старият плеър може вече да е освободен
+                    }
+                }
+                player.addAnalyticsListener(trace);
+                traceOn = player;
+            }
+            trace.reset();
+        } catch (Throwable ignored) {
+            // записът не бива да пречи на видеото
+        }
+    }
+
+    // Снимка на плеъра в дневника (вид S). Събира се в паметта, записът е на заден план.
+    private void tvTraceJournal(String when, boolean full) {
+        try {
+            if (trace == null || player == null) return;
+            String snap = trace.snapshot(player, when, full);
+            journal("S", tvBufAt != 0 ? SystemClock.uptimeMillis() - tvBufAt : 0, snap, false);
+        } catch (Throwable ignored) {
+            // записът не бива да пречи на видеото
+        }
+    }
+
+    // 5 секунди буфериране: първо снимка, после (само на живо, веднъж за опит) скок към живия край.
+    // Срокът от 10 секунди за смяна на потока не се пипа.
+    private final Runnable tvSeekRun = new Runnable() {
+        @Override
+        public void run() {
+            if (!tvMode || !tvPlaying || tvBufAt == 0 || player == null || tvSeekGen != tvBufGen) return;
+            ExoPlayer p = player;
+            boolean live = false, can = false, buffering = false;
+            try {
+                live = p.isCurrentMediaItemLive();
+                can = p.isCommandAvailable(Player.COMMAND_SEEK_TO_DEFAULT_POSITION);
+                buffering = p.getPlaybackState() == Player.STATE_BUFFERING;
+            } catch (Exception ignored) {
+                // непознато състояние: без скок
+            }
+            String why = !buffering ? "вече не буферира" : !live ? "не е на живо"
+                    : !can ? "скокът не е позволен" : tvSeekTried ? "скокът вече е правен в този опит" : "";
+            tvTraceJournal("5 сек. буфериране" + (why.isEmpty() ? " — правя скок към живия край" : " — без скок: " + why), true);
+            if (!why.isEmpty()) return;
+            tvSeekTried = true;
+            tvSeekAt = SystemClock.uptimeMillis();
+            tvSeekPos = 0;
+            logEvent("ТВ: картината заседна, скачам към живия край");
+            try {
+                p.seekToDefaultPosition();
+            } catch (Exception e) {
+                tvSeekDone(false, "грешка " + e.getClass().getSimpleName());
+            }
+        }
+    };
+
+    // 3 секунди след като плеърът пак е READY: върви ли наистина (позицията е мръднала поне с 2 сек.)?
+    private final Runnable tvSeekCheckRun = new Runnable() {
+        @Override
+        public void run() {
+            if (tvSeekAt == 0) return;
+            boolean ok = false;
+            String note = "";
+            try {
+                long moved = player != null ? player.getCurrentPosition() - tvSeekPos : 0;
+                boolean ready = tvMode && tvPlaying && player != null && player.getPlaybackState() == Player.STATE_READY;
+                ok = ready && moved >= 2000;
+                note = (ready ? "READY" : "не е READY") + ", позицията +" + (moved / 1000) + " сек след 3 сек";
+            } catch (Exception ignored) {
+                // без подробности
+            }
+            tvSeekDone(ok, note);
+        }
+    };
+
+    private void tvSeekDone(boolean ok, String note) {
+        if (tvSeekAt == 0) return;
+        long ms = SystemClock.uptimeMillis() - tvSeekAt;
+        tvSeekAt = 0;
+        ui.removeCallbacks(tvSeekCheckRun);
+        journal("R", ms, (ok ? "тръгна след скока" : "не тръгна и след скока") + (note.isEmpty() ? "" : " · " + note), false);
+        logEvent("ТВ: " + (ok ? "картината тръгна след скока към живия край" : "скокът към живия край не помогна"));
     }
 
     // Отбелязва заседнал поток: в това гледане не се пробва пак, а неуспехът му се записва
@@ -9373,7 +9576,12 @@ public class MainActivity extends Activity {
         logEvent("ТВ: връзката се скъса (" + why + "), опит " + tvRestarts + ", вървя " + (ran / 1000) + " сек.");
         long bufMs = tvBufAt != 0 ? now - tvBufAt : 0;
         tvBufAt = 0;
-        journal("D", bufMs, why + " · вървя " + (ran / 1000) + " сек · опит " + tvRestarts + " · " + journalBps(), true);
+        String afterSeek = "";
+        if (tvSeekAt != 0) {
+            afterSeek = " · след скока към живия край";
+            tvSeekDone(false, "картината не тръгна до 10-ата секунда");
+        }
+        journal("D", bufMs, why + afterSeek + " · вървя " + (ran / 1000) + " сек · опит " + tvRestarts + " · " + journalBps(), true);
         // Докато върви търсенето на още потоци, скритата страница може да натовари кутията и картината
         // да заседне заради нея: тогава потокът не се обвинява.
         boolean searchBusy = now < tvSearchBusyUntil;
@@ -11981,6 +12189,7 @@ public class MainActivity extends Activity {
         tvCapSrc = si;
         tvTrying = false;
         ui.removeCallbacks(tvStallRun);
+        ui.removeCallbacks(tvSeekRun);
         tvPokeN = 0;
         logEvent("ТВ: търся още потоци в " + s.site, true);
         tvShowBanner(0, "Търся още потоци…");
