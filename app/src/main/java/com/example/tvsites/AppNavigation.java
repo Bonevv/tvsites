@@ -21,7 +21,7 @@ final class AppNavigation extends FrameLayout {
         LinearLayout brand=new LinearLayout(context);brand.setGravity(Gravity.CENTER_VERTICAL);
         NavigationIcon brandIcon=new NavigationIcon(context,0);brandIcon.tint=TvTheme.BLUE;brand.addView(brandIcon,new LinearLayout.LayoutParams(px(30),px(30)));
         TextView name=label("ТВ Сайтове",24,true);LinearLayout.LayoutParams nl=new LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT,LayoutParams.WRAP_CONTENT);nl.leftMargin=px(13);brand.addView(name,nl);header.addView(brand,new LinearLayout.LayoutParams(px(240),LayoutParams.MATCH_PARENT));
-        int[] sections={5,0,1,2,3,4};String[] names={"Начало","Телевизия","Видеотека","Радио","Сайтове","Настройки"};
+        int[] sections={5,0,2,3,4};String[] names={"Начало","Телевизия","Радио","Сайтове","Настройки"};
         for(int j=0;j<sections.length;j++){
             final int index=sections[j];LinearLayout tab=new LinearLayout(context);tab.setGravity(Gravity.CENTER_VERTICAL);tab.setPadding(px(15),0,px(15),0);
             tab.setId(View.generateViewId());tab.setFocusable(true);tab.setFocusableInTouchMode(true);tab.setClickable(true);tab.setTag("nav:"+index);tab.setContentDescription(names[j]);
@@ -31,7 +31,7 @@ final class AppNavigation extends FrameLayout {
             tab.setOnKeyListener((v,key,event)->{if(key==KeyEvent.KEYCODE_DPAD_DOWN && contentAction!=null){if(event.getAction()==KeyEvent.ACTION_DOWN)contentAction.run();return true;}return false;});
             LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT,px(53));tp.rightMargin=px(7);header.addView(tab,tp);tabs[index]=tab;
         }
-        for(int j=0;j<sections.length;j++){View tab=tabs[sections[j]];tab.setNextFocusLeftId(tabs[sections[Math.max(0,j-1)]].getId());tab.setNextFocusRightId(tabs[sections[Math.min(5,j+1)]].getId());}
+        for(int j=0;j<sections.length;j++){View tab=tabs[sections[j]];tab.setNextFocusLeftId(tabs[sections[Math.max(0,j-1)]].getId());tab.setNextFocusRightId(tabs[sections[Math.min(sections.length-1,j+1)]].getId());}
         header.addView(new View(context),new LinearLayout.LayoutParams(0,1,1));
         TextClock clock=new TextClock(context);clock.setFormat24Hour("HH:mm");clock.setFormat12Hour("HH:mm");clock.setTextColor(TvTheme.TEXT);clock.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,px(24));header.addView(clock,new LinearLayout.LayoutParams(px(82),LayoutParams.WRAP_CONTENT));
         FrameLayout search=new FrameLayout(context);search.setId(View.generateViewId());search.setFocusable(true);search.setClickable(true);search.setContentDescription("Търсене");search.setBackground(TvTheme.control(unit,false));search.addView(new NavigationIcon(context,6),new LayoutParams(px(23),px(23),Gravity.CENTER));search.setOnClickListener(v->{if(searchAction!=null)searchAction.run();});search.setNextFocusLeftId(tabs[4].getId());tabs[4].setNextFocusRightId(search.getId());search.setOnKeyListener((v,key,event)->{if(key==KeyEvent.KEYCODE_DPAD_DOWN && contentAction!=null){if(event.getAction()==KeyEvent.ACTION_DOWN)contentAction.run();return true;}return false;});header.addView(search,new LinearLayout.LayoutParams(px(49),px(49)));
@@ -42,7 +42,7 @@ final class AppNavigation extends FrameLayout {
     }
     private Runnable searchAction;
     void setSearchAction(Runnable action){searchAction=action;}
-    void setSection(int section){selected=Math.max(0,Math.min(5,section));for(int i=0;i<tabs.length;i++){tabs[i].setBackground(TvTheme.navigation(unit,i==selected));tabs[i].setSelected(i==selected);}}
+    void setSection(int section){selected=Math.max(0,Math.min(5,section));for(int i=0;i<tabs.length;i++){if(tabs[i]==null)continue;tabs[i].setBackground(TvTheme.navigation(unit,i==selected));tabs[i].setSelected(i==selected);}}
     void setContentAction(Runnable action){contentAction=action;}
     void setMemory(long processMb,long freeMb,long totalMb){memory.setText("RAM процес: "+(processMb>0?"≈ "+processMb+" МБ":"…")+" · Свободна: "+freeMb+" / "+totalMb+" МБ");}
     void focusSelected(){tabs[selected].requestFocusFromTouch();}

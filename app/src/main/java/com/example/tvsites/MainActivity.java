@@ -134,47 +134,6 @@ public class MainActivity extends Activity {
     // Остави го празен, ако не искаш да го ползваш. Пример за формата: tvsites-example.txt
     private static final String CONFIG_URL = "";
 
-    // ====================== НАШИ ФИЛМИ: ИЗТОЧНИЦИ ======================
-    // ТУК се слагат адресите на източниците (законните, които ти дадат).
-    // Първият е основен, вторият и третият са резервни: ако първият не се зареди,
-    // приложението само минава на следващия.
-    // В адреса можеш да ползваш:
-    //   {tmdb}    номер от TMDB        {imdb}    номер от IMDb (tt1234567)
-    //   {season}  сезон                {episode} епизод
-    // Пример за вида (НЕ е истински адрес):
-    //   "https://example.com/embed/movie/{tmdb}"
-    //   "https://example.com/embed/tv/{tmdb}/{season}/{episode}"
-    // Може и без редактиране на кода: бутон "Източници" в каталога.
-private static final String[] FILM_SOURCES = {
-    "https://vidsrc.sh/embed/movie/{tmdb}",
-    "https://vidcore.org/embed/movie/{tmdb}",
-    "https://vidlink.pro/movie/{tmdb}",
-    "https://vidspark.to/movie/{tmdb}",
-    "https://vidsrc.me/embed/movie/{tmdb}",
-    "https://vsembed.ru/embed/movie/{tmdb}",
-    "https://yapgrid.com/embed/movie/{tmdb}",
-};
-
-private static final String[] TV_SOURCES = {
-    "https://vidsrc.sh/embed/tv/{tmdb}/{season}/{episode}",
-    "https://vidcore.org/embed/tv/{tmdb}/{season}/{episode}",
-    "https://vidlink.pro/tv/{tmdb}/{season}/{episode}",
-    "https://vidspark.to/tv/{tmdb}/{season}/{episode}",
-    "https://vidsrc.me/embed/tv/{tmdb}/{season}/{episode}",
-    "https://vsembed.ru/embed/tv/{tmdb}/{season}/{episode}",
-    "https://yapgrid.com/embed/tv/{tmdb}/{season}/{episode}",
-};
-
-    // Ключ за TMDB: по-добре го въведи на кутията (репото е публично).
-    private static final String TMDB_KEY = "d2c1e02ec9baf771e1ce6b4511a5aea8";
-    // Ключове за субтитрите (по желание; може да се въведат и от бутона Източници).
-    // OpenSubtitles: ключ + потребител + парола; Subdl: ключ; SubSource: ключ. Subs.sab.bz не иска нищо.
-    private static final String SUB_OS_KEY = "";
-    private static final String SUB_OS_USER = "";
-    private static final String SUB_OS_PASS = "";
-    private static final String SUB_SUBDL_KEY = "";
-    private static final String SUB_SUBSOURCE_KEY = "";
-
     // Сайтове по подразбиране: {етикет, адрес, режим, група}. Режим: "" | "mobile" | "desktop"
     private static final String[][] DEFAULT_SITES = {
             {"GledaiTV", "https://www.gledaitv.fan/", "", "Телевизия"},
@@ -796,15 +755,8 @@ private static final String[] TV_SOURCES = {
     public void onTrimMemory(int level) {
         super.onTrimMemory(level);
         if (level >= TRIM_MEMORY_RUNNING_LOW) {
-            BACKDROPS.evictAll();
             ICONS.evictAll();
             tvLogoTrim();
-            // Кориците и отговорите на каталога са само за удобство: при малко памет отиват първи.
-            POSTERS.evictAll();
-            synchronized (TMDB_JSON) {
-                TMDB_JSON.clear();
-                TMDB_AT.clear();
-            }
         }
         if (level >= TRIM_MEMORY_RUNNING_LOW && web != null) {
             // Сигналите идват на серии: записваме най-много един на половин минута.
@@ -1983,15 +1935,14 @@ private static final String[] TV_SOURCES = {
         if(sectionDialog!=null && sectionDialog.isShowing())return;
         LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);panel.setPadding(u(32),u(27),u(32),u(27));panel.setBackground(TvTheme.panel(u(16),TvTheme.BACKGROUND,TvTheme.OUTLINE,U));
         panel.addView(text("Накъде искаш да отидеш?",30,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true));
-        int[] ids={SECTION_HOME,SECTION_TV,SECTION_LIBRARY,SECTION_RADIO,SECTION_SITES,SECTION_SETTINGS};String[] names={"Начало","Телевизия","Видеотека","Радио","Сайтове","Настройки"};int[] icons={IC_HOME,IC_TV,IC_FILM,IC_RADIO,IC_MONITOR,IC_SLIDERS};
+        int[] ids={SECTION_HOME,SECTION_TV,SECTION_RADIO,SECTION_SITES,SECTION_SETTINGS};String[] names={"Начало","Телевизия","Радио","Сайтове","Настройки"};int[] icons={IC_HOME,IC_TV,IC_RADIO,IC_MONITOR,IC_SLIDERS};
         View first=null;LinearLayout row=null;
-        for(int i=0;i<6;i++){if(i%3==0){row=new LinearLayout(this);panel.addView(row,lpTopW(MP,u(76),u(18)));}final int section=ids[i];View item=tvDashboardPill(icons[i],names[i],()->{sectionDialog.dismiss();tvCloseTimeline();if(section==SECTION_TV && tvMode && !tvVod)tvShowList();else showSection(section);});LinearLayout.LayoutParams cell=new LinearLayout.LayoutParams(0,MP,1);if(i%3>0)cell.leftMargin=u(14);row.addView(item,cell);if(i==0)first=item;}
+        for(int i=0;i<5;i++){if(i%3==0){row=new LinearLayout(this);panel.addView(row,lpTopW(MP,u(76),u(18)));}final int section=ids[i];View item=tvDashboardPill(icons[i],names[i],()->{sectionDialog.dismiss();tvCloseTimeline();if(section==SECTION_TV && tvMode)tvShowList();else showSection(section);});LinearLayout.LayoutParams cell=new LinearLayout.LayoutParams(0,MP,1);if(i%3>0)cell.leftMargin=u(14);row.addView(item,cell);if(i==0)first=item;}
         if(web!=null && !tvCapturing)panel.addView(tvDashboardPill(IC_SLIDERS,"Опции за сайта",()->{sectionDialog.dismiss();showLog();}),lpTopW(MP,u(54),u(20)));
         sectionDialog=new AlertDialog.Builder(this).setView(panel).create();sectionDialog.show();if(sectionDialog.getWindow()!=null){sectionDialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);sectionDialog.getWindow().setLayout(u(980),WC);}if(first!=null)first.requestFocusFromTouch();
     }
 
     private void showSectionSearch(){
-        if(catShown()){showSearchDialog();return;}
         EditText input=new EditText(this);input.setSingleLine(true);input.setHint(appSection==SECTION_SITES?"Име на сайт":"Име на канал");
         new AlertDialog.Builder(this).setTitle("Търсене").setView(input).setPositiveButton("Търси",(d,w)->{
             String query=input.getText().toString().trim().toLowerCase(Locale.ROOT);ArrayList<String> labels=new ArrayList<>();ArrayList<Runnable> actions=new ArrayList<>();
@@ -1999,7 +1950,7 @@ private static final String[] TV_SOURCES = {
             else{tvLoad();for(TvChan c:tvChans)if(c.name.toLowerCase(Locale.ROOT).contains(query)){labels.add(c.name);actions.add(()->tvTuneUser(c,-1));}}
             if(labels.isEmpty()){Toast.makeText(this,"Няма намерени резултати",Toast.LENGTH_SHORT).show();return;}
             new AlertDialog.Builder(this).setTitle("Резултати").setItems(labels.toArray(new String[0]),(dialog,index)->actions.get(index).run()).show();
-        }).setNeutralButton("Филми и сериали",(d,w)->showCatalog(this::showSearchDialog)).setNegativeButton("Отказ",null).show();
+        }).setNegativeButton("Отказ",null).show();
     }
 
     private void tvCloseTimeline(){
@@ -2033,26 +1984,21 @@ private static final String[] TV_SOURCES = {
     private void focusSectionContent(){
         if(tvPanelShown()){if(tvOverviewGuide!=null)tvOverviewGuide.focusChannels();else if(tvMain!=null)tvMain.requestFocusFromTouch();}
         else if(sectionFocus!=null && sectionFocus.isShown())sectionFocus.requestFocusFromTouch();
-        else if(catShown()){View target=catMain!=null?catMain:firstFocusable();if(target!=null)target.requestFocusFromTouch();}
         else if(firstTile!=null)firstTile.requestFocusFromTouch();
     }
 
     private void showSection(int section) {
         tvCloseTimeline();
         if (isFinishing() || switchingSection) return;
-        if(section==appSection && (tvPanelShown() || catShown())){
-            if(catShown() && !heroActive)catHome();else focusSectionContent();return;
+        if(section==appSection && tvPanelShown()){
+            focusSectionContent();return;
         }
         switchingSection = true;
         try {
-            catReturn = null;
-            srcQueue = null;
-            srcDone();
             teardownSite();
             sectionFocus=null;
             appSection = section;
             if (section == SECTION_TV) tvShowPanel();
-            else if (section == SECTION_LIBRARY) showCatalog(null);
             else fillMenu();
             if (appBar != null) { appBar.setSection(section); appBar.setVisibility(View.VISIBLE); appBar.bringToFront(); }
         } finally { switchingSection = false; }
@@ -2062,15 +2008,11 @@ private static final String[] TV_SOURCES = {
         if (menu == null) return;
         menu.removeAllViews();
         capCache = null; cacheSub = null; autoSub = null;
-        heroView = null; firstTile = null; catTile = null;
+        heroView = null; firstTile = null;
         if (appBar != null) appBar.setSection(appSection);
-        boolean busy = tvMode || nativeActive() || web != null || catShown();
+        boolean busy = tvMode || nativeActive() || web != null;
         if (appSection == SECTION_TV) {
             if (!busy) tvShowPanel();
-            return;
-        }
-        if (appSection == SECTION_LIBRARY) {
-            if (!busy) showCatalog(null);
             return;
         }
         if (!busy) menuHolder.setVisibility(View.VISIBLE);
@@ -2274,10 +2216,10 @@ private static final String[] TV_SOURCES = {
 
     private void fillSettingsPage() {
         pageTitle("Настройки", "Версия "+installedName());
-        String[] labels={"Източници и субтитри","Качество на видеото","Таймер за заспиване","Провери за версия","Изчисти кеша","Автоматично чистене","Диагностика","Изход"};
-        String[] details={"Филми, сериали и субтитри","Автоматично или предпочитано качество","Спиране след избраното време","Обновяване на приложението","Ръчно освобождаване на памет",autoSubText(),"RAM, журнал и състояние","Затваряне на приложението"};
-        int[] icons={IC_FILM,IC_TV,IC_CLOCK,IC_REFRESH,IC_TRASH,IC_CHIP,IC_BARS,IC_POWER};
-        Runnable[] actions={()->showSourcesDialog(),()->tvQualityDialog(),()->chooseSleep(),()->checkUpdate(),()->clearCacheNow(),()->{toggleAutoCache();fillMenu();},()->showDiagnostics(),()->exitApp()};
+        String[] labels={"Качество на видеото","Таймер за заспиване","Провери за версия","Изчисти кеша","Автоматично чистене","Диагностика","Изход"};
+        String[] details={"Автоматично или предпочитано качество","Спиране след избраното време","Обновяване на приложението","Ръчно освобождаване на памет",autoSubText(),"RAM, журнал и състояние","Затваряне на приложението"};
+        int[] icons={IC_TV,IC_CLOCK,IC_REFRESH,IC_TRASH,IC_CHIP,IC_BARS,IC_POWER};
+        Runnable[] actions={()->tvQualityDialog(),()->chooseSleep(),()->checkUpdate(),()->clearCacheNow(),()->{toggleAutoCache();fillMenu();},()->showDiagnostics(),()->exitApp()};
         LinearLayout row=null;
         for(int i=0;i<labels.length;i++){
             if(i%2==0){row=new LinearLayout(this);menu.addView(row,lpTopW(MP,u(108),u(18)));}
@@ -2605,15 +2547,12 @@ private static final String[] TV_SOURCES = {
         if (appBar != null) appBar.setVisibility(View.GONE);
         // Switching sections releases the previous section before creating a browser.
         tvReset();
-        if (catShown()) hideCatalog();
         closeNative(false);
         destroyWeb();
         String url = site[1];
         String mode = site.length > 2 ? site[2] : "";
         allowedHost = Uri.parse(url).getHost();
-        srcQueue = null;
-        srcIdx = 0;
-        catReturn = null;
+        siteReturn = null;
         cursorTemp = false;
         scrollMode = false;
         hovering = false;
@@ -2767,7 +2706,6 @@ private static final String[] TV_SOURCES = {
                     clearHistoryPending = false;
                 }
                 if (u != null && u.startsWith("http")) hideSplash();
-                if (u != null && u.startsWith("http")) srcDone();
                 if (tvCapturing && u != null && u.startsWith("http")) tvPageFinished(true);
             }
 
@@ -2781,7 +2719,6 @@ private static final String[] TV_SOURCES = {
                     tvCaptureError("код " + resp.getStatusCode());
                     return;
                 }
-                if (resp.getStatusCode() >= 400 && srcQueue != null) tryNextSource();
             }
 
             @Override
@@ -2797,7 +2734,6 @@ private static final String[] TV_SOURCES = {
                     tvCaptureError(desc);
                     return;
                 }
-                if (tryNextSource()) return;
                 showErrorPage(v, u, desc);
             }
 
@@ -2932,7 +2868,6 @@ private static final String[] TV_SOURCES = {
     // паметта се освобождава и всеки сайт започва на чисто.
     private void teardownSite() {
         tvReset();
-        if (catShown()) hideCatalog();
         endSwipe(true);
         cancelOk();
         cursorTemp = false;
@@ -2957,17 +2892,15 @@ private static final String[] TV_SOURCES = {
         teardownSite();
         fillMenu();
         scanCache(true);
-        Runnable back = catReturn;
-        catReturn = null;
-        srcQueue = null;
-        srcDone();
+        Runnable back = siteReturn;
+        siteReturn = null;
         if (back != null) back.run();
     }
 
     // Пълно затваряне: приложението и процесът му се прекратяват.
     private void exitApp() {
         logEvent("Изход с бутона");
-        catReturn = null;
+        siteReturn = null;
         ui.removeCallbacks(rememberTick);
         rememberPage();
         exiting = true;
@@ -3208,15 +3141,6 @@ private static final String[] TV_SOURCES = {
         if (allowedHost == null) return false;
         String base = stripWww(allowedHost);
         if (host.equals(base) || host.endsWith("." + base)) return true;
-        // Източник от каталога: същият сайт е позволен (api.пример.com -> player.пример.com),
-        // както и всеки от зададените източници (основен и резервни).
-        if (srcQueue != null) {
-            if (siteBase(host).equals(siteBase(base))) return true;
-            for (String u : srcQueue) {
-                String h = Uri.parse(u).getHost();
-                if (h != null && (host.equals(h) || siteBase(host).equals(siteBase(h)))) return true;
-            }
-        }
         return false;
     }
 
@@ -3312,7 +3236,7 @@ private static final String[] TV_SOURCES = {
             }
         }
         // Скритото търсене на канал: след кратко изчакване се проверява новият поток.
-        if ((kind == 1 || (kind == 2 && tvVod)) && tvCapturing) {
+        if (kind == 1 && tvCapturing) {
             ui.removeCallbacks(tvCheckRun);
             ui.postDelayed(tvCheckRun, 350);
         }
@@ -5179,14 +5103,13 @@ private static final String[] TV_SOURCES = {
 
     private void handleBack() {
         if(tvTimelineLayer!=null){tvCloseTimeline();return;}
-        if(tvMode && !tvVod && !tvListShown() && tvBanner!=null && tvControlsOpen){tvHideBannerNow();nativeLayer.setFocusableInTouchMode(true);nativeLayer.requestFocusFromTouch();return;}
+        if(tvMode && !tvListShown() && tvBanner!=null && tvControlsOpen){tvHideBannerNow();nativeLayer.setFocusableInTouchMode(true);nativeLayer.requestFocusFromTouch();return;}
         if (scrollMode) {
             setScrollMode(false);
             return;
         }
         if (tvMode) {
-            if (tvVod) vodBackPressed();
-            else if (tvListShown()) tvHideListNow();
+            if (tvListShown()) tvHideListNow();
             else tvLeave(true);
             return;
         }
@@ -5194,12 +5117,6 @@ private static final String[] TV_SOURCES = {
             if(appBar!=null && !appBar.hasFocus()){focusAppNavigation();return;}
             if(tvSel!=TV_HOME || tvFavouritesOnly){tvSel=TV_HOME;tvFavouritesOnly=false;tvFill(null);}
             else showSection(SECTION_HOME);
-            return;
-        }
-        if (catShown() && (web == null || web.getVisibility() != View.VISIBLE)) {
-            if (srcDialog != null && srcDialog.isShowing()) return;
-            if (catUp != null) catUp.run();
-            else hideCatalog();
             return;
         }
         if (nativeActive()) {
@@ -5277,13 +5194,14 @@ private static final String[] TV_SOURCES = {
         // Когато излезеш (Home), всичко се спира и при връщане започваш от менюто.
         if (!exiting && !isFinishing() && !isChangingConfigurations()) {
             logEvent("Приложението е скрито (Home, друго приложение или угаснал екран)", true);
-            catReturn = null;
+            siteReturn = null;
             teardownSite();
             menuStale = true; // менюто се обновява при връщане (onResume)
         }
     }
 
     private boolean menuStale;
+    private Runnable siteReturn; // къде се връщаме, когато излезем от сайта
 
     @Override
     protected void onDestroy() {
@@ -5293,8 +5211,6 @@ private static final String[] TV_SOURCES = {
         tvCloseTimeline();
         ui.removeCallbacksAndMessages(null);
         tvReset();
-        catGen++;
-        catCancelRequests();
         tvLogoTrim();
         if (tvLogoPool != null) tvLogoPool.shutdownNow();
         closeNative(false);
@@ -5316,495 +5232,30 @@ private static final String[] TV_SOURCES = {
         }
     }
 
-    // ---------- Наши филми (каталог от TMDB) ----------
 
-    // Отговорите идват винаги в главната нишка.
-    private interface Done {
-        void run(String json, String err);
-    }
+    // ---------- общи помощници ----------
 
-    private static class CTitle {
-        int id;
-        boolean tv;
-        String name = "", poster = "", backdrop = "", year = "", overview = "", imdb = "", genres = "";
-        String orig = ""; // оригиналното заглавие (за търсене на субтитри)
-        double rating;
-        int runtime;
-        final ArrayList<int[]> seasons = new ArrayList<>(); // {номер, брой епизоди}
-    }
+    private static final float[] STAR_XY = {12f, 2.8f, 14.9f, 8.8f, 21.5f, 9.7f, 16.7f, 14.3f,
+            17.9f, 20.8f, 12f, 17.7f, 6.1f, 20.8f, 7.3f, 14.3f, 2.5f, 9.7f, 9.1f, 8.8f};
 
-    private static class CEpisode {
-        int num;
-        String name = "", date = "", overview = "", still = "";
-        int runtime;
-    }
-
-        // Малка мрежова група за каталога: до 3 нишки с нисък приоритет, които се затварят,
-    // когато няма работа (не държат памет, докато не гледаш каталога).
-    private static final ExecutorService NET = newNetPool();
-    private final HashSet<HttpURLConnection> catConnections = new HashSet<>();
-
-    private HttpURLConnection catConnect(String url, int generation) throws IOException {
-        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
-        synchronized (catConnections) {
-            if (generation != catGen) throw new IOException("catalogue closed");
-            catConnections.add(connection);
-        }
-        return connection;
-    }
-
-    private void catDisconnect(HttpURLConnection connection) {
-        if (connection == null) return;
-        synchronized (catConnections) { catConnections.remove(connection); }
-    }
-
-    private void catCancelRequests() {
-        ((ThreadPoolExecutor) NET).getQueue().clear();
-        synchronized (catConnections) {
-            for (HttpURLConnection connection : catConnections) connection.disconnect();
-            catConnections.clear();
-        }
-    }
-
-    private static ExecutorService newNetPool() {
-        ThreadPoolExecutor p = new ThreadPoolExecutor(3, 3, 20, TimeUnit.SECONDS,
-                new LinkedBlockingQueue<Runnable>(), lowPriority("tvs-net"));
-        p.allowCoreThreadTimeOut(true);
-        return p;
+    private static void starPath(Path p) {
+        p.reset();
+        p.moveTo(STAR_XY[0], STAR_XY[1]);
+        for (int i = 2; i + 1 < STAR_XY.length; i += 2) p.lineTo(STAR_XY[i], STAR_XY[i + 1]);
+        p.close();
     }
 
     private static final int MP = ViewGroup.LayoutParams.MATCH_PARENT;
     private static final int WC = ViewGroup.LayoutParams.WRAP_CONTENT;
 
-    // Цветове на каталога: тъмно синьо-зелено (като киносалон) и кехлибарено за избраното.
-    private static final int K_BG = TvTheme.BACKGROUND;
-    private static final int K_SURF = TvTheme.SURFACE;
-    private static final int K_SURF2 = TvTheme.SURFACE_ALT;
-    private static final int K_LINE = TvTheme.OUTLINE;
-    private static final int K_TEXT = TvTheme.TEXT;
-    private static final int K_TEXT2 = TvTheme.MUTED;
-    private static final int K_TEXT3 = TvTheme.MUTED;
-    private static final int K_AMBER = TvTheme.BLUE;
-    private static final int K_AMBER2 = TvTheme.BLUE_LIGHT;
-    private static final int K_EMBER = TvTheme.BLUE;
-    private static final int K_INK = Color.WHITE;
-    private static final int K_ERR = 0xFFFF9A8A;
-    private static final int R_TITLE = 0x7f0b0002; // ключ за таг: заглавието на клетката
-
-
-    private Typeface tfSerif = Typeface.SERIF;
-
-    private FrameLayout catPanel;
-    private LinearLayout catToolbar;
-    private ScrollView catScroll;
-    private LinearLayout catBox;
-    private Runnable catUp;      // какво прави "Назад" на текущия екран
-    private Runnable catReturn;  // къде се връщаме, когато излезем от сайта
-    private View catTile;        // плочката в менюто (за фокус при връщане)
-    private View catMain;        // главният бутон на екрана
-    private String catFocusKey;  // коя корица да е на фокус при връщане към списъка
-    private volatile int catGen;  // номер на екрана: закъснели отговори се отхвърлят
-    private ArrayList<String> srcQueue; // адреси на източниците за отворения сайт
-    private int srcIdx;
-    private Dialog srcDialog;
-
-    // Отговорите на TMDB се пазят 30 минути, за да не се тегли едно и също.
-    private static final HashMap<String, String> TMDB_JSON = new HashMap<>();
-    private static final HashMap<String, Long> TMDB_AT = new HashMap<>();
-    // Кориците и снимките се пазят само в паметта и се чистят при излизане от каталога.
-    private static final LruCache<String, Bitmap> POSTERS = new LruCache<String, Bitmap>(10 * 1024 * 1024) {
-        @Override
-        protected int sizeOf(String key, Bitmap b) {
-            return b.getByteCount();
-        }
-    };
-    private static final LruCache<String, Bitmap> BACKDROPS = new LruCache<String, Bitmap>(12 * 1024 * 1024) {
-        @Override
-        protected int sizeOf(String key, Bitmap b) {
-            return b.getByteCount();
-        }
-    };
-
-    private String tmdbKey() {
-        String k = prefs.getString("tmdbKey", "").trim();
-        return k.isEmpty() ? TMDB_KEY.trim() : k;
-    }
-
-    // Въведеното на кутията е с предимство пред адресите в кода.
-    private String sourceTpl(boolean tv, int i) {
-        String s = prefs.getString((tv ? "tsrc" : "fsrc") + i, "").trim();
-        String[] code = tv ? TV_SOURCES : FILM_SOURCES;
-        if (s.isEmpty() && i < code.length) s = code[i].trim();
-        return s;
-    }
-
-    private static final int SRC_SLOTS = 10; // основен + 9 резервни
-
-    private int srcPref(boolean tv) {
-        int p = prefs.getInt(tv ? "tvSrcPref" : "mvSrcPref", 0);
-        if (p < 0 || p >= SRC_SLOTS || sourceTpl(tv, p).isEmpty()) {
-            for (int i = 0; i < SRC_SLOTS; i++) {
-                if (!sourceTpl(tv, i).isEmpty()) return i;
-            }
-            return 0;
-        }
+    private static ExecutorService newCheckPool() {
+        ThreadPoolExecutor p = new ThreadPoolExecutor(4, 4, 20, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<Runnable>(), lowPriority("tvs-chk"));
+        p.allowCoreThreadTimeOut(true);
         return p;
     }
 
-    private void srcSetPref(boolean tv, int slot) {
-        prefs.edit().putInt(tv ? "tvSrcPref" : "mvSrcPref", slot).apply();
-    }
-
-    // Номерата на попълнените места за адреси (по ред).
-    private int[] srcSlots(boolean tv) {
-        int[] tmp = new int[SRC_SLOTS];
-        int n = 0;
-        for (int i = 0; i < SRC_SLOTS; i++) {
-            if (!sourceTpl(tv, i).isEmpty()) tmp[n++] = i;
-        }
-        int[] out = new int[n];
-        System.arraycopy(tmp, 0, out, 0, n);
-        return out;
-    }
-
-    // Само името на сайта (без http и без {tmdb} и т.н.), за надписа на билетчето.
-    private String srcHost(boolean tv, int slot) {
-        String tpl = sourceTpl(tv, slot).replace("{", "").replace("}", "");
-        String h = hostOf(tpl);
-        return h == null || h.isEmpty() ? "източник " + (slot + 1) : h;
-    }
-
-    private int sourceCount(boolean tv) {
-        return srcSlots(tv).length;
-    }
-
-    // Готовите адреси (основен, после резервните) за филм или епизод.
-    private ArrayList<String> sourceUrls(CTitle t, int season, int episode) {
-        ArrayList<String> out = new ArrayList<>();
-        int pref = srcPref(t.tv);
-        for (int k = 0; k < SRC_SLOTS; k++) {
-            int i = (pref + k) % SRC_SLOTS; // избраният източник е пръв, другите са резервни
-            String s = sourceTpl(t.tv, i);
-            if (s.isEmpty()) continue;
-            if (s.contains("{imdb}") && t.imdb.isEmpty()) continue; // няма IMDb номер
-            String url = s.replace("{tmdb}", String.valueOf(t.id))
-                    .replace("{imdb}", t.imdb)
-                    .replace("{season}", String.valueOf(season))
-                    .replace("{episode}", String.valueOf(episode));
-            if (url.startsWith("http://") || url.startsWith("https://")) out.add(url);
-        }
-        return out;
-    }
-
-        private static String tmdbCached(String path) {
-        synchronized (TMDB_JSON) {
-            Long at = TMDB_AT.get(path);
-            if (at != null && SystemClock.elapsedRealtime() - at < 30L * 60 * 1000) {
-                return TMDB_JSON.get(path);
-            }
-        }
-        return null;
-    }
-
-    // Заявка към TMDB на заден план. Дълъг ключ (започва с "eyJ") се праща като токен,
-    // късият (32 знака) като api_key.
-    private void tmdbFetch(final String path, final Done done) {
-        final int generation = catGen;
-        final String hit = tmdbCached(path);
-        if (hit != null) {
-            ui.post(new Runnable() {
-                @Override
-                public void run() {
-                    if (generation == catGen) done.run(hit, null);
-                }
-            });
-            return;
-        }
-        final String key = tmdbKey();
-        if (key.isEmpty()) {
-            done.run(null, "Няма ключ за TMDB");
-            return;
-        }
-        submit(NET, new Runnable() {
-            @Override
-            public void run() {
-                String json = null;
-                String err = null;
-                HttpURLConnection c = null;
-                boolean reuse = false;
-                try {
-                    boolean bearer = key.length() > 60;
-                    String url = "https://api.themoviedb.org/3" + path;
-                    if (!bearer) {
-                        url += (path.contains("?") ? "&" : "?") + "api_key="
-                                + java.net.URLEncoder.encode(key, "UTF-8");
-                    }
-                    c = catConnect(url, generation);
-                    c.setConnectTimeout(10000);
-                    c.setReadTimeout(10000);
-                    c.setRequestProperty("Accept", "application/json");
-                    if (bearer) c.setRequestProperty("Authorization", "Bearer " + key);
-                    int rc = c.getResponseCode();
-                    if (rc == 200) {
-                        json = readAll(c.getInputStream());
-                        reuse = true; // връзката се връща в групата за следваща заявка
-                    } else if (rc == 401) {
-                        err = "TMDB не прие ключа (код 401). Провери го от бутона Източници.";
-                    } else {
-                        err = "TMDB отговори с код " + rc;
-                    }
-                } catch (Exception e) {
-                    err = "Няма връзка с TMDB";
-                } finally {
-                    if (c != null && !reuse) c.disconnect();
-                }
-                catDisconnect(c);
-                if (generation != catGen) return;
-                if (json != null) {
-                    synchronized (TMDB_JSON) {
-                        if (TMDB_JSON.size() > 60) {
-                            TMDB_JSON.clear();
-                            TMDB_AT.clear();
-                        }
-                        TMDB_JSON.put(path, json);
-                        TMDB_AT.put(path, SystemClock.elapsedRealtime());
-                    }
-                }
-                final String j = json;
-                final String e = err;
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (isFinishing() || generation != catGen) return;
-                        done.run(j, e);
-                    }
-                });
-            }
-        });
-    }
-
-    private static String jstr(JSONObject o, String k) {
-        return o.isNull(k) ? "" : o.optString(k, "");
-    }
-
-    private static ArrayList<CTitle> parseList(String json, boolean tv) {
-        return parseList(json, tv, 14);
-    }
-
-    private static ArrayList<CTitle> parseList(String json, boolean tv, int max) {
-        ArrayList<CTitle> out = new ArrayList<>();
-        try {
-            JSONArray a = new JSONObject(json).optJSONArray("results");
-            if (a == null) return out;
-            for (int i = 0; i < a.length() && out.size() < max; i++) {
-                JSONObject o = a.optJSONObject(i);
-                if (o == null) continue;
-                CTitle t = new CTitle();
-                t.id = o.optInt("id");
-                t.tv = tv;
-                t.name = jstr(o, tv ? "name" : "title");
-                t.orig = jstr(o, tv ? "original_name" : "original_title");
-                t.poster = jstr(o, "poster_path");
-                t.backdrop = jstr(o, "backdrop_path");
-                String d = jstr(o, tv ? "first_air_date" : "release_date");
-                t.year = d.length() >= 4 ? d.substring(0, 4) : "";
-                t.rating = o.optDouble("vote_average", 0);
-                t.overview = jstr(o, "overview");
-                if (t.id != 0 && !t.name.isEmpty() && !t.poster.isEmpty()) out.add(t);
-            }
-        } catch (Exception ignored) {
-        }
-        return out;
-    }
-
-    // Допълва заглавието с описание, IMDb номер, жанрове и сезони.
-    private static void parseDetail(String json, CTitle t) {
-        try {
-            JSONObject o = new JSONObject(json);
-            String ov = jstr(o, "overview");
-            if (!ov.isEmpty()) t.overview = ov;
-            String og = jstr(o, t.tv ? "original_name" : "original_title");
-            if (!og.isEmpty()) t.orig = og;
-            String p = jstr(o, "poster_path");
-            if (!p.isEmpty()) t.poster = p;
-            String bd = jstr(o, "backdrop_path");
-            if (!bd.isEmpty()) t.backdrop = bd;
-            t.rating = o.optDouble("vote_average", t.rating);
-            String d = jstr(o, t.tv ? "first_air_date" : "release_date");
-            if (d.length() >= 4) t.year = d.substring(0, 4);
-            if (t.tv) {
-                JSONObject ex = o.optJSONObject("external_ids");
-                if (ex != null) t.imdb = jstr(ex, "imdb_id");
-                JSONArray rt = o.optJSONArray("episode_run_time");
-                if (rt != null && rt.length() > 0) t.runtime = rt.optInt(0);
-            } else {
-                t.imdb = jstr(o, "imdb_id");
-                t.runtime = o.optInt("runtime");
-            }
-            StringBuilder sb = new StringBuilder();
-            JSONArray g = o.optJSONArray("genres");
-            if (g != null) {
-                for (int i = 0; i < g.length() && i < 4; i++) {
-                    JSONObject go = g.optJSONObject(i);
-                    if (go == null) continue;
-                    if (sb.length() > 0) sb.append(", ");
-                    sb.append(jstr(go, "name"));
-                }
-            }
-            t.genres = sb.toString();
-            t.seasons.clear();
-            JSONArray ss = o.optJSONArray("seasons");
-            if (t.tv && ss != null) {
-                for (int i = 0; i < ss.length(); i++) {
-                    JSONObject so = ss.optJSONObject(i);
-                    if (so == null) continue;
-                    int n = so.optInt("season_number");
-                    if (n > 0) t.seasons.add(new int[]{n, so.optInt("episode_count")});
-                }
-            }
-        } catch (Exception ignored) {
-        }
-    }
-
-    private static ArrayList<CEpisode> parseEpisodes(String json) {
-        ArrayList<CEpisode> out = new ArrayList<>();
-        try {
-            JSONArray a = new JSONObject(json).optJSONArray("episodes");
-            if (a == null) return out;
-            for (int i = 0; i < a.length() && out.size() < 80; i++) {
-                JSONObject o = a.optJSONObject(i);
-                if (o == null) continue;
-                CEpisode e = new CEpisode();
-                e.num = o.optInt("episode_number");
-                e.name = jstr(o, "name");
-                e.date = jstr(o, "air_date");
-                e.runtime = o.optInt("runtime");
-                e.still = jstr(o, "still_path");
-                String ov = jstr(o, "overview");
-                e.overview = ov.length() > 220 ? ov.substring(0, 220) : ov;
-                if (e.num > 0) out.add(e);
-            }
-        } catch (Exception ignored) {
-        }
-        return out;
-    }
-
-    // Заглавия от резултат (търсене смесва филми и сериали; хората се пропускат).
-    private static ArrayList<CTitle> parseMixed(String json) {
-        ArrayList<CTitle> out = new ArrayList<>();
-        try {
-            JSONArray a = new JSONObject(json).optJSONArray("results");
-            if (a == null) return out;
-            for (int i = 0; i < a.length() && out.size() < 28; i++) {
-                JSONObject o = a.optJSONObject(i);
-                if (o == null) continue;
-                String mt = jstr(o, "media_type");
-                boolean tv = mt.equals("tv");
-                if (!tv && !mt.equals("movie")) continue;
-                CTitle t = new CTitle();
-                t.id = o.optInt("id");
-                t.tv = tv;
-                t.name = jstr(o, tv ? "name" : "title");
-                t.orig = jstr(o, tv ? "original_name" : "original_title");
-                t.poster = jstr(o, "poster_path");
-                t.backdrop = jstr(o, "backdrop_path");
-                String d = jstr(o, tv ? "first_air_date" : "release_date");
-                t.year = d.length() >= 4 ? d.substring(0, 4) : "";
-                t.rating = o.optDouble("vote_average", 0);
-                t.overview = jstr(o, "overview");
-                if (t.id != 0 && !t.name.isEmpty()) out.add(t);
-            }
-        } catch (Exception ignored) {
-        }
-        return out;
-    }
-
-    // "2019-05-06" става "6 май 2019".
-    private static String bgDate(String iso) {
-        try {
-            if (iso == null || iso.length() < 10) return "";
-            int y = Integer.parseInt(iso.substring(0, 4));
-            int m = Integer.parseInt(iso.substring(5, 7));
-            int d = Integer.parseInt(iso.substring(8, 10));
-            if (m < 1 || m > 12) return "";
-            return d + " " + BG_MONTHS[m - 1] + " " + y;
-        } catch (Exception e) {
-            return "";
-        }
-    }
-
-    private static String fmtRuntime(int min) {
-        if (min <= 0) return "";
-        if (min < 60) return min + " мин";
-        int h = min / 60;
-        int m = min % 60;
-        return h + " ч" + (m > 0 ? " " + m + " мин" : "");
-    }
-
-    // ---- картини ----
-
-    private interface ImageSink {
-        void set(Bitmap b, boolean instant);
-    }
-
-    // Размерът на корицата за редовете: на много големи екрани е по-едър.
-    private String rowSize() {
-        return getResources().getDisplayMetrics().widthPixels >= 2400 ? "w342" : "w185";
-    }
-
-    private String backdropSize() {
-        return getResources().getDisplayMetrics().widthPixels >= 1700 ? "w1280" : "w780";
-    }
-
-    // Сваля и подава картината; ако вече е в паметта, подава я веднага.
-    private void loadImage(final String size, final String path, final int gen, final boolean wide,
-                           final ImageSink sink) {
-        if (path == null || path.isEmpty()) return;
-        final String key = size + path;
-        final LruCache<String, Bitmap> cache = wide ? BACKDROPS : POSTERS;
-        Bitmap hit = cache.get(key);
-        if (hit != null) {
-            sink.set(hit, true);
-            return;
-        }
-        submit(NET, new Runnable() {
-            @Override
-            public void run() {
-                if (gen != catGen) return; // екранът вече е сменен: не свалям напразно
-                Bitmap b = null;
-                HttpURLConnection c = null;
-                boolean reuse = false;
-                try {
-                    c = catConnect("https://image.tmdb.org/t/p/" + size + path, gen);
-                    c.setConnectTimeout(10000);
-                    c.setReadTimeout(10000);
-                    if (c.getResponseCode() == 200) {
-                        // Целият отговор се чете и потокът се затваря: връзката се използва
-                        // повторно за следващата картина (без ново договаряне на защитата).
-                        byte[] data = readBytes(c.getInputStream(), wide ? 900000 : 600000);
-                        reuse = true;
-                        BitmapFactory.Options o = new BitmapFactory.Options();
-                        o.inPreferredConfig = Bitmap.Config.RGB_565; // наполовина памет
-                        b = BitmapFactory.decodeByteArray(data, 0, data.length, o);
-                    }
-                } catch (Exception ignored) {
-                } finally {
-                    if (c != null && !reuse) c.disconnect();
-                }
-                catDisconnect(c);
-                if (b == null || gen != catGen) return;
-                final Bitmap fb = b;
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (gen != catGen || isFinishing()) return;
-                        cache.put(key, fb);
-                        sink.set(fb, false);
-                    }
-                });
-            }
-        });
-    }
+    private static final ExecutorService CHKNET = newCheckPool();
 
         private static void roundClip(View v, final int radiusPx) {
         v.setOutlineProvider(new ViewOutlineProvider() {
@@ -5816,21 +5267,6 @@ private static final String[] TV_SOURCES = {
         v.setClipToOutline(true);
     }
 
-    // ---- изгледи на каталога (рисуват се сами: малко изгледи, леко за кутията) ----
-
-    // Звезда на мрежа 24x24 (за оценката).
-    private static final float[] STAR_XY = {12f, 2.8f, 14.9f, 8.8f, 21.5f, 9.7f, 16.7f, 14.3f,
-            17.9f, 20.8f, 12f, 17.7f, 6.1f, 20.8f, 7.3f, 14.3f, 2.5f, 9.7f, 9.1f, 8.8f};
-
-    private static void starPath(Path p) {
-        p.reset();
-        p.moveTo(STAR_XY[0], STAR_XY[1]);
-        for (int i = 2; i + 1 < STAR_XY.length; i += 2) p.lineTo(STAR_XY[i], STAR_XY[i + 1]);
-        p.close();
-    }
-
-    // Прокрутки с малко повече поле: при фокус се вижда целият уголемен елемент, а в редовете
-    // се показва и част от следващата корица.
     private class CatScroll extends ScrollView {
         CatScroll(Context c) {
             super(c);
@@ -5859,7 +5295,6 @@ private static final String[] TV_SOURCES = {
         }
     }
 
-    // Мек преход (градиент) върху картина: за да се чете текстът.
     private static class ScrimView extends View {
         private final Paint p = new Paint();
         private final boolean vertical;
@@ -5889,852 +5324,6 @@ private static final String[] TV_SOURCES = {
         }
     }
 
-    // Широка картина във фона, с плавно появяване. Без картина е меко цветно петно.
-    private static class BackdropView extends View {
-        private Bitmap cur;
-        private Bitmap prev;
-        private float t = 1f;
-        private int tint = TvTheme.SURFACE_ALT;
-        private Shader glow;
-        private ValueAnimator anim;
-        private final Paint p = new Paint(Paint.FILTER_BITMAP_FLAG);
-        private final Paint gp = new Paint();
-        private final Rect src = new Rect();
-        private final RectF dst = new RectF();
-
-        BackdropView(Context c) {
-            super(c);
-        }
-
-        void setTint(int c) {
-            tint = c;
-            rebuildGlow();
-            invalidate();
-        }
-
-        private void rebuildGlow() {
-            int w = getWidth();
-            int h = getHeight();
-            if (w <= 0 || h <= 0) {
-                glow = null;
-                return;
-            }
-            glow = new RadialGradient(w * 0.65f, h * 0.38f, w * 0.62f,
-                    new int[]{tint, tint & 0x00FFFFFF}, null, Shader.TileMode.CLAMP);
-        }
-
-        @Override
-        protected void onSizeChanged(int w, int h, int ow, int oh) {
-            rebuildGlow();
-        }
-
-        // b може да е null (празно). Плавният преход се прави само при нова картина.
-        void setImage(Bitmap b, boolean fade) {
-            if (b == cur) return;
-            if (anim != null) anim.cancel();
-            prev = fade ? cur : null;
-            cur = b;
-            if (fade && b != null) {
-                t = 0f;
-                anim = ValueAnimator.ofFloat(0f, 1f);
-                anim.setDuration(300);
-                anim.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
-                    @Override
-                    public void onAnimationUpdate(ValueAnimator a) {
-                        t = (Float) a.getAnimatedValue();
-                        if (t >= 1f) prev = null;
-                        invalidate();
-                    }
-                });
-                anim.start();
-            } else {
-                prev = null;
-                t = 1f;
-            }
-            invalidate();
-        }
-
-        @Override
-        protected void onDetachedFromWindow() {
-            if (anim != null) anim.cancel();
-            prev = null;
-            t = 1f;
-            super.onDetachedFromWindow();
-        }
-
-        private void cover(Canvas c, Bitmap b, int alpha) {
-            int w = getWidth();
-            int h = getHeight();
-            float vr = (float) w / h;
-            float br = (float) b.getWidth() / b.getHeight();
-            int sw;
-            int sh;
-            int sx;
-            int sy;
-            if (br > vr) { // картината е по-широка: режат се страните
-                sh = b.getHeight();
-                sw = Math.round(sh * vr);
-                sx = (b.getWidth() - sw) / 2;
-                sy = 0;
-            } else { // по-висока: реже се отгоре и отдолу, лицата са по-често над средата
-                sw = b.getWidth();
-                sh = Math.round(sw / vr);
-                sx = 0;
-                sy = Math.round((b.getHeight() - sh) * 0.25f);
-            }
-            src.set(sx, sy, sx + sw, sy + sh);
-            dst.set(0, 0, w, h);
-            p.setAlpha(alpha);
-            c.drawBitmap(b, src, dst, p);
-        }
-
-        @Override
-        protected void onDraw(Canvas c) {
-            int w = getWidth();
-            int h = getHeight();
-            if (w <= 0 || h <= 0) return;
-            c.drawColor(TvTheme.BACKGROUND_TOP);
-            if (glow != null) {
-                gp.setShader(glow);
-                c.drawRect(0, 0, w, h, gp);
-            }
-            if (prev != null) cover(c, prev, 255);
-            if (cur != null) cover(c, cur, Math.round(255 * t));
-        }
-    }
-
-    // Корица, снимка от епизод или цветна плочка. На избираемата корица има рамка при фокус,
-    // а когато не е на фокус, е леко притъмнена: "осветено е само избраното".
-    private class ArtView extends View {
-        private final int radius;
-        private final boolean cell;
-        private final int c0;
-        private final int c1;
-        private final String letter;
-        private String rating = "";
-        private String number = "";
-        private boolean play;
-        private Bitmap bmp;
-        private boolean containImage;
-        private final RectF imageFrame=new RectF();
-        private BitmapShader shader;
-        private float fade = 1f;
-        private ValueAnimator anim;
-        private Shader grad;
-        private Shader shade;
-        private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint img = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-        private final TextPaint tp = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-        private final RectF rf = new RectF();
-        private final Matrix mx = new Matrix();
-        private final Path pth = new Path();
-
-        ArtView(Context ctx, int id, String name, int radiusPx, boolean cell) {
-            super(ctx);
-            this.c0 = TvTheme.SURFACE_ALT;
-            this.c1 = TvTheme.BACKGROUND_TOP;
-            this.letter = initial(name);
-            this.radius = radiusPx;
-            this.cell = cell;
-            if (cell) {
-                setFocusable(true);
-                setClickable(true);
-            }
-            final int rad = radiusPx;
-            setOutlineProvider(new ViewOutlineProvider() {
-                @Override
-                public void getOutline(View view, Outline outline) {
-                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), rad);
-                }
-            });
-        }
-
-        void setRating(double r) {
-            rating = r > 0 ? String.format(Locale.US, "%.1f", r) : "";
-            invalidate();
-        }
-
-        void setNumber(String n) {
-            number = n;
-            invalidate();
-        }
-
-        void setPlay(boolean on) {
-            play = on;
-            invalidate();
-        }
-
-        void setBitmap(Bitmap b, boolean animate) {
-            if (b == null) { if(anim!=null)anim.cancel();bmp=null;shader=null;img.setShader(null);fade=1f;invalidate();return; }
-            bmp = b;
-            shader = new BitmapShader(b, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
-            img.setShader(shader);
-            fitShader();
-            if (anim != null) anim.cancel();
-            if (animate) {
-                fade = 0f;
-                anim = ValueAnimator.ofFloat(0f, 1f);
-                anim.setDuration(220);
-                anim.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
-                    @Override
-                    public void onAnimationUpdate(ValueAnimator a) {
-                        fade = (Float) a.getAnimatedValue();
-                        invalidate();
-                    }
-                });
-                anim.start();
-            } else {
-                fade = 1f;
-            }
-            invalidate();
-        }
-
-        private void fitShader() {
-            if (shader == null || bmp == null || getWidth() <= 0 || getHeight() <= 0) return;
-            float sx=(float)getWidth()/bmp.getWidth(),sy=(float)getHeight()/bmp.getHeight();
-            float s=containImage?Math.min(sx,sy):Math.max(sx,sy);
-            float dx=(getWidth()-bmp.getWidth()*s)/2f,dy=(getHeight()-bmp.getHeight()*s)/2f;
-            imageFrame.set(dx,dy,dx+bmp.getWidth()*s,dy+bmp.getHeight()*s);
-            mx.reset();
-            mx.setScale(s, s);
-            mx.postTranslate((getWidth() - bmp.getWidth() * s) / 2f,
-                    (getHeight() - bmp.getHeight() * s) / 2f);
-            shader.setLocalMatrix(mx);
-        }
-
-        @Override
-        protected void onSizeChanged(int w, int h, int ow, int oh) {
-            if (w > 0 && h > 0) {
-                grad = new LinearGradient(0, 0, w, h, c0, c1, Shader.TileMode.CLAMP);
-                shade = new LinearGradient(0, h * 0.40f, 0, h, 0x00000000, 0xB0000000,
-                        Shader.TileMode.CLAMP);
-            }
-            fitShader();
-        }
-
-        @Override
-        protected void onDetachedFromWindow() {
-            if (anim != null) anim.cancel();
-            fade = 1f;
-            super.onDetachedFromWindow();
-        }
-
-        @Override
-        protected void onDraw(Canvas c) {
-            int w = getWidth();
-            int h = getHeight();
-            if (w <= 0 || h <= 0) return;
-            rf.set(0, 0, w, h);
-            fill.setStyle(Paint.Style.FILL);
-            fill.setShader(grad);
-            c.drawRoundRect(rf, radius, radius, fill);
-            fill.setShader(null);
-            if (bmp == null || fade < 1f) {
-                // докато няма корица: голяма буква
-                tp.setTypeface(tfSerif);
-                tp.setTextAlign(Paint.Align.CENTER);
-                tp.setTextSize(Math.min(w, h) * 0.42f);
-                tp.setColor(((int) (0x59 * (1f - (bmp == null ? 0f : fade))) << 24) | 0x00FFFFFF);
-                c.drawText(letter, w / 2f, h / 2f + tp.getTextSize() * 0.35f, tp);
-            }
-            if (bmp != null) {
-                img.setAlpha(Math.round(255 * fade));
-                c.drawRoundRect(containImage?imageFrame:rf, radius, radius, img);
-            }
-            if (!number.isEmpty() || play) {
-                fill.setShader(shade);
-                c.drawRoundRect(rf, radius, radius, fill);
-                fill.setShader(null);
-            }
-            if (!number.isEmpty()) {
-                tp.setTypeface(tfSerif);
-                tp.setTextAlign(Paint.Align.LEFT);
-                tp.setTextSize(h * 0.27f);
-                tp.setColor(Color.WHITE);
-                c.drawText(number, h * 0.09f, h - h * 0.08f, tp);
-            }
-            if (play) {
-                float r = h * 0.14f;
-                float cx = w - h * 0.08f - r;
-                float cy = h - h * 0.08f - r;
-                fill.setColor(0xA00D1119);
-                c.drawCircle(cx, cy, r, fill);
-                fill.setColor(K_AMBER2);
-                pth.reset();
-                pth.moveTo(cx - r * 0.28f, cy - r * 0.44f);
-                pth.lineTo(cx - r * 0.28f, cy + r * 0.44f);
-                pth.lineTo(cx + r * 0.46f, cy);
-                pth.close();
-                c.drawPath(pth, fill);
-            }
-            if (!rating.isEmpty()) {
-                float ph = u(24);
-                float padL = u(7);
-                float sz = u(13);
-                float gap = u(4);
-                float padR = u(8);
-                tp.setTypeface(Typeface.DEFAULT_BOLD);
-                tp.setTextAlign(Paint.Align.LEFT);
-                tp.setTextSize(u(14));
-                float tw = tp.measureText(rating);
-                float pw = padL + sz + gap + tw + padR;
-                float px = w - u(8) - pw;
-                float py = u(8);
-                fill.setColor(0xBA0D1119);
-                c.drawRoundRect(px, py, px + pw, py + ph, ph / 2f, ph / 2f, fill);
-                fill.setColor(K_AMBER);
-                starPath(pth);
-                c.save();
-                c.translate(px + padL, py + (ph - sz) / 2f);
-                c.scale(sz / 24f, sz / 24f);
-                c.drawPath(pth, fill);
-                c.restore();
-                tp.setColor(K_TEXT);
-                c.drawText(rating, px + padL + sz + gap, py + ph / 2f + tp.getTextSize() * 0.35f, tp);
-            }
-            if (cell) {
-                if (isFocused() || isActivated()) {
-                    float sw = u(3);
-                    fill.setStyle(Paint.Style.STROKE);
-                    fill.setStrokeWidth(sw);
-                    fill.setColor(TvTheme.FOCUS);
-                    rf.set(sw / 2f, sw / 2f, w - sw / 2f, h - sw / 2f);
-                    c.drawRoundRect(rf, radius - sw / 2f, radius - sw / 2f, fill);
-                    fill.setStyle(Paint.Style.FILL);
-                } else {
-                    fill.setColor(0x100D1119);
-                    c.drawRoundRect(rf, radius, radius, fill);
-                }
-            }
-        }
-    }
-
-    // Билетче за източник: прозорче с номер, прекъсната линия и име на сайта.
-    private class TicketView extends View {
-        private final int num;
-        private final String host;
-        private String caption = "";
-        private boolean preferred;
-        private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final TextPaint tp = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-        private final Path shape = new Path();
-        private final Path notch = new Path();
-        private final Path perf = new Path();
-        private final RectF rf = new RectF();
-        private final DashPathEffect dash = new DashPathEffect(new float[]{3f * U, 6f * U}, 0f);
-        private float s = 1f;
-        private float px;
-
-        TicketView(Context ctx, int num, String host) {
-            super(ctx);
-            this.num = num;
-            this.host = host;
-            setFocusable(true);
-            setClickable(true);
-            line.setStyle(Paint.Style.STROKE);
-            setOutlineProvider(new ViewOutlineProvider() {
-                @Override
-                public void getOutline(View view, Outline outline) {
-                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(),
-                            14f * view.getWidth() / 232f);
-                }
-            });
-        }
-
-        void setPreferred(boolean on, String caption) {
-            this.preferred = on;
-            this.caption = caption;
-            invalidate();
-        }
-
-        @Override
-        protected void onSizeChanged(int w, int h, int ow, int oh) {
-            if (w <= 0 || h <= 0) return;
-            s = w / 232f;
-            float rr = 14f * s;
-            px = 64f * s;
-            float nr = 9f * s;
-            rf.set(0, 0, w, h);
-            shape.reset();
-            shape.addRoundRect(rf, rr, rr, Path.Direction.CW);
-            notch.reset();
-            notch.addCircle(px, 0, nr, Path.Direction.CW);
-            notch.addCircle(px, h, nr, Path.Direction.CW);
-            shape.op(notch, Path.Op.DIFFERENCE);
-            perf.reset();
-            perf.moveTo(px, nr + 6f * s);
-            perf.lineTo(px, h - nr - 6f * s);
-        }
-
-        @Override
-        protected void onDraw(Canvas c) {
-            int w = getWidth();
-            int h = getHeight();
-            if (w <= 0 || h <= 0) return;
-            boolean f = isFocused();
-            fill.setStyle(Paint.Style.FILL);
-            fill.setColor(f ? TvTheme.SURFACE_ALT : K_SURF);
-            c.drawPath(shape, fill);
-            line.setPathEffect(null);
-            line.setStrokeWidth(f ? 3f * U : (preferred ? 2f * U : 1.5f * U));
-            line.setColor(f ? TvTheme.FOCUS : preferred ? TvTheme.BLUE_LIGHT : TvTheme.OUTLINE);
-            c.drawPath(shape, line);
-            line.setStrokeWidth(2f * U);
-            line.setColor(TvTheme.OUTLINE);
-            line.setPathEffect(dash);
-            c.drawPath(perf, line);
-            line.setPathEffect(null);
-            // номер
-            tp.setTypeface(tfSerif);
-            tp.setTextAlign(Paint.Align.CENTER);
-            tp.setTextSize(38f * s);
-            tp.setColor(preferred ? K_AMBER : 0xFF9FB6BD);
-            c.drawText(String.valueOf(num), px / 2f, h / 2f + tp.getTextSize() * 0.34f, tp);
-            // име на сайта и поясняващ надпис
-            float x = px + 16f * s;
-            float avail = w - x - 12f * s;
-            float hostSize = Math.max(17f * U, 19f * s);
-            float capSize = Math.max(14f * U, 14f * s);
-            float total = hostSize + capSize + 3f * U;
-            float top = (h - total) / 2f;
-            tp.setTypeface(tfMedium);
-            tp.setTextAlign(Paint.Align.LEFT);
-            tp.setTextSize(hostSize);
-            tp.setColor(K_TEXT);
-            CharSequence hs = TextUtils.ellipsize(host, tp, avail, TextUtils.TruncateAt.END);
-            c.drawText(hs, 0, hs.length(), x, top + hostSize * 0.84f, tp);
-            tp.setTextSize(capSize);
-            tp.setColor(preferred ? K_AMBER : K_TEXT3);
-            c.drawText(caption, x, top + hostSize + 3f * U + capSize * 0.84f, tp);
-        }
-    }
-
-    // Цветове на жанровете: две бои за преливане.
-    private static int[] genreCols(int gid) {
-        switch (gid) {
-            case 28: case 10759: return new int[]{0xFFF2711C, 0xFF6B1608};
-            case 12: return new int[]{0xFFE8A53A, 0xFF2D5B3B};
-            case 16: return new int[]{0xFFF472B6, 0xFF5B21B6};
-            case 35: return new int[]{0xFFFFC93C, 0xFFE8590C};
-            case 80: return new int[]{0xFF5D7A96, 0xFF1B2147};
-            case 99: return new int[]{0xFF2E8F9E, 0xFF0C2A4A};
-            case 18: return new int[]{0xFFA8456B, 0xFF2A0F26};
-            case 10751: return new int[]{0xFF4FB6E8, 0xFF16607A};
-            case 14: case 10765: return new int[]{0xFF8B5CF6, 0xFF1E1B6B};
-            case 36: return new int[]{0xFFB98B52, 0xFF3B2410};
-            case 27: return new int[]{0xFFB91C1C, 0xFF150607};
-            case 10402: return new int[]{0xFFD946EF, 0xFF4A1572};
-            case 9648: return new int[]{0xFF4F46E5, 0xFF0E0C2E};
-            case 10749: return new int[]{0xFFFB7185, 0xFF7A1233};
-            case 878: return new int[]{0xFF22D3EE, 0xFF0B3A66};
-            case 53: return new int[]{0xFF64748B, 0xFF0B1220};
-            case 10752: case 10768: return new int[]{0xFF7A8B4A, 0xFF232A14};
-            case 37: return new int[]{0xFFD9A066, 0xFF6B2D12};
-            case 10762: return new int[]{0xFF34D399, 0xFF0F5C4D};
-            case 0: return new int[]{0xFFFFB547, 0xFFC2410C};
-            default: return new int[]{0xFF3B6E8F, 0xFF12263A};
-        }
-    }
-
-    // Плочка на жанр: цветно преливане, голяма бледа буква и име с главни и малки букви.
-    private class GenreView extends View {
-        private final String name;
-        private final String letter;
-        private final int[] cols;
-        private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final TextPaint ghost = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-        private final TextPaint namePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-        private final RectF rf = new RectF();
-        private final Path clip = new Path();
-        private Shader grad;
-        private Shader shade;
-        private StaticLayout layout;
-        private final int radius;
-
-        GenreView(Context ctx, String name, int gid) {
-            super(ctx);
-            this.name = name;
-            this.letter = initial(name);
-            this.cols = new int[]{TvTheme.SURFACE_ALT,TvTheme.BACKGROUND_TOP};
-            this.radius = u(18);
-            setFocusable(true);
-            setClickable(true);
-            final int rad = radius;
-            setOutlineProvider(new ViewOutlineProvider() {
-                @Override
-                public void getOutline(View view, Outline outline) {
-                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), rad);
-                }
-            });
-            ghost.setTypeface(tfSerif);
-            ghost.setTextAlign(Paint.Align.RIGHT);
-            ghost.setColor(0x24FFFFFF);
-            namePaint.setTypeface(tfSerif);
-            namePaint.setColor(Color.WHITE);
-        }
-
-        @Override
-        protected void onSizeChanged(int w, int h, int ow, int oh) {
-            if (w <= 0 || h <= 0) return;
-            grad = new LinearGradient(0, 0, w, h, cols[0], cols[1], Shader.TileMode.CLAMP);
-            shade = new LinearGradient(0, h * 0.35f, 0, h, 0x00000000, 0x59000000,
-                    Shader.TileMode.CLAMP);
-            rf.set(0, 0, w, h);
-            clip.reset();
-            clip.addRoundRect(rf, radius, radius, Path.Direction.CW);
-            ghost.setTextSize(h * 1.28f);
-            float size = 28f * U;
-            int avail = Math.max(1, w - u(32));
-            do {
-                namePaint.setTextSize(size);
-                layout = new StaticLayout(name, namePaint, avail, Layout.Alignment.ALIGN_NORMAL,
-                        1f, 0f, false);
-                size *= 0.92f;
-            } while (layout.getLineCount() > 2 && size > 15f * U);
-        }
-
-        @Override
-        protected void onDraw(Canvas c) {
-            int w = getWidth();
-            int h = getHeight();
-            if (w <= 0 || h <= 0) return;
-            rf.set(0, 0, w, h);
-            fill.setStyle(Paint.Style.FILL);
-            fill.setShader(grad);
-            c.drawRoundRect(rf, radius, radius, fill);
-            // голяма бледа буква, отрязана от ръба на плочката
-            c.save();
-            c.clipPath(clip);
-            c.drawText(letter, w + h * 0.10f, h * 1.16f, ghost);
-            c.restore();
-            fill.setShader(shade);
-            c.drawRoundRect(rf, radius, radius, fill);
-            fill.setShader(null);
-            if (layout != null) {
-                c.save();
-                c.translate(u(16), h - u(14) - layout.getHeight());
-                layout.draw(c);
-                c.restore();
-            }
-            if (isFocused()) {
-                float sw = u(3);
-                fill.setStyle(Paint.Style.STROKE);
-                fill.setStrokeWidth(sw);
-                fill.setColor(TvTheme.FOCUS);
-                rf.set(sw / 2f, sw / 2f, w - sw / 2f, h - sw / 2f);
-                c.drawRoundRect(rf, radius - sw / 2f, radius - sw / 2f, fill);
-                fill.setStyle(Paint.Style.FILL);
-            } else {
-                fill.setColor(0x260D1119);
-                c.drawRoundRect(rf, radius, radius, fill);
-            }
-        }
-    }
-
-    // ---- общи елементи ----
-
-    private Runnable catParent;   // екранът, от който е отворена страницата на заглавие
-    private String catSrcKey;     // кое билетче да е на фокус при връщане от сайта
-    private CTitle focusTitle;    // заглавието, на което е фокусът
-    private Runnable focusAct;    // обновява информацията за него (начало, предложения)
-    private final Runnable focusTick = new Runnable() {
-        @Override
-        public void run() {
-            if (focusAct != null && focusTitle != null && catShown()) focusAct.run();
-        }
-    };
-
-    // Фокусът в каталога: леко уголемяване, кехлибарено сияние (на по-нови версии на Андроид).
-    private final View.OnFocusChangeListener kFocus = new View.OnFocusChangeListener() {
-        @Override
-        public void onFocusChange(View v, boolean has) {
-            float k = v.getTag(R_SCALE) instanceof Float ? (Float) v.getTag(R_SCALE) : 1.07f;
-            v.animate().scaleX(has ? k : 1f).scaleY(has ? k : 1f).setDuration(130).start();
-            v.setTranslationZ(has ? 16 * U : 0f);
-            if (Build.VERSION.SDK_INT >= 28) {
-                v.setOutlineSpotShadowColor(has ? K_AMBER : Color.BLACK);
-                v.setOutlineAmbientShadowColor(has ? 0x665F536F : Color.BLACK);
-            }
-        }
-    };
-
-    // Същото за корица, но и съобщава кое заглавие е на фокус (с малко изчакване).
-    private final View.OnFocusChangeListener cellFocus = new View.OnFocusChangeListener() {
-        @Override
-        public void onFocusChange(View v, boolean has) {
-            kFocus.onFocusChange(v, has);
-            if (has && focusAct != null && v.getTag(R_TITLE) instanceof CTitle) {
-                focusTitle = (CTitle) v.getTag(R_TITLE);
-                ui.removeCallbacks(focusTick);
-                ui.postDelayed(focusTick, 170);
-            }
-        }
-    };
-
-
-    // Заглавие с шрифт със засечки: без излишно място отгоре и отдолу.
-    private TextView serifText(String s, float sizeUnits, int color, boolean oneLine) {
-        TextView t = text(s, sizeUnits, color, tfSerif, oneLine);
-        t.setIncludeFontPadding(false);
-        if (!oneLine) t.setLineSpacing(0, 0.95f);
-        return t;
-    }
-
-    private StateListDrawable amberBg(int radiusPx) {
-        return TvTheme.control(U, true);
-    }
-
-    // Бутон-хапче: икона и надпис; на фокус е с кехлибарена рамка.
-    private LinearLayout kPill(int icon, String label, final Runnable action) {
-        LinearLayout b = new LinearLayout(this);
-        b.setOrientation(LinearLayout.HORIZONTAL);
-        b.setGravity(Gravity.CENTER_VERTICAL);
-        b.setPadding(u(icon >= 0 ? 20 : 24), 0, u(24), 0);
-        b.setFocusable(true);
-        b.setClickable(true);
-        b.setBackground(TvTheme.control(U,false));
-        if (icon >= 0) {
-            LinearLayout.LayoutParams ilp = lp(u(22), u(22));
-            ilp.rightMargin = u(10);
-            b.addView(new IconView(this, icon, K_TEXT2), ilp);
-        }
-        b.addView(text(label, 19, K_TEXT, tfMedium, true));
-        b.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                action.run();
-            }
-        });
-        b.setTag(R_SCALE, 1.06f);
-        b.setOnFocusChangeListener(kFocus);
-        return b;
-    }
-
-    // Главният бутон: кехлибарен, голям.
-    private LinearLayout kPrimary(int icon, String label, final Runnable action) {
-        LinearLayout b = new LinearLayout(this);
-        b.setOrientation(LinearLayout.HORIZONTAL);
-        b.setGravity(Gravity.CENTER_VERTICAL);
-        b.setPadding(u(26), 0, u(34), 0);
-        b.setFocusable(true);
-        b.setClickable(true);
-        b.setBackground(amberBg(u(36)));
-        LinearLayout.LayoutParams ilp = lp(u(26), u(26));
-        ilp.rightMargin = u(14);
-        b.addView(new IconView(this, icon, K_INK), ilp);
-        b.addView(text(label, 23, K_INK, Typeface.DEFAULT_BOLD, true));
-        b.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                action.run();
-            }
-        });
-        b.setTag(R_SCALE, 1.04f);
-        b.setOnFocusChangeListener(kFocus);
-        return b;
-    }
-
-    private StateListDrawable tabBg() {
-        int rad = u(26);
-        GradientDrawable fsel = new GradientDrawable();
-        fsel.setColor(K_AMBER);
-        fsel.setCornerRadius(rad);
-        fsel.setStroke(u(3), Color.WHITE);
-        GradientDrawable fo = new GradientDrawable();
-        fo.setColor(K_SURF2);
-        fo.setCornerRadius(rad);
-        fo.setStroke(u(2), TvTheme.FOCUS);
-        GradientDrawable sel = new GradientDrawable();
-        sel.setColor(K_AMBER);
-        sel.setCornerRadius(rad);
-        GradientDrawable n = new GradientDrawable();
-        n.setColor(0x14FFFFFF);
-        n.setCornerRadius(rad);
-        n.setStroke(Math.max(1, u(1)), 0x29FFFFFF);
-        StateListDrawable sl = new StateListDrawable();
-        sl.addState(new int[]{android.R.attr.state_focused, android.R.attr.state_selected}, fsel);
-        sl.addState(new int[]{android.R.attr.state_focused}, fo);
-        sl.addState(new int[]{android.R.attr.state_selected}, sel);
-        sl.addState(new int[]{}, n);
-        return sl;
-    }
-
-    private void tabSet(TextView t, boolean on) {
-        t.setSelected(on);
-        t.setTextColor(on ? K_INK : K_TEXT);
-        t.setTypeface(on ? Typeface.DEFAULT_BOLD : tfMedium);
-    }
-
-    // Раздел (Филми или Сериали): избраният е кехлибарен.
-    private TextView kTab(String label, boolean on) {
-        TextView t = text(label, 20, K_TEXT, tfMedium, true);
-        t.setGravity(Gravity.CENTER);
-        t.setPadding(u(28), 0, u(28), 0);
-        t.setFocusable(true);
-        t.setClickable(true);
-        t.setBackground(tabBg());
-        t.setTag(R_SCALE, 1.06f);
-        t.setOnFocusChangeListener(kFocus);
-        tabSet(t, on);
-        return t;
-    }
-
-    // Кехлибарена значка с оценката.
-    private View ratingChip(double r) {
-        LinearLayout b = new LinearLayout(this);
-        b.setOrientation(LinearLayout.HORIZONTAL);
-        b.setGravity(Gravity.CENTER_VERTICAL);
-        b.setPadding(u(9), 0, u(11), 0);
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(K_AMBER);
-        g.setCornerRadius(u(9));
-        b.setBackground(g);
-        LinearLayout.LayoutParams ilp = lp(u(16), u(16));
-        ilp.rightMargin = u(6);
-        b.addView(new IconView(this, IC_STAR, K_INK), ilp);
-        b.addView(text(String.format(Locale.US, "%.1f", r), 17, K_INK, Typeface.DEFAULT_BOLD, true));
-        return b;
-    }
-
-    // Малък надпис с контур (Филм, Сериал).
-    private TextView kTag(String label) {
-        TextView t = text(label, 16, K_TEXT2, tfMedium, true);
-        t.setGravity(Gravity.CENTER);
-        t.setPadding(u(12), 0, u(12), 0);
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(0x00000000);
-        g.setCornerRadius(u(15));
-        g.setStroke(Math.max(1, u(1)), 0x47FFFFFF);
-        t.setBackground(g);
-        return t;
-    }
-
-    // Жанр като малка значка (само за гледане).
-    private TextView kChip(String label) {
-        TextView t = text(label, 17, K_TEXT2, tfMedium, true);
-        t.setGravity(Gravity.CENTER);
-        t.setPadding(u(15), 0, u(15), 0);
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(0x12FFFFFF);
-        g.setCornerRadius(u(17));
-        g.setStroke(Math.max(1, u(1)), 0x29FFFFFF);
-        t.setBackground(g);
-        return t;
-    }
-
-    private View genreChips(String genres) {
-        LinearLayout r = new LinearLayout(this);
-        r.setOrientation(LinearLayout.HORIZONTAL);
-        r.setClipChildren(false);
-        String[] parts = genres.split(", ");
-        for (int i = 0; i < parts.length; i++) {
-            if (parts[i].trim().isEmpty()) continue;
-            LinearLayout.LayoutParams l = lp(WC, u(34));
-            if (i > 0) l.leftMargin = u(10);
-            r.addView(kChip(parts[i].trim()), l);
-        }
-        return r;
-    }
-
-    private void addFact(LinearLayout r, String s) {
-        LinearLayout.LayoutParams l = lp(WC, WC);
-        l.leftMargin = u(14);
-        r.addView(text(s, 19, K_TEXT, tfMedium, true), l);
-    }
-
-    // Оценка, година, времетраене и вид (Филм или Сериал).
-    private void fillFacts(LinearLayout r, CTitle t) {
-        r.removeAllViews();
-        if (t.rating > 0) r.addView(ratingChip(t.rating), lp(WC, u(30)));
-        if (!t.year.isEmpty()) addFact(r, t.year);
-        String rt = fmtRuntime(t.runtime);
-        if (!rt.isEmpty()) addFact(r, rt);
-        LinearLayout.LayoutParams l = lp(WC, u(30));
-        l.leftMargin = u(14);
-        r.addView(kTag(t.tv ? "Сериал" : "Филм"), l);
-    }
-
-    private LinearLayout factsRow(CTitle t) {
-        LinearLayout r = new LinearLayout(this);
-        r.setOrientation(LinearLayout.HORIZONTAL);
-        r.setGravity(Gravity.CENTER_VERTICAL);
-        r.setClipChildren(false);
-        fillFacts(r, t);
-        return r;
-    }
-
-    private View brandMark(int size) {
-        FrameLayout f = new FrameLayout(this);
-        GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                new int[]{K_AMBER2, K_EMBER});
-        g.setCornerRadius(u(size * 0.3f));
-        f.setBackground(g);
-        int s = u(size * 0.5f);
-        f.addView(new IconView(this, IC_PLAY, K_INK),
-                new FrameLayout.LayoutParams(s, s, Gravity.CENTER));
-        return f;
-    }
-
-    // Заглавие на екран: знак, голямо заглавие, поясняващ ред и (по желание) бутони вдясно.
-    private View pageHeader(String title, String sub, View right) {
-        LinearLayout h = new LinearLayout(this);
-        h.setOrientation(LinearLayout.HORIZONTAL);
-        h.setGravity(Gravity.CENTER_VERTICAL);
-        h.setClipChildren(false);
-        h.setPadding(u(16), u(24), u(16), 0);
-        LinearLayout.LayoutParams mlp = lp(u(46), u(46));
-        mlp.rightMargin = u(16);
-        h.addView(brandMark(46), mlp);
-        LinearLayout tx = new LinearLayout(this);
-        tx.setOrientation(LinearLayout.VERTICAL);
-        tx.addView(serifText(title, 44, K_TEXT, true));
-        if (sub != null && !sub.isEmpty()) tx.addView(text(sub, 19, K_TEXT2, tfMedium, true));
-        h.addView(tx, new LinearLayout.LayoutParams(0, WC, 1f));
-        if (right != null) h.addView(right);
-        return h;
-    }
-
-    private View skeleton(int wUnits, int hUnits, int radiusUnits) {
-        View v = new View(this);
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(K_SURF);
-        g.setCornerRadius(u(radiusUnits));
-        v.setBackground(g);
-        v.setMinimumWidth(u(wUnits));
-        v.setMinimumHeight(u(hUnits));
-        return v;
-    }
-
-    // Празни плочки, докато идват данните (без прескачане на изгледа).
-    private void fillSkeleton(LinearLayout strip, int n, int wUnits, int hUnits, int gapUnits) {
-        for (int i = 0; i < n; i++) {
-            LinearLayout.LayoutParams l = lp(u(wUnits), u(hUnits));
-            l.rightMargin = u(gapUnits);
-            strip.addView(skeleton(wUnits, hUnits, 14), l);
-        }
-    }
-
-    // Грешка или празен резултат: какво се случи и бутон "Опитай пак".
-    private View errorBlock(String msg, final Runnable retry) {
-        LinearLayout b = new LinearLayout(this);
-        b.setOrientation(LinearLayout.VERTICAL);
-        b.setPadding(0, u(16), 0, u(16));
-        TextView m = text(msg, 19, K_ERR, tfMedium, false);
-        m.setMaxWidth(u(900));
-        b.addView(m);
-        b.addView(kPill(IC_REFRESH, "Опитай пак", retry), lpTopW(WC, u(52), u(14)));
-        return b;
-    }
-
-    private View firstFocusable() {
-        ArrayList<View> fs = new ArrayList<>();
-        catBox.addFocusables(fs, View.FOCUS_DOWN);
-        for (View v : fs) {
-            if (v != null) return v;
-        }
-        return null;
-    }
 
     private LinearLayout.LayoutParams lpTopW(int w, int h, int topPx) {
         LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(w, h);
@@ -6746,1464 +5335,6 @@ private static final String[] TV_SOURCES = {
         LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(MP, WC);
         l.topMargin = topPx;
         return l;
-    }
-
-    // ---- панел на каталога и горната картина ----
-
-    private boolean catShown() {
-        return catPanel != null && catPanel.getVisibility() == View.VISIBLE;
-    }
-
-    private boolean heroActive;
-    private FrameLayout libraryBrowser;
-    private GridView libraryGrid;
-    private BaseAdapter libraryAdapter;
-    private LinearLayout libraryMessage;
-    private TextView libraryStatus;
-    private View libraryRetry;
-    private final ArrayList<CTitle> libraryItems=new ArrayList<>();
-    private boolean librarySeries,libraryTopRated,libraryBusy,libraryDone;
-    private int libraryPage,libraryRestorePages=1;
-
-    private void buildCatalogUi() {
-        tfSerif = Typeface.create("sans-serif", Typeface.BOLD);
-        catPanel = new FrameLayout(this);
-        catPanel.setBackground(TvTheme.background());
-        catScroll = new CatScroll(this);
-        catScroll.setFillViewport(true);
-        catScroll.setVerticalScrollBarEnabled(false);
-        catScroll.setClipChildren(false);
-        catScroll.setClipToPadding(false);
-        catBox = new LinearLayout(this);
-        catBox.setOrientation(LinearLayout.VERTICAL);
-        catBox.setClipChildren(false);
-        catScroll.addView(catBox, new ViewGroup.LayoutParams(MP, WC));
-        catPanel.addView(catScroll, new FrameLayout.LayoutParams(MP, MP));
-        buildLibraryToolbar();
-        libraryBrowser=new FrameLayout(this);FrameLayout.LayoutParams browserLp=new FrameLayout.LayoutParams(MP,MP);
-        browserLp.leftMargin=u(54);browserLp.rightMargin=u(54);browserLp.topMargin=u(214);browserLp.bottomMargin=u(56);catPanel.addView(libraryBrowser,browserLp);
-        catPanel.setVisibility(View.GONE);
-        root.addView(catPanel, new FrameLayout.LayoutParams(MP, MP));
-    }
-
-    private void buildLibraryToolbar(){
-        catToolbar=new LinearLayout(this);catToolbar.setGravity(Gravity.CENTER_VERTICAL);
-        FrameLayout.LayoutParams l=new FrameLayout.LayoutParams(MP,u(64));l.leftMargin=u(54);l.rightMargin=u(54);l.topMargin=u(126);catPanel.addView(catToolbar,l);
-    }
-    private void libraryToolbar(){
-        catToolbar.removeAllViews();catToolbar.addView(text("Видеотека",36,K_TEXT,Typeface.DEFAULT_BOLD,true),new LinearLayout.LayoutParams(0,WC,1));
-        View movies=filterChip("Филми",!librarySeries,()->{librarySeries=false;catFocusKey=null;catHome();});catToolbar.addView(movies,lp(WC,u(46)));
-        LinearLayout.LayoutParams tab=lp(WC,u(46));tab.leftMargin=u(10);catToolbar.addView(filterChip("Сериали",librarySeries,()->{librarySeries=true;catFocusKey=null;catHome();}),tab);
-        LinearLayout.LayoutParams search=lp(WC,u(48));search.leftMargin=u(24);catToolbar.addView(kPill(IC_SEARCH,"Търси…",()->showSearchDialog()),search);
-        LinearLayout.LayoutParams sources=lp(WC,u(48));sources.leftMargin=u(12);catToolbar.addView(kPill(IC_SLIDERS,"Източници",()->showSourcesDialog()),sources);
-        LinearLayout.LayoutParams more=lp(WC,u(48));more.leftMargin=u(12);catToolbar.addView(kPill(-1,"⋯",()->libraryOptions()),more);
-    }
-    private void libraryOptions(){
-        new AlertDialog.Builder(this).setTitle("Видеотека").setItems(new String[]{"Популярни","Най-добре оценени","Категории","Предложи ми","Сайтове за филми"},(d,i)->{
-            if(i<2){libraryTopRated=i==1;catFocusKey=null;catHome();}else if(i==2)catGenres(false);else if(i==3)catGenres(true);else showManualSites(1);
-        }).show();
-    }
-    private void libraryRelease(){
-        if(libraryGrid!=null){libraryGrid.setOnFocusChangeListener(null);libraryGrid.setOnItemSelectedListener(null);libraryGrid.setAdapter(null);}libraryGrid=null;libraryAdapter=null;libraryItems.clear();libraryBusy=false;
-        if(libraryBrowser!=null)libraryBrowser.removeAllViews();libraryMessage=null;libraryStatus=null;libraryRetry=null;
-    }
-    private void catMode(boolean home){
-        catCancelRequests();
-        FrameLayout.LayoutParams l=(FrameLayout.LayoutParams)catScroll.getLayoutParams();l.topMargin=u(126);l.bottomMargin=u(56);l.leftMargin=u(54);l.rightMargin=u(54);catScroll.setLayoutParams(l);
-        catScroll.setVisibility(home?View.GONE:View.VISIBLE);catToolbar.setVisibility(home?View.VISIBLE:View.GONE);libraryBrowser.setVisibility(home?View.VISIBLE:View.GONE);
-        if(!home)libraryRelease();heroActive=home;catBox.setPadding(0,u(8),0,u(40));updateState();
-        ui.removeCallbacks(focusTick);focusAct=null;focusTitle=null;
-    }
-    private final class LibraryCell extends LinearLayout {
-        final ArtView art;final TextView title,year;
-        String boundKey;
-        LibraryCell(){super(MainActivity.this);setOrientation(VERTICAL);setPadding(u(3),u(3),u(3),u(6));setDescendantFocusability(FOCUS_BLOCK_DESCENDANTS);
-            art=new ArtView(MainActivity.this,0,"",u(12),true);art.setFocusable(false);art.setClickable(false);art.containImage=true;addView(art,lp(MP,u(345)));
-            title=text("",21,K_TEXT,tfMedium,true);addView(title,lpTopW(MP,WC,u(10)));year=text("",17,K_TEXT2,tfMedium,true);addView(year,lpTopW(MP,WC,u(4)));
-        }
-    }
-    private void libraryLoadPage(int gen){
-        if(libraryBusy || libraryDone || gen!=catGen || !heroActive)return;libraryBusy=true;
-        final int page=libraryPage+1;String path=(librarySeries?"/tv/":"/movie/")+(libraryTopRated?"top_rated":"popular")+"?language=bg-BG&page="+page;
-        tmdbFetch(path,(json,error)->{
-            if(gen!=catGen || !heroActive || libraryGrid==null)return;libraryBusy=false;
-            ArrayList<CTitle> items=json==null?null:parseList(json,librarySeries,20);
-            if(items==null || items.isEmpty()){
-                libraryDone=error==null;if(libraryItems.isEmpty()){libraryStatus.setText(error!=null?error:"Няма заглавия в този списък.");libraryRetry.setVisibility(View.VISIBLE);catMain=libraryRetry;}
-                else if(error!=null)Toast.makeText(this,error,Toast.LENGTH_SHORT).show();return;
-            }
-            libraryPage=page;libraryDone=page>=5 || items.size()<20;libraryItems.addAll(items);libraryAdapter.notifyDataSetChanged();catMain=libraryGrid;
-            int restore=-1;for(int i=0;i<libraryItems.size();i++){CTitle t=libraryItems.get(i);if(("t"+t.id+(t.tv?"t":"m")).equals(catFocusKey))restore=i;}
-            if(restore>=0){libraryGrid.setSelection(restore);libraryGrid.requestFocusFromTouch();catFocusKey=null;libraryRestorePages=1;}
-            else if(catFocusKey!=null && page<libraryRestorePages && !libraryDone){libraryLoadPage(gen);return;}
-            else if(page==1 && catPanel.findFocus()==null && (appBar==null || !appBar.hasFocus())){libraryGrid.setSelection(0);libraryGrid.requestFocusFromTouch();}
-        });
-    }
-
-    // Показва каталога. first е екранът, с който да започне (по подразбиране началото).
-    private void showCatalog(Runnable first) {
-        if (isFinishing()) return;
-        appSection = SECTION_LIBRARY;
-        if (appBar != null) appBar.setSection(appSection);
-        tvReset();
-        closeNative(false);
-        destroyWeb();
-        if (catPanel == null) buildCatalogUi();
-        menuHolder.setVisibility(View.GONE);
-        // Докато каталогът е отгоре, менюто отдолу не взима фокус.
-        menuHolder.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
-        catPanel.setVisibility(View.VISIBLE);
-        logEvent("Отворен каталог Наши филми");
-        if (first != null) first.run();
-        else catHome();
-        updateState();
-    }
-
-    private void hideCatalog() {
-        catGen++;
-        catCancelRequests();
-        catUp = null;
-        ui.removeCallbacks(focusTick);
-        focusAct = null;
-        focusTitle = null;
-        heroActive = false;
-        if (catPanel != null) {
-            catPanel.setVisibility(View.GONE);
-            catBox.removeAllViews();
-            libraryRelease();
-        }
-        catMain = null;
-        synchronized (TMDB_JSON) { TMDB_JSON.clear(); TMDB_AT.clear(); }
-        menuHolder.setVisibility(View.VISIBLE);
-        menuHolder.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
-        POSTERS.evictAll();
-        BACKDROPS.evictAll();
-        View f = catTile != null ? catTile : (heroView != null ? heroView : firstTile);
-        if (f != null) f.requestFocus();
-        updateState();
-    }
-
-    // ---- редове с корици ----
-
-    // Нов ред със заглавие; връща лентата, в която се слагат корици.
-    private LinearLayout addRowShell(String title) {
-        LinearLayout block = new LinearLayout(this);
-        block.setOrientation(LinearLayout.VERTICAL);
-        block.setClipChildren(false);
-        if (!title.isEmpty()) {
-            TextView h = serifText(title, 28, K_TEXT, true);
-            h.setPadding(u(16), 0, u(16), u(2));
-            block.addView(h);
-        }
-        HorizontalScrollView hs = new RowScroll(this);
-        hs.setHorizontalScrollBarEnabled(false);
-        hs.setClipChildren(false);
-        hs.setClipToPadding(false);
-        LinearLayout strip = new LinearLayout(this);
-        strip.setOrientation(LinearLayout.HORIZONTAL);
-        strip.setClipChildren(false);
-        strip.setPadding(u(16), u(14), u(16), u(20)); // място за уголемяването на фокуса
-        hs.addView(strip, new ViewGroup.LayoutParams(WC, WC));
-        block.addView(hs);
-        catBox.addView(block, lpTop(u(title.isEmpty() ? 0 : 8)));
-        return strip;
-    }
-
-    private LinearLayout.LayoutParams posterLp(int wUnits, int hUnits, int gapUnits) {
-        LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(u(wUnits), u(hUnits));
-        l.rightMargin = u(gapUnits);
-        return l;
-    }
-
-    // Избираема корица (на нея е фокусът).
-    private ArtView posterCard(final CTitle t, String size, final Runnable onClick) {
-        final ArtView a = new ArtView(this, t.id, t.name, u(14), true);
-        a.setRating(t.rating);
-        a.setTag("t" + t.id + (t.tv ? "t" : "m"));
-        a.setTag(R_TITLE, t);
-        a.setTag(R_SCALE, 1.08f);
-        loadImage(size, t.poster, catGen, false, new ImageSink() {
-            @Override
-            public void set(Bitmap b, boolean instant) {
-                a.setBitmap(b, !instant);
-            }
-        });
-        a.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                catFocusKey = (String) a.getTag();
-                onClick.run();
-            }
-        });
-        a.setOnFocusChangeListener(cellFocus);
-        return a;
-    }
-
-    // Когато фокусът е близо до края на вече заредените корици, се зарежда следващата страница.
-    private void watchEnd(View card, final int idx, final int[] count, final int ahead,
-                          final Runnable more) {
-        card.setOnFocusChangeListener(new View.OnFocusChangeListener() {
-            @Override
-            public void onFocusChange(View v, boolean has) {
-                cellFocus.onFocusChange(v, has);
-                if (has && idx >= count[0] - ahead) more.run();
-            }
-        });
-    }
-
-    private void catHome(){
-        final int gen=++catGen;
-        catUp=()->{if(appBar!=null && !appBar.hasFocus())focusAppNavigation();else showSection(SECTION_HOME);};catParent=null;catBox.removeAllViews();libraryRelease();catMode(true);libraryToolbar();
-        libraryPage=0;libraryDone=false;libraryGrid=new GridView(this);libraryGrid.setNumColumns(6);libraryGrid.setHorizontalSpacing(u(22));libraryGrid.setVerticalSpacing(u(26));libraryGrid.setStretchMode(GridView.STRETCH_COLUMN_WIDTH);
-        libraryGrid.setPadding(0,u(3),0,u(12));libraryGrid.setClipToPadding(false);libraryGrid.setVerticalScrollBarEnabled(false);libraryGrid.setSelector(new ColorDrawable(Color.TRANSPARENT));libraryGrid.setFocusable(true);libraryGrid.setFocusableInTouchMode(true);
-        libraryAdapter=new BaseAdapter(){
-            @Override public int getCount(){return libraryItems.size();}
-            @Override public Object getItem(int position){return libraryItems.get(position);}
-            @Override public long getItemId(int position){return libraryItems.get(position).id;}
-            @Override public View getView(int position,View convert,ViewGroup parent){
-                LibraryCell cell=convert instanceof LibraryCell?(LibraryCell)convert:new LibraryCell();CTitle t=libraryItems.get(position);
-                String key="t"+t.id+(t.tv?"t":"m");cell.setTag(key);cell.setContentDescription(t.name+", "+t.year);cell.title.setText(t.name);cell.year.setText(t.year);cell.art.setRating(t.rating);cell.art.setActivated(position==libraryGrid.getSelectedItemPosition() && libraryGrid.hasFocus());
-                if(!key.equals(cell.boundKey)){cell.boundKey=key;cell.art.setBitmap(null,false);loadImage("w342",t.poster,gen,false,(bitmap,instant)->{if(key.equals(cell.boundKey))cell.art.setBitmap(bitmap,!instant);});}return cell;
-            }
-        };
-        libraryGrid.setAdapter(libraryAdapter);libraryBrowser.addView(libraryGrid,new FrameLayout.LayoutParams(MP,MP));
-        libraryMessage=new LinearLayout(this);libraryMessage.setOrientation(LinearLayout.VERTICAL);libraryMessage.setGravity(Gravity.CENTER);
-        libraryStatus=text("Зареждане на видеотеката…",23,K_TEXT2,tfMedium,false);libraryStatus.setGravity(Gravity.CENTER);libraryMessage.addView(libraryStatus);
-        libraryRetry=kPill(IC_REFRESH,"Опитай пак",()->{libraryDone=false;libraryLoadPage(gen);});libraryRetry.setVisibility(View.GONE);libraryMessage.addView(libraryRetry,lpTopW(WC,u(52),u(24)));
-        libraryBrowser.addView(libraryMessage,new FrameLayout.LayoutParams(MP,MP));libraryGrid.setEmptyView(libraryMessage);
-        libraryGrid.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){@Override public void onItemSelected(AdapterView<?> parent,View view,int position,long id){if(gen!=catGen || parent!=libraryGrid)return;libraryUpdateFocus();if(position>=libraryItems.size()-6)libraryLoadPage(gen);}@Override public void onNothingSelected(AdapterView<?> parent){}});
-        libraryGrid.setOnFocusChangeListener((v,focus)->libraryUpdateFocus());
-        libraryGrid.setOnItemClickListener((parent,view,position,id)->{CTitle t=libraryItems.get(position);catFocusKey="t"+t.id+(t.tv?"t":"m");libraryRestorePages=libraryPage;catDetail(t);});
-        libraryGrid.setOnKeyListener((v,key,event)->{if(key==KeyEvent.KEYCODE_DPAD_UP && libraryGrid.getSelectedItemPosition()<6){if(event.getAction()==KeyEvent.ACTION_DOWN)catToolbar.getChildAt(1).requestFocusFromTouch();return true;}return false;});
-        catMain=libraryGrid;
-        if(tmdbKey().isEmpty()){libraryStatus.setText("Въведи ключ за TMDB от Източници, за да заредиш видеотеката.");libraryRetry.setVisibility(View.VISIBLE);libraryRetry.setOnClickListener(v->showSourcesDialog());catMain=libraryRetry;}else libraryLoadPage(gen);
-    }
-
-    private void libraryUpdateFocus(){
-        if(libraryGrid==null)return;
-        int first=libraryGrid.getFirstVisiblePosition(),selected=libraryGrid.getSelectedItemPosition();
-        for(int i=0;i<libraryGrid.getChildCount();i++){View child=libraryGrid.getChildAt(i);if(child instanceof LibraryCell){((LibraryCell)child).art.setActivated(libraryGrid.hasFocus() && first+i==selected);child.invalidate();}}
-    }
-
-    // ---- страница на филм или сериал ----
-
-    private Runnable backTo(final Runnable screen) {
-        return new Runnable() {
-            @Override
-            public void run() {
-                showCatalog(screen);
-            }
-        };
-    }
-
-    private void loadBackdropInto(final BackdropView bd, CTitle t, int gen) {
-        if (t.backdrop.isEmpty()) return;
-        loadImage(backdropSize(), t.backdrop, gen, true, new ImageSink() {
-            @Override
-            public void set(Bitmap b, boolean instant) {
-                bd.setImage(b, !instant);
-            }
-        });
-    }
-
-    private void catDetail(final CTitle t) {
-        final int gen = ++catGen;
-        catUp = catParent != null ? catParent : new Runnable() {
-            @Override
-            public void run() {
-                catHome();
-            }
-        };
-        catBox.removeAllViews();
-        catMain = null;
-        catMode(false);
-
-        final FrameLayout page = new FrameLayout(this);
-        page.setClipChildren(false);
-        final BackdropView bd = new BackdropView(this);
-        bd.setTint(TvTheme.BLUE);
-        page.addView(bd, new FrameLayout.LayoutParams(u(1320), u(660), Gravity.TOP | Gravity.END));
-        page.addView(new ScrimView(this, false,
-                new int[]{0xFF0D1119, 0xFF0D1119, 0xC70D1119, 0x400D1119, 0x1A0D1119},
-                new float[]{0f, 0.26f, 0.52f, 0.82f, 1f}), new FrameLayout.LayoutParams(MP, u(660)));
-        page.addView(new ScrimView(this, true,
-                new int[]{0x000D1119, 0x000D1119, 0xE60D1119, 0xFF0D1119},
-                new float[]{0f, 0.38f, 0.82f, 1f}), new FrameLayout.LayoutParams(MP, u(660)));
-        page.addView(new ScrimView(this, true,
-                new int[]{0x990D1119, 0x000D1119, 0x000D1119},
-                new float[]{0f, 0.22f, 1f}), new FrameLayout.LayoutParams(MP, u(660)));
-
-        LinearLayout content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setClipChildren(false);
-        content.setPadding(u(16), u(88), u(16), u(56));
-        LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        top.setClipChildren(false);
-        final ArtView poster = new ArtView(this, t.id, t.name, u(16), false);
-        poster.setElevation(u(10));
-        loadImage("w342", t.poster, gen, false, new ImageSink() {
-            @Override
-            public void set(Bitmap b, boolean instant) {
-                poster.setBitmap(b, !instant);
-            }
-        });
-        top.addView(poster, lp(u(252), u(378)));
-        final LinearLayout info = new LinearLayout(this);
-        info.setOrientation(LinearLayout.VERTICAL);
-        info.setClipChildren(false);
-        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(0, WC, 1f);
-        ilp.leftMargin = u(48);
-        top.addView(info, ilp);
-        content.addView(top, new LinearLayout.LayoutParams(MP, WC));
-        final LinearLayout band = new LinearLayout(this);
-        band.setOrientation(LinearLayout.VERTICAL);
-        band.setClipChildren(false);
-        content.addView(band, lpTop(u(34)));
-        page.addView(content, new FrameLayout.LayoutParams(MP, WC));
-        catBox.addView(page, new LinearLayout.LayoutParams(MP, WC));
-        catScroll.scrollTo(0, 0);
-
-        loadBackdropInto(bd, t, gen);
-        fillInfo(t, info, false);
-        band.addView(text("Зареждане...", 18, K_TEXT3, tfMedium, false));
-        String path = (t.tv ? "/tv/" : "/movie/") + t.id + "?language=bg-BG"
-                + (t.tv ? "&append_to_response=external_ids" : "");
-        tmdbFetch(path, new Done() {
-            @Override
-            public void run(String json, String err) {
-                if (gen != catGen) return;
-                band.removeAllViews();
-                if (json == null) {
-                    View eb = errorBlock(err == null ? "Грешка при зареждане" : err, new Runnable() {
-                        @Override
-                        public void run() {
-                            catDetail(t);
-                        }
-                    });
-                    band.addView(eb);
-                    ((ViewGroup) eb).getChildAt(1).requestFocus();
-                    return;
-                }
-                parseDetail(json, t);
-                loadBackdropInto(bd, t, gen);
-                fillInfo(t, info, true);
-                fillBand(t, band);
-                if (catMain != null) catMain.requestFocus();
-                loadSimilar(t, gen, "recommendations");
-            }
-        });
-    }
-
-    // Ред "Подобни" под страницата; ако няма препоръки, пробва "similar".
-    private void loadSimilar(final CTitle t, final int gen, final String kind) {
-        tmdbFetch((t.tv ? "/tv/" : "/movie/") + t.id + "/" + kind + "?language=bg-BG&page=1",
-                new Done() {
-                    @Override
-                    public void run(String json, String err) {
-                        if (gen != catGen) return;
-                        ArrayList<CTitle> list = json == null ? null : parseList(json, t.tv, 20);
-                        if (list == null || list.isEmpty()) {
-                            if (kind.equals("recommendations") && err == null) {
-                                loadSimilar(t, gen, "similar");
-                            }
-                            return;
-                        }
-                        final Runnable up = catUp;
-                        LinearLayout strip = addRowShell(t.tv ? "Подобни сериали" : "Подобни филми");
-                        for (int i = 0; i < list.size(); i++) {
-                            final CTitle s = list.get(i);
-                            strip.addView(posterCard(s, rowSize(), new Runnable() {
-                                @Override
-                                public void run() {
-                                    catParent = new Runnable() {
-                                        @Override
-                                        public void run() {
-                                            catParent = up;
-                                            catDetail(t);
-                                        }
-                                    };
-                                    catDetail(s);
-                                }
-                            }), posterLp(168, 252, 16));
-                        }
-                    }
-                });
-    }
-
-    // Дясната колона: данни, заглавие, жанрове, описание (и за сериал: бутон и сезони).
-    private void fillInfo(CTitle t, LinearLayout info, boolean loaded) {
-        info.removeAllViews();
-        catMain = null;
-        info.addView(factsRow(t), lp(WC, u(30)));
-        int n = t.name.length();
-        TextView title = serifText(t.name, n <= 24 ? 58 : (n <= 36 ? 48 : 40), K_TEXT, false);
-        title.setMaxLines(2);
-        title.setEllipsize(TextUtils.TruncateAt.END);
-        info.addView(title, lpTop(u(14)));
-        if (!t.genres.isEmpty()) info.addView(genreChips(t.genres), lpTopW(WC, u(34), u(14)));
-        boolean noOv = t.overview.isEmpty();
-        TextView ov = text(noOv ? "Няма описание на български." : t.overview, 20,
-                noOv ? K_TEXT3 : K_TEXT2, tfMedium, false);
-        ov.setMaxLines(t.tv ? 3 : 4);
-        ov.setEllipsize(TextUtils.TruncateAt.END);
-        ov.setLineSpacing(0, 1.18f);
-        LinearLayout.LayoutParams olp = new LinearLayout.LayoutParams(MP, WC);
-        olp.topMargin = u(16);
-        info.addView(ov, olp);
-        if (loaded && t.tv) seriesActions(t, info);
-    }
-
-    // Сериал: "Продължи" или "Гледай от началото", и сезоните.
-    private void seriesActions(final CTitle t, LinearLayout info) {
-        int s0 = t.seasons.isEmpty() ? 1 : t.seasons.get(0)[0];
-        int ls = s0;
-        int le = 1;
-        boolean resume = false;
-        String last = prefs.getString("tvlast:" + t.id, "");
-        int ci = last.indexOf(':');
-        if (ci > 0) {
-            int a = (int) parseLong(last.substring(0, ci));
-            int b = (int) parseLong(last.substring(ci + 1));
-            if (a > 0 && b > 0) {
-                ls = a;
-                le = b;
-                resume = true;
-            }
-        }
-        final int fs = ls;
-        final int fe = le;
-        LinearLayout primary;
-        if (sourceCount(true) > 0) {
-            primary = kPrimary(IC_PLAY, resume ? "Продължи: сезон " + ls + ", епизод " + le
-                    : "Гледай от началото", new Runnable() {
-                @Override
-                public void run() {
-                    catPlay(t, fs, fe, backTo(new Runnable() {
-                        @Override
-                        public void run() {
-                            catEpisodes(t, fs);
-                        }
-                    }));
-                }
-            });
-        } else {
-            primary = kPrimary(IC_SLIDERS, "Добави източник", new Runnable() {
-                @Override
-                public void run() {
-                    showSourcesDialog();
-                }
-            });
-        }
-        catMain = primary;
-        info.addView(primary, lpTopW(WC, u(72), u(26)));
-        if (t.seasons.isEmpty()) {
-            TextView none = text("Няма данни за сезоните.", 17, K_TEXT3, tfMedium, true);
-            info.addView(none, lpTop(u(18)));
-        } else {
-            info.addView(seasonRow(t, resume ? ls : s0, 0), lpTop(u(14)));
-        }
-    }
-
-    // Сезоните като хапчета; текущият е с кехлибарен контур.
-    private View seasonRow(final CTitle t, int current, int padLeftUnits) {
-        HorizontalScrollView hs = new RowScroll(this);
-        hs.setHorizontalScrollBarEnabled(false);
-        hs.setClipChildren(false);
-        hs.setClipToPadding(false);
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setClipChildren(false);
-        row.setPadding(u(padLeftUnits), u(8), u(16), u(10));
-        for (int i = 0; i < t.seasons.size(); i++) {
-            final int sn = t.seasons.get(i)[0];
-            int ec = t.seasons.get(i)[1];
-            LinearLayout b = new LinearLayout(this);
-            b.setOrientation(LinearLayout.HORIZONTAL);
-            b.setGravity(Gravity.CENTER_VERTICAL);
-            b.setPadding(u(22), 0, u(22), 0);
-            b.setFocusable(true);
-            b.setClickable(true);
-            boolean cur = sn == current;
-            b.setBackground(stateBg(0x14FFFFFF, K_SURF2, K_AMBER, u(26),
-                    cur ? K_AMBER : 0x29FFFFFF));
-            b.addView(text("Сезон " + sn, 19, cur ? K_AMBER2 : K_TEXT, Typeface.DEFAULT_BOLD, true));
-            if (ec > 0) {
-                TextView e = text(ec + (ec == 1 ? " епизод" : " епизода"), 16, K_TEXT3, tfMedium,
-                        true);
-                e.setPadding(u(10), 0, 0, 0);
-                b.addView(e);
-            }
-            b.setTag("sea" + sn);
-            b.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    catEpisodes(t, sn);
-                }
-            });
-            b.setTag(R_SCALE, 1.05f);
-            b.setOnFocusChangeListener(kFocus);
-            LinearLayout.LayoutParams l = lp(WC, u(52));
-            if (i > 0) l.leftMargin = u(12);
-            row.addView(b, l);
-        }
-        hs.addView(row, new ViewGroup.LayoutParams(WC, WC));
-        return hs;
-    }
-
-    // Билетчета: източниците един до друг. При филм (play) натискането пуска филма от този
-    // източник; при сериал само избира откъде да започват епизодите.
-    private LinearLayout ticketRow(final CTitle t, int wUnits, int hUnits, int gapUnits,
-                                   final boolean play) {
-        final int[] slots = srcSlots(t.tv);
-        final TicketView[] tix = new TicketView[slots.length];
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setClipChildren(false);
-        row.setPadding(0, u(10), u(6), u(14)); // място за уголемяването на фокуса
-        int pref = srcPref(t.tv);
-        View prefView = null;
-        for (int i = 0; i < slots.length; i++) {
-            final int slot = slots[i];
-            TicketView tv = new TicketView(this, i + 1, srcHost(t.tv, slot));
-            tv.setPreferred(slot == pref, slot == pref ? "Избран" : "Резервен");
-            tv.setTag("src" + slot);
-            tv.setTag(R_SCALE, 1.06f);
-            tv.setOnFocusChangeListener(kFocus);
-            tix[i] = tv;
-            tv.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    srcSetPref(t.tv, slot);
-                    for (int k = 0; k < tix.length; k++) {
-                        boolean on = slots[k] == slot;
-                        tix[k].setPreferred(on, on ? "Избран" : "Резервен");
-                    }
-                    if (play) {
-                        catSrcKey = "src" + slot;
-                        catPlay(t, 1, 1, backTo(new Runnable() {
-                            @Override
-                            public void run() {
-                                catDetail(t);
-                            }
-                        }));
-                    }
-                }
-            });
-            LinearLayout.LayoutParams l = lp(u(wUnits), u(hUnits));
-            if (i > 0) l.leftMargin = u(gapUnits);
-            row.addView(tv, l);
-            if (slot == pref) prefView = tv;
-        }
-        if (play) {
-            View want = catSrcKey != null ? findByTag(row, catSrcKey) : null;
-            catSrcKey = null;
-            catMain = want != null ? want : prefView;
-        }
-        return row;
-    }
-
-    // Билетчетата в лента, която се върти настрани, когато са много.
-    private View tickScroll(LinearLayout row) {
-        HorizontalScrollView hs = new RowScroll(this);
-        hs.setHorizontalScrollBarEnabled(false);
-        hs.setClipChildren(false);
-        hs.setClipToPadding(false);
-        hs.addView(row, new ViewGroup.LayoutParams(WC, WC));
-        return hs;
-    }
-
-    // Нищо за пускане: покана да се добави източник.
-    private View noSourceBlock(boolean tv) {
-        LinearLayout b = new LinearLayout(this);
-        b.setOrientation(LinearLayout.VERTICAL);
-        b.setClipChildren(false);
-        b.addView(serifText("Още няма източник", 26, K_TEXT, true));
-        TextView d = text("Добави адрес на сайт и " + (tv ? "сериалът" : "филмът")
-                + " ще може да се пусне.", 18, K_TEXT2, tfMedium, false);
-        d.setPadding(0, u(6), 0, 0);
-        b.addView(d);
-        LinearLayout add = kPrimary(IC_SLIDERS, "Добави източник", new Runnable() {
-            @Override
-            public void run() {
-                showSourcesDialog();
-            }
-        });
-        catMain = add;
-        b.addView(add, lpTopW(WC, u(72), u(16)));
-        return b;
-    }
-
-    // Долната лента: за филм са билетчетата (или бутон), за сериал изборът на източник.
-    private void fillBand(final CTitle t, LinearLayout band) {
-        band.removeAllViews();
-        int[] slots = srcSlots(t.tv);
-        if (!t.tv) {
-            if (slots.length == 0) {
-                band.addView(noSourceBlock(false));
-            } else if (slots.length == 1) {
-                final int slot = slots[0];
-                LinearLayout play = kPrimary(IC_PLAY, "Гледай", new Runnable() {
-                    @Override
-                    public void run() {
-                        srcSetPref(false, slot);
-                        catPlay(t, 1, 1, backTo(new Runnable() {
-                            @Override
-                            public void run() {
-                                catDetail(t);
-                            }
-                        }));
-                    }
-                });
-                catMain = play;
-                band.addView(play, lpTopW(WC, u(72), 0));
-            } else {
-                band.addView(text("Гледай от", 19, K_TEXT2, tfMedium, true));
-                band.addView(tickScroll(ticketRow(t, 232, 84, 16, true)), lpTop(u(4)));
-            }
-        } else if (slots.length >= 2) {
-            band.addView(text("Източник за епизодите", 19, K_TEXT2, tfMedium, true));
-            band.addView(tickScroll(ticketRow(t, 232, 84, 16, false)), lpTop(u(4)));
-        }
-    }
-
-    // ---- епизоди ----
-
-    private void catEpisodes(final CTitle t, final int season) {
-        final int gen = ++catGen;
-        catUp = new Runnable() {
-            @Override
-            public void run() {
-                catDetail(t);
-            }
-        };
-        catBox.removeAllViews();
-        catMain = null;
-        catMode(false);
-        catBox.addView(pageHeader(t.name, "Сезон " + season, null));
-        if (!t.seasons.isEmpty()) catBox.addView(seasonRow(t, season, 64), lpTop(u(16)));
-        if (sourceCount(true) >= 2) {
-            LinearLayout line = new LinearLayout(this);
-            line.setOrientation(LinearLayout.HORIZONTAL);
-            line.setGravity(Gravity.CENTER_VERTICAL);
-            line.setClipChildren(false);
-            line.setPadding(u(16), 0, u(16), 0);
-            TextView lab = text("Източник", 18, K_TEXT2, tfMedium, true);
-            line.addView(lab, lp(u(104), WC));
-            line.addView(tickScroll(ticketRow(t, 196, 64, 12, false)),
-                    new LinearLayout.LayoutParams(0, WC, 1f));
-            catBox.addView(line, lpTop(u(2)));
-        }
-        final LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        list.setClipChildren(false);
-        list.setPadding(u(16), u(14), u(16), 0);
-        for (int i = 0; i < 3; i++) {
-            LinearLayout r = new LinearLayout(this);
-            r.setOrientation(LinearLayout.HORIZONTAL);
-            for (int k = 0; k < 2; k++) {
-                LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(0, u(132), 1f);
-                if (k == 0) l.rightMargin = u(20);
-                r.addView(skeleton(300, 132, 18), l);
-            }
-            list.addView(r, lpTop(u(i == 0 ? 0 : 16)));
-        }
-        catBox.addView(list, lpTop(0));
-        catScroll.scrollTo(0, 0);
-        tmdbFetch("/tv/" + t.id + "/season/" + season + "?language=bg-BG", new Done() {
-            @Override
-            public void run(String json, String err) {
-                if (gen != catGen) return;
-                list.removeAllViews();
-                ArrayList<CEpisode> eps = json == null ? null : parseEpisodes(json);
-                if (eps == null || eps.isEmpty()) {
-                    View eb = errorBlock(err != null ? err : "Няма епизоди.", new Runnable() {
-                        @Override
-                        public void run() {
-                            catEpisodes(t, season);
-                        }
-                    });
-                    list.addView(eb);
-                    ((ViewGroup) eb).getChildAt(1).requestFocus();
-                    return;
-                }
-                String lastKey = prefs.getString("tvlast:" + t.id, "");
-                View focus = null;
-                LinearLayout row = null;
-                for (int i = 0; i < eps.size(); i++) {
-                    CEpisode ep = eps.get(i);
-                    boolean last = lastKey.equals(season + ":" + ep.num);
-                    View card = epCard(t, ep, season, last, gen);
-                    if (i % 2 == 0) {
-                        row = new LinearLayout(MainActivity.this);
-                        row.setOrientation(LinearLayout.HORIZONTAL);
-                        row.setClipChildren(false);
-                        list.addView(row, lpTop(u(i == 0 ? 0 : 16)));
-                    }
-                    LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(0, u(132), 1f);
-                    if (i % 2 == 0) l.rightMargin = u(20);
-                    row.addView(card, l);
-                    if (focus == null) focus = card;
-                    if (last) focus = card;
-                }
-                if (eps.size() % 2 == 1 && row != null) {
-                    row.addView(new View(MainActivity.this), new LinearLayout.LayoutParams(0, u(132), 1f));
-                }
-                if (focus != null) focus.requestFocus();
-            }
-        });
-    }
-
-    // Епизод: снимка с номер, заглавие, дата, времетраене и кратко описание.
-    private View epCard(final CTitle t, final CEpisode ep, final int season, boolean last, int gen) {
-        LinearLayout c = new LinearLayout(this);
-        c.setOrientation(LinearLayout.HORIZONTAL);
-        c.setGravity(Gravity.CENTER_VERTICAL);
-        c.setPadding(u(9), u(9), u(18), u(9));
-        c.setFocusable(true);
-        c.setClickable(true);
-        c.setBackground(stateBg(K_SURF, K_SURF2, K_AMBER, u(18), K_LINE));
-        final ArtView still = new ArtView(this, ep.num * 7 + season, ep.name.isEmpty() ? "Е" : ep.name,
-                u(11), false);
-        still.setNumber(String.valueOf(ep.num));
-        still.setPlay(true);
-        loadImage("w300", ep.still, gen, false, new ImageSink() {
-            @Override
-            public void set(Bitmap b, boolean instant) {
-                still.setBitmap(b, !instant);
-            }
-        });
-        c.addView(still, lp(u(200), u(112)));
-        LinearLayout tx = new LinearLayout(this);
-        tx.setOrientation(LinearLayout.VERTICAL);
-        tx.setGravity(Gravity.CENTER_VERTICAL);
-        tx.setPadding(u(16), 0, 0, 0);
-        tx.addView(text(ep.name.isEmpty() ? "Епизод " + ep.num : ep.name, 21, K_TEXT, tfMedium,
-                true));
-        LinearLayout meta = new LinearLayout(this);
-        meta.setOrientation(LinearLayout.HORIZONTAL);
-        meta.setGravity(Gravity.CENTER_VERTICAL);
-        String date = bgDate(ep.date);
-        if (!date.isEmpty()) meta.addView(text(date, 16, K_TEXT3, tfMedium, true));
-        if (ep.runtime > 0) {
-            TextView rt = text(ep.runtime + " мин", 15, K_TEXT2, tfMedium, true);
-            rt.setGravity(Gravity.CENTER);
-            rt.setPadding(u(9), 0, u(9), 0);
-            GradientDrawable g = new GradientDrawable();
-            g.setColor(0x00000000);
-            g.setCornerRadius(u(11));
-            g.setStroke(Math.max(1, u(1)), 0x33FFFFFF);
-            rt.setBackground(g);
-            LinearLayout.LayoutParams l = lp(WC, u(22));
-            l.leftMargin = date.isEmpty() ? 0 : u(10);
-            meta.addView(rt, l);
-        }
-        if (last) {
-            LinearLayout.LayoutParams l = lp(WC, WC);
-            l.leftMargin = u(10);
-            meta.addView(text("Последно гледан", 15, K_AMBER, Typeface.DEFAULT_BOLD, true), l);
-        }
-        tx.addView(meta, lpTop(u(3)));
-        if (!ep.overview.isEmpty()) {
-            TextView ov = text(ep.overview, 16, K_TEXT2, tfMedium, false);
-            ov.setMaxLines(2);
-            ov.setEllipsize(TextUtils.TruncateAt.END);
-            tx.addView(ov, lpTop(u(4)));
-        }
-        c.addView(tx, new LinearLayout.LayoutParams(0, WC, 1f));
-        c.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                catPlay(t, season, ep.num, backTo(new Runnable() {
-                    @Override
-                    public void run() {
-                        catEpisodes(t, season);
-                    }
-                }));
-            }
-        });
-        c.setTag(R_SCALE, 1.025f);
-        c.setOnFocusChangeListener(kFocus);
-        return c;
-    }
-
-        // Пуска избраното: отваря първия източник; при грешка се минава на резервния.
-    private void catPlay(CTitle t, int season, int episode, Runnable back) {
-        ArrayList<String> urls = sourceUrls(t, season, episode);
-        if (urls.isEmpty()) {
-            Toast.makeText(this, "Няма настроен източник. Добави го от бутона Източници.",
-                    Toast.LENGTH_LONG).show();
-            showSourcesDialog();
-            return;
-        }
-        if (t.tv) prefs.edit().putString("tvlast:" + t.id, season + ":" + episode).apply();
-        String label = t.tv ? t.name + " (С" + season + " Е" + episode + ")" : t.name;
-        // Филмът се търси на заден план през скритата страница и тръгва в родния плеър.
-        if (vodStart(t, season, episode, back)) return;
-        hideCatalog();
-        openSite(new String[]{label, urls.get(0), "", "Наши филми"});
-        srcQueue = urls;
-        srcIdx = 0;
-        catReturn = back;
-        srcArm();
-    }
-
-    // Грешка при зареждане: опитва следващия източник, ако има такъв.
-    private final Runnable srcTimeout = new Runnable() {
-        @Override
-        public void run() {
-            tryNextSource(); // източникът не се е отворил навреме
-        }
-    };
-
-    private void srcArm() {
-        ui.removeCallbacks(srcTimeout);
-        if (srcQueue != null && srcIdx + 1 < srcQueue.size()) ui.postDelayed(srcTimeout, 25000);
-    }
-
-    private void srcDone() {
-        ui.removeCallbacks(srcTimeout);
-    }
-
-    private boolean tryNextSource() {
-        ui.removeCallbacks(srcTimeout);
-        if (srcQueue == null || web == null || srcIdx + 1 >= srcQueue.size()) return false;
-        srcIdx++;
-        String next = srcQueue.get(srcIdx);
-        allowedHost = Uri.parse(next).getHost();
-        pageUrl = null;
-        Toast.makeText(this, "Опитвам резервен източник " + (srcIdx + 1), Toast.LENGTH_SHORT).show();
-        logEvent("Резервен източник " + (srcIdx + 1) + ": " + hostOf(next));
-        web.loadUrl(next);
-        srcArm();
-        return true;
-    }
-
-    // ---- категории, предложения, търсене ----
-
-        private static final int[] MOVIE_GENRE_ID = {28, 12, 16, 35, 80, 99, 18, 10751, 14, 36, 27,
-            10402, 9648, 10749, 878, 53, 10752, 37};
-    private static final String[] MOVIE_GENRE_NAME = {"Екшън", "Приключенски", "Анимация",
-            "Комедия", "Криминален", "Документален", "Драма", "Семеен", "Фентъзи", "Исторически",
-            "Ужаси", "Музикален", "Мистерия", "Романтичен", "Фантастика", "Трилър", "Военен",
-            "Уестърн"};
-    private static final int[] TV_GENRE_ID = {10759, 16, 35, 80, 99, 18, 10751, 10762, 9648,
-            10765, 10768, 37};
-    private static final String[] TV_GENRE_NAME = {"Екшън и приключения", "Анимация", "Комедия",
-            "Криминални", "Документални", "Драма", "Семейни", "Детски", "Мистерия",
-            "Фантастика и фентъзи", "Война и политика", "Уестърн"};
-
-    private boolean catGenreTv; // кой раздел е избран в категориите (филми или сериали)
-
-    private void fillGenreGrid(LinearLayout grid, final boolean tv, final boolean suggest) {
-        grid.removeAllViews();
-        int[] ids = tv ? TV_GENRE_ID : MOVIE_GENRE_ID;
-        String[] names = tv ? TV_GENRE_NAME : MOVIE_GENRE_NAME;
-        int n = ids.length + (suggest ? 1 : 0);
-        LinearLayout row = null;
-        boolean firstCard = true;
-        for (int i = 0; i < n; i++) {
-            if (i % 5 == 0) {
-                row = new LinearLayout(this);
-                row.setOrientation(LinearLayout.HORIZONTAL);
-                row.setClipChildren(false);
-                grid.addView(row, lpTop(u(i == 0 ? 0 : 18)));
-            }
-            final int gid = suggest ? (i == 0 ? 0 : ids[i - 1]) : ids[i];
-            final String gname = suggest ? (i == 0 ? "Всякакви" : names[i - 1]) : names[i];
-            GenreView g = new GenreView(this, gname, gid);
-            g.setTag(R_SCALE, 1.07f);
-            g.setOnFocusChangeListener(kFocus);
-            g.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    catFocusKey = null;
-                    if (suggest) catSuggest(tv, gid, gname, true);
-                    else catGenre(tv, gid, gname);
-                }
-            });
-            LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(0, u(118), 1f);
-            if (i % 5 != 4) l.rightMargin = u(18);
-            row.addView(g, l);
-            if (firstCard) {
-                catMain = g;
-                firstCard = false;
-            }
-        }
-        // последният ред се допълва с празни места, за да са плочките с един и същи размер
-        int rest = (5 - n % 5) % 5;
-        for (int k = 0; k < rest && row != null; k++) {
-            int col = n % 5 + k;
-            LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(0, u(118), 1f);
-            if (col < 4) l.rightMargin = u(18);
-            row.addView(new View(this), l);
-        }
-    }
-
-    private void catGenres(final boolean suggest) {
-        ++catGen;
-        catUp = new Runnable() {
-            @Override
-            public void run() {
-                catHome();
-            }
-        };
-        catParent = null;
-        catBox.removeAllViews();
-        catMain = null;
-        catMode(false);
-        final LinearLayout grid = new LinearLayout(this);
-        grid.setOrientation(LinearLayout.VERTICAL);
-        grid.setClipChildren(false);
-        grid.setPadding(u(16), u(10), u(16), 0);
-        final TextView tMov = kTab("Филми", !catGenreTv);
-        final TextView tTv = kTab("Сериали", catGenreTv);
-        tMov.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (!catGenreTv) return;
-                catGenreTv = false;
-                tabSet(tMov, true);
-                tabSet(tTv, false);
-                fillGenreGrid(grid, false, suggest);
-            }
-        });
-        tTv.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (catGenreTv) return;
-                catGenreTv = true;
-                tabSet(tMov, false);
-                tabSet(tTv, true);
-                fillGenreGrid(grid, true, suggest);
-            }
-        });
-        LinearLayout tabs = new LinearLayout(this);
-        tabs.setOrientation(LinearLayout.HORIZONTAL);
-        tabs.setClipChildren(false);
-        tabs.addView(tMov, lp(WC, u(52)));
-        LinearLayout.LayoutParams tl = lp(WC, u(52));
-        tl.leftMargin = u(10);
-        tabs.addView(tTv, tl);
-        catBox.addView(pageHeader(suggest ? "Предложи ми" : "Категории",
-                suggest ? "Избери жанр и ще хвърля зара" : "Избери жанр", tabs));
-        catBox.addView(grid, lpTop(u(20)));
-        fillGenreGrid(grid, catGenreTv, suggest);
-        catScroll.scrollTo(0, 0);
-        if (catMain != null) catMain.requestFocus();
-    }
-
-    private ArrayList<CTitle> catPicks;
-    private LinearLayout sgInfo;
-    private LinearLayout sgFacts;
-    private TextView sgTitle;
-    private TextView sgOv;
-
-    // Предложения: 5 случайни заглавия от избрания жанр; "Хвърли пак" дава други 5.
-    private void catSuggest(final boolean tv, final int gid, final String gname,
-                            final boolean roll) {
-        final int gen = ++catGen;
-        catUp = new Runnable() {
-            @Override
-            public void run() {
-                catHome();
-            }
-        };
-        catParent = new Runnable() {
-            @Override
-            public void run() {
-                catSuggest(tv, gid, gname, false);
-            }
-        };
-        catBox.removeAllViews();
-        catMain = null;
-        catMode(false);
-        LinearLayout acts = new LinearLayout(this);
-        acts.setOrientation(LinearLayout.HORIZONTAL);
-        acts.setClipChildren(false);
-        LinearLayout dice = kPill(IC_DICE, "Хвърли пак", new Runnable() {
-            @Override
-            public void run() {
-                catFocusKey = null;
-                catSuggest(tv, gid, gname, true);
-            }
-        });
-        LinearLayout other = kPill(IC_GRID, "Друг жанр", new Runnable() {
-            @Override
-            public void run() {
-                catGenres(true);
-            }
-        });
-        acts.addView(dice, lp(WC, u(52)));
-        LinearLayout.LayoutParams ol = lp(WC, u(52));
-        ol.leftMargin = u(12);
-        acts.addView(other, ol);
-        catBox.addView(pageHeader("Предложи ми", (tv ? "Сериали" : "Филми") + ": " + gname, acts));
-        final LinearLayout strip = addRowShell("");
-        fillSkeleton(strip, 5, 268, 402, 24);
-        // данни за заглавието на фокус (без втора заявка: идват със списъка)
-        sgInfo = new LinearLayout(this);
-        sgInfo.setOrientation(LinearLayout.VERTICAL);
-        sgInfo.setPadding(u(16), u(6), u(16), 0);
-        sgFacts = new LinearLayout(this);
-        sgFacts.setOrientation(LinearLayout.HORIZONTAL);
-        sgFacts.setGravity(Gravity.CENTER_VERTICAL);
-        sgInfo.addView(sgFacts, lp(WC, u(30)));
-        sgTitle = serifText("", 36, K_TEXT, true);
-        sgInfo.addView(sgTitle, lpTop(u(10)));
-        sgOv = text("", 19, K_TEXT2, tfMedium, false);
-        sgOv.setMaxLines(3);
-        sgOv.setEllipsize(TextUtils.TruncateAt.END);
-        sgOv.setLineSpacing(0, 1.15f);
-        LinearLayout.LayoutParams ovl = new LinearLayout.LayoutParams(u(1000), WC);
-        ovl.topMargin = u(8);
-        sgInfo.addView(sgOv, ovl);
-        sgInfo.setVisibility(View.INVISIBLE);
-        catBox.addView(sgInfo, lpTop(0));
-        focusAct = new Runnable() {
-            @Override
-            public void run() {
-                CTitle ft = focusTitle;
-                if (ft == null) return;
-                sgInfo.setVisibility(View.VISIBLE);
-                fillFacts(sgFacts, ft);
-                sgTitle.setText(ft.name);
-                sgOv.setText(ft.overview);
-            }
-        };
-        catScroll.scrollTo(0, 0);
-        dice.requestFocus();
-        if (!roll && catPicks != null) {
-            showPicks(strip, catPicks);
-            return;
-        }
-        String path = "/discover/" + (tv ? "tv" : "movie") + "?language=bg-BG"
-                + "&sort_by=popularity.desc&vote_count.gte=200&page=" + (1 + new Random().nextInt(10))
-                + (gid > 0 ? "&with_genres=" + gid : "");
-        tmdbFetch(path, new Done() {
-            @Override
-            public void run(String json, String err) {
-                if (gen != catGen) return;
-                ArrayList<CTitle> list = json == null ? null : parseList(json, tv, 20);
-                strip.removeAllViews();
-                if (list == null || list.isEmpty()) {
-                    strip.addView(errorBlock(err != null ? err : "Няма предложения.",
-                            new Runnable() {
-                                @Override
-                                public void run() {
-                                    catSuggest(tv, gid, gname, true);
-                                }
-                            }));
-                    return;
-                }
-                Collections.shuffle(list);
-                catPicks = new ArrayList<>(list.subList(0, Math.min(5, list.size())));
-                showPicks(strip, catPicks);
-            }
-        });
-    }
-
-    private void showPicks(LinearLayout strip, ArrayList<CTitle> picks) {
-        strip.removeAllViews();
-        View first = null;
-        View want = null;
-        for (final CTitle t : picks) {
-            ArtView a = posterCard(t, "w342", new Runnable() {
-                @Override
-                public void run() {
-                    catDetail(t);
-                }
-            });
-            strip.addView(a, posterLp(268, 402, 24));
-            if (first == null) first = a;
-            if (catFocusKey != null && catFocusKey.equals(a.getTag())) want = a;
-        }
-        catFocusKey = null;
-        View f = want != null ? want : first;
-        if (f != null) f.requestFocus();
-    }
-
-    private void catGenre(final boolean tv, int genreId, final String genreName) {
-        String path = "/discover/" + (tv ? "tv" : "movie") + "?language=bg-BG&sort_by=popularity.desc"
-                + "&vote_count.gte=50&with_genres=" + genreId;
-        catGrid(genreName, tv ? "Сериали" : "Филми", path, tv, new Runnable() {
-            @Override
-            public void run() {
-                catGenres(false);
-            }
-        });
-    }
-
-    // Екран с мрежа от корици (резултат от търсене или жанр). Дозарежда се при скрол надолу.
-    private void catGrid(final String title, final String sub, final String path,
-                         final boolean tv, final Runnable up) {
-        final int gen = ++catGen;
-        final Runnable self = new Runnable() {
-            @Override
-            public void run() {
-                catGrid(title, sub, path, tv, up);
-            }
-        };
-        catUp = up;
-        catParent = self;
-        catBox.removeAllViews();
-        catMain = null;
-        catMode(false);
-        catBox.addView(pageHeader(title, sub, null));
-        final LinearLayout skel = new LinearLayout(this);
-        skel.setOrientation(LinearLayout.HORIZONTAL);
-        skel.setPadding(u(16), u(24), u(16), 0);
-        fillSkeleton(skel, 8, 168, 252, 16);
-        catBox.addView(skel, lpTop(0));
-        catScroll.scrollTo(0, 0);
-        final int[] page = {0};
-        final int[] count = {0};
-        final boolean[] busy = {false};
-        final boolean[] done = {false};
-        final LinearLayout[] strip = {null};
-        final Runnable[] more = new Runnable[1];
-        more[0] = new Runnable() {
-            @Override
-            public void run() {
-                if (busy[0] || done[0] || gen != catGen) return;
-                busy[0] = true;
-                final int p = ++page[0];
-                tmdbFetch(path + "&page=" + p, new Done() {
-                    @Override
-                    public void run(String json, String err) {
-                        busy[0] = false;
-                        if (gen != catGen) return;
-                        if (p == 1) catBox.removeView(skel);
-                        ArrayList<CTitle> list = json == null ? null
-                                : (path.startsWith("/search") ? parseMixed(json)
-                                : parseList(json, tv, 20));
-                        if (list == null || list.isEmpty()) {
-                            if (p == 1 || err == null) done[0] = true;
-                            else page[0]--;
-                            if (p == 1) {
-                                LinearLayout hold = new LinearLayout(MainActivity.this);
-                                hold.setPadding(u(16), u(20), u(16), 0);
-                                hold.addView(errorBlock(err != null ? err : "Няма резултати.",
-                                        new Runnable() {
-                                            @Override
-                                            public void run() {
-                                                self.run();
-                                            }
-                                        }));
-                                catBox.addView(hold, lpTop(0));
-                                if (err != null) {
-                                    ((ViewGroup) hold.getChildAt(0)).getChildAt(1).requestFocus();
-                                }
-                            }
-                            return;
-                        }
-                        if (p >= 8) done[0] = true; // най-много около 160 заглавия
-                        View focus = null;
-                        int base = count[0];
-                        for (int i = 0; i < list.size(); i++) {
-                            if ((base + i) % 8 == 0) strip[0] = addRowShell("");
-                            final CTitle t = list.get(i);
-                            ArtView cell = posterCard(t, rowSize(), new Runnable() {
-                                @Override
-                                public void run() {
-                                    catDetail(t);
-                                }
-                            });
-                            strip[0].addView(cell, posterLp(168, 252, 16));
-                            watchEnd(cell, base + i, count, 16, more[0]);
-                            String key = "t" + t.id + (t.tv ? "t" : "m");
-                            if (p == 1) {
-                                if (focus == null) focus = cell;
-                                if (key.equals(catFocusKey)) focus = cell;
-                            }
-                        }
-                        count[0] += list.size();
-                        if (p == 1) {
-                            catFocusKey = null;
-                            if (focus != null) focus.requestFocus();
-                        }
-                    }
-                });
-            }
-        };
-        more[0].run();
-    }
-
-
-    // Бутон в прозорците: кехлибарен (основният) или тъмен.
-    private View catButton(String label, boolean primary, final Runnable action) {
-        TextView b = new TextView(this);
-        b.setText(label);
-        b.setTextColor(primary ? K_INK : K_TEXT);
-        b.setTextSize(17);
-        b.setTypeface(primary ? Typeface.DEFAULT_BOLD : tfMedium);
-        b.setGravity(Gravity.CENTER);
-        b.setSingleLine(true);
-        b.setEllipsize(TextUtils.TruncateAt.END);
-        b.setPadding(dp(14), dp(14), dp(14), dp(14));
-        b.setFocusable(true);
-        b.setClickable(true);
-        b.setBackground(primary ? amberBg(dp(26)) : stateBg(0x1AFFFFFF, K_SURF2, K_AMBER, dp(26)));
-        b.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                action.run();
-            }
-        });
-        b.setOnFocusChangeListener(focusAnim);
-        return b;
-    }
-
-    private void showSearchDialog() {
-        if (isFinishing() || (srcDialog != null && srcDialog.isShowing())) return;
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(28), dp(22), dp(28), dp(22));
-        GradientDrawable pbg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                new int[]{TvTheme.BACKGROUND_TOP,TvTheme.BACKGROUND});
-        pbg.setCornerRadius(dp(24));
-        pbg.setStroke(dp(1), 0x44FFFFFF);
-        panel.setBackground(pbg);
-        TextView title = new TextView(this);
-        title.setText("Търсене");
-        title.setTextColor(K_TEXT);
-        title.setTextSize(26);
-        title.setTypeface(tfSerif);
-        panel.addView(title);
-        final EditText et = srcField("Име на филм или сериал", "", false);
-        et.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
-        LinearLayout.LayoutParams elp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        elp.topMargin = dp(14);
-        panel.addView(et, elp);
-
-        final Dialog dlg = new Dialog(this);
-        final Runnable go = new Runnable() {
-            @Override
-            public void run() {
-                String q = et.getText().toString().trim();
-                if (q.isEmpty()) return;
-                dlg.dismiss();
-                catFocusKey = null;
-                String path;
-                try {
-                    path = "/search/multi?language=bg-BG&include_adult=false&query="
-                            + java.net.URLEncoder.encode(q, "UTF-8");
-                } catch (Exception e) {
-                    return;
-                }
-                catGrid("Търсене: " + q, "Резултати", path, false, new Runnable() {
-                    @Override
-                    public void run() {
-                        catHome();
-                    }
-                });
-            }
-        };
-        et.setOnEditorActionListener(new TextView.OnEditorActionListener() {
-            @Override
-            public boolean onEditorAction(TextView v, int actionId, KeyEvent ev) {
-                go.run();
-                return true;
-            }
-        });
-        LinearLayout btns = new LinearLayout(this);
-        btns.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams l1 = new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        l1.setMargins(dp(6), dp(14), dp(6), 0);
-        LinearLayout.LayoutParams l2 = new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        l2.setMargins(dp(6), dp(14), dp(6), 0);
-        btns.addView(catButton("Търси", true, go), l1);
-        btns.addView(catButton("Отказ", false, new Runnable() {
-            @Override
-            public void run() {
-                dlg.dismiss();
-            }
-        }), l2);
-        panel.addView(btns);
-
-        dlg.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        dlg.setContentView(panel);
-        Window w = dlg.getWindow();
-        if (w != null) {
-            w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            w.setLayout(dp(720), ViewGroup.LayoutParams.WRAP_CONTENT);
-            w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
-                    | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
-        }
-        dlg.setOnDismissListener(new DialogInterface.OnDismissListener() {
-            @Override
-            public void onDismiss(DialogInterface d) {
-                srcDialog = null;
-                hideSystemBars();
-            }
-        });
-        srcDialog = dlg;
-        dlg.show();
-        et.requestFocus();
-    }
-
-    // ---- ключ и източници ----
-
-    private EditText srcField(String hint, String value, boolean url) {
-        EditText et = new EditText(this);
-        et.setText(value);
-        et.setHint(hint);
-        et.setSingleLine(true);
-        et.setTextColor(K_TEXT);
-        et.setHintTextColor(K_TEXT3);
-        et.setTextSize(17);
-        et.setPadding(dp(16), dp(10), dp(16), dp(10));
-        et.setBackground(fieldBg());
-        et.setInputType(InputType.TYPE_CLASS_TEXT | (url
-                ? InputType.TYPE_TEXT_VARIATION_URI : InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS));
-        et.setImeOptions(EditorInfo.IME_ACTION_NEXT);
-        return et;
-    }
-
-    private void addLabeled(LinearLayout col, String label, EditText et) {
-        TextView l = new TextView(this);
-        l.setText(label);
-        l.setTextColor(K_TEXT2);
-        l.setTextSize(14);
-        l.setPadding(dp(4), dp(12), 0, dp(4));
-        col.addView(l);
-        col.addView(et, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-    }
-
-    private void showSourcesDialog() {
-        if (isFinishing() || (srcDialog != null && srcDialog.isShowing())) return;
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(28), dp(22), dp(28), dp(22));
-        GradientDrawable pbg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                new int[]{TvTheme.BACKGROUND_TOP,TvTheme.BACKGROUND});
-        pbg.setCornerRadius(dp(24));
-        pbg.setStroke(dp(1), 0x44FFFFFF);
-        panel.setBackground(pbg);
-
-        TextView title = new TextView(this);
-        title.setText("Източници и ключове");
-        title.setTextColor(K_TEXT);
-        title.setTextSize(26);
-        title.setTypeface(tfSerif);
-        panel.addView(title);
-        TextView sub = new TextView(this);
-        sub.setText("Ключ за TMDB и до десет адреса за филми и десет за сериали (основен и резервни). В адреса се слагат: "
-                + "{tmdb} {imdb} {season} {episode}. Празно поле = не се ползва. "
-                + "Пример: https://example.com/embed/movie/{tmdb}");
-        sub.setTextColor(K_TEXT2);
-        sub.setTextSize(14);
-        sub.setPadding(0, dp(4), 0, dp(8));
-        panel.addView(sub);
-
-        LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-        final EditText key = srcField("Ключ за TMDB (остава само на тази кутия)",
-                prefs.getString("tmdbKey", ""), false);
-        addLabeled(col, "Ключ за TMDB", key);
-        final EditText[] ff = new EditText[SRC_SLOTS];
-        final EditText[] tf = new EditText[SRC_SLOTS];
-        String[] names = {"основен", "резервен 1", "резервен 2", "резервен 3", "резервен 4",
-                "резервен 5", "резервен 6", "резервен 7", "резервен 8", "резервен 9"};
-        for (int i = 0; i < SRC_SLOTS; i++) {
-            ff[i] = srcField("https://.../movie/{tmdb}", prefs.getString("fsrc" + i, ""), true);
-            addLabeled(col, "Филми: " + names[i], ff[i]);
-        }
-        for (int i = 0; i < SRC_SLOTS; i++) {
-            tf[i] = srcField("https://.../tv/{tmdb}/{season}/{episode}",
-                    prefs.getString("tsrc" + i, ""), true);
-            addLabeled(col, "Сериали: " + names[i], tf[i]);
-        }
-        TextView subHead = new TextView(this);
-        subHead.setText("Субтитри (по желание). Subs.sab.bz работи без ключ; другите три искат безплатен ключ "
-                + "от сайта си. Празно поле = този източник не се ползва.");
-        subHead.setTextColor(K_TEXT2);
-        subHead.setTextSize(14);
-        subHead.setPadding(dp(4), dp(22), 0, dp(2));
-        col.addView(subHead);
-        final EditText osk = srcField("Api-Key от opensubtitles.com", prefs.getString("osKey", ""), false);
-        addLabeled(col, "OpenSubtitles: ключ (Api-Key)", osk);
-        final EditText osu = srcField("потребител в opensubtitles.com", prefs.getString("osUser", ""), false);
-        addLabeled(col, "OpenSubtitles: потребител", osu);
-        final EditText osp = srcField("парола", prefs.getString("osPass", ""), false);
-        osp.setTransformationMethod(android.text.method.PasswordTransformationMethod.getInstance());
-        addLabeled(col, "OpenSubtitles: парола", osp);
-        final EditText sdk = srcField("ключ от subdl.com", prefs.getString("subdlKey", ""), false);
-        addLabeled(col, "Subdl: ключ", sdk);
-        final EditText ssk = srcField("ключ от subsource.net", prefs.getString("ssKey", ""), false);
-        addLabeled(col, "SubSource: ключ", ssk);
-        ScrollView sv = new ScrollView(this);
-        sv.addView(col);
-        panel.addView(sv, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(300)));
-
-        final Dialog dlg = new Dialog(this);
-        final Runnable save = new Runnable() {
-            @Override
-            public void run() {
-                SharedPreferences.Editor ed = prefs.edit();
-                ed.putString("tmdbKey", key.getText().toString().trim());
-                ed.putString("osKey", osk.getText().toString().trim());
-                ed.putString("osUser", osu.getText().toString().trim());
-                ed.putString("osPass", osp.getText().toString().trim());
-                ed.putString("subdlKey", sdk.getText().toString().trim());
-                ed.putString("ssKey", ssk.getText().toString().trim());
-                for (int i = 0; i < SRC_SLOTS; i++) {
-                    ed.putString("fsrc" + i, ff[i].getText().toString().trim());
-                    ed.putString("tsrc" + i, tf[i].getText().toString().trim());
-                }
-                ed.apply();
-                synchronized (TMDB_JSON) {
-                    TMDB_JSON.clear();
-                    TMDB_AT.clear();
-                }
-                dlg.dismiss();
-                Toast.makeText(MainActivity.this, "Запазено", Toast.LENGTH_SHORT).show();
-                if (catShown()) {
-                    catFocusKey = null;
-                    catHome();
-                }
-            }
-        };
-        LinearLayout btns = new LinearLayout(this);
-        btns.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams l1 = new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        l1.setMargins(dp(6), dp(14), dp(6), 0);
-        LinearLayout.LayoutParams l2 = new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        l2.setMargins(dp(6), dp(14), dp(6), 0);
-        btns.addView(catButton("Запази", true, save), l1);
-        btns.addView(catButton("Отказ", false, new Runnable() {
-            @Override
-            public void run() {
-                dlg.dismiss();
-            }
-        }), l2);
-        panel.addView(btns);
-
-        dlg.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        dlg.setContentView(panel);
-        Window w = dlg.getWindow();
-        if (w != null) {
-            w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            w.setLayout(dp(860), ViewGroup.LayoutParams.WRAP_CONTENT);
-            w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN
-                    | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
-        }
-        dlg.setOnDismissListener(new DialogInterface.OnDismissListener() {
-            @Override
-            public void onDismiss(DialogInterface d) {
-                srcDialog = null;
-                hideSystemBars();
-            }
-        });
-        srcDialog = dlg;
-        dlg.show();
     }
 
     // ====================== МОЯТА ТЕЛЕВИЗИЯ ======================
@@ -8241,7 +5372,7 @@ private static final String[] TV_SOURCES = {
         final ArrayList<String[]> alts = new ArrayList<>();
     }
 
-    private static final int TV_MAX_ALTS = 2; // до три потока на сайт, включително основния
+    private static final int TV_MAX_ALTS = 4; // до пет потока на сайт, включително основния
 
     private static class TvChan {
         String id = "", name = "";
@@ -8827,7 +5958,6 @@ private static final String[] TV_SOURCES = {
         appSection = SECTION_TV;
         if (appBar != null) appBar.setSection(appSection);
         if (tvMode) tvLeave(false);
-        if (catShown()) hideCatalog();
         closeNative(false);
         destroyWeb();
         menuHolder.setVisibility(View.GONE);
@@ -8851,7 +5981,7 @@ private static final String[] TV_SOURCES = {
     // изгледите се махат, а логата се освобождават (на диска остават).
     private void tvPanelRelease() {
         tvCloseTimeline();
-        if (!tvMode || tvVod) tvEpgStop();
+        if (!tvMode) tvEpgStop();
         tvOverviewGuide=null;
         if (tvHeroArtwork != null) tvHeroArtwork.clear();
         tvHeroArtwork = null;
@@ -9189,17 +6319,6 @@ private static final String[] TV_SOURCES = {
         while (recent.size() > 12) recent.remove(recent.size() - 1);
         if (!recent.isEmpty()) tvBox.addView(tvRow("Последно гледани", IC_CLOCK, 0, recent), lpTopW(MP, WC, u(12)));
 
-        // Shortcuts do not start the movie catalogue or any WebView in the background.
-        tvBox.addView(text("Филми и сериали", 22, TvTheme.TEXT, Typeface.DEFAULT_BOLD, true), lpTopW(MP, WC, u(12)));
-        LinearLayout movies = new LinearLayout(this);
-        movies.addView(tvDashboardLink(IC_FILM, "Отвори каталога", () -> showCatalog(null)),
-                new LinearLayout.LayoutParams(0, u(66), 1f));
-        LinearLayout.LayoutParams searchLp = new LinearLayout.LayoutParams(0, u(66), 1f);
-        searchLp.leftMargin = u(12);
-        movies.addView(tvDashboardLink(IC_SEARCH, "Намери филм или сериал", () -> {
-            showCatalog(null); showSearchDialog();
-        }), searchLp);
-        tvBox.addView(movies, lpTopW(MP, WC, u(8)));
         tvBox.addView(text("Сайтове", 22, TvTheme.TEXT, Typeface.DEFAULT_BOLD, true), lpTopW(MP, WC, u(14)));
         HorizontalScrollView siteScroll = new HorizontalScrollView(this);
         siteScroll.setHorizontalScrollBarEnabled(false);
@@ -9413,18 +6532,18 @@ private static final String[] TV_SOURCES = {
     private LinearLayout tvHeroFavourite;
 
     private void tvEpgLoad() {
-        if((!tvPanelShown() && !(tvMode && !tvVod)) || tvChans.isEmpty() || tvEpgLoader!=null)return;
+        if((!tvPanelShown() && !tvMode) || tvChans.isEmpty() || tvEpgLoader!=null)return;
         if(tvGuide!=null && SystemClock.elapsedRealtime()-tvGuideLoadedAt<60L*60*1000)return;
         final int generation=++tvEpgGeneration;
         ArrayList<String> names=new ArrayList<>();for(TvChan c:tvChans)names.add(c.name);
         tvEpgError=null;tvEpgLoader=new EpgLoader();
         tvEpgLoader.load(getCacheDir(),names,(guide,error)->ui.post(()->{
-            if(generation!=tvEpgGeneration || isFinishing() || (!tvPanelShown() && !(tvMode && !tvVod)))return;
+            if(generation!=tvEpgGeneration || isFinishing() || (!tvPanelShown() && !tvMode))return;
             tvEpgLoader=null;tvGuide=guide;tvGuideLoadedAt=SystemClock.elapsedRealtime();tvEpgError=error;
             if(tvOverviewGuide!=null)tvOverviewGuide.setGuide(guide,error);
             if(tvPlayerGuide!=null)tvPlayerGuide.setGuide(guide,error);
             if(tvTimeline!=null)tvTimeline.setGuide(guide);
-            if(tvMode && !tvVod && tvCur!=null && tvBanner!=null && tvBanner.getVisibility()==View.VISIBLE)tvBannerRefresh();
+            if(tvMode && tvCur!=null && tvBanner!=null && tvBanner.getVisibility()==View.VISIBLE)tvBannerRefresh();
         }));
     }
 
@@ -9753,7 +6872,7 @@ private static final String[] TV_SOURCES = {
     private void tvOpenSite(String[] site) {
         tvHidePanel();
         openSite(site);
-        catReturn = new Runnable() {
+        siteReturn = new Runnable() {
             @Override
             public void run() {
                 tvShowPanel();
@@ -10054,7 +7173,26 @@ private static final String[] TV_SOURCES = {
     }
 
     // 1 = записан, 0 = дубликат, -1 = трите работещи места са заети.
+    // Потоците, които си добавил ти сам: автоматичното търсене никога не ги заменя.
+    private boolean tvIsManual(String url){
+        try{return prefs.getStringSet("tvmanual",new HashSet<String>()).contains(tvStreamKey(url));}catch(Exception e){return false;}
+    }
+
+    private void tvMarkManual(String url){
+        try{
+            HashSet<String> set=new HashSet<>(prefs.getStringSet("tvmanual",new HashSet<String>()));
+            if(set.size()>400)set.clear();
+            set.add(tvStreamKey(url));
+            prefs.edit().putStringSet("tvmanual",set).apply();
+        }catch(Exception ignored){}
+    }
+
     private int tvKeepStream(TvChan channel,TvSrc source,String[] incoming){
+        return tvKeepStream(channel,source,incoming,false);
+    }
+
+    // auto = намерен от търсенето: ако местата са пълни, заменя най-стар автоматичен резервен поток.
+    private int tvKeepStream(TvChan channel,TvSrc source,String[] incoming,boolean auto){
         String active=tvMode && tvCur==channel?nz(tvTryUrl):"";
         String key=tvStreamKey(incoming[0]);
         if(!source.stream.isEmpty() && key.equals(tvStreamKey(source.stream))){
@@ -10080,7 +7218,17 @@ private static final String[] TV_SOURCES = {
             if(failed>worst){worst=failed;replace=i;}
         }
         if(replace>=0){source.alts.set(replace,incoming);return 1;}
-        if(source.alts.size()>=TV_MAX_ALTS)return -1;
+        if(source.alts.size()>=TV_MAX_ALTS){
+            if(!auto)return -1;
+            for(int i=0;i<source.alts.size();i++){
+                String[] old=source.alts.get(i);
+                if(old[0].equals(active) || tvIsManual(old[0]))continue;
+                source.alts.remove(i);
+                source.alts.add(incoming);
+                return 1;
+            }
+            return -1;
+        }
         source.alts.add(incoming);return 1;
     }
 
@@ -10099,8 +7247,8 @@ private static final String[] TV_SOURCES = {
                 input.setError("Въведи пълен HTTP или HTTPS адрес");return;
             }
             int saved=tvKeepStream(channel,source,new String[]{url,source.ref,source.org,source.ua,"0"});
-            if(saved<0){input.setError("Има 3 работещи потока. Премахни ненужния от управлението на канала.");return;}
-            if(saved>0)tvSave();tvBannerRefresh();dialog.dismiss();if(done!=null)done.run();
+            if(saved<0){input.setError("Има "+(TV_MAX_ALTS+1)+" потока. Премахни ненужния от управлението на канала.");return;}
+            if(saved>0){tvMarkManual(url);tvSave();}tvBannerRefresh();dialog.dismiss();if(done!=null)done.run();
         });
     }
 
@@ -10164,8 +7312,8 @@ private static final String[] TV_SOURCES = {
             TvSrc old = c.srcs.get(i);
             if (tvSameWebsite(old,src)) {
                 if(!src.stream.isEmpty()){
-                    int saved=tvKeepStream(c,old,new String[]{src.stream,src.ref,src.org,src.ua,"0"});
-                    if(saved<0){Toast.makeText(this,"Този сайт вече има 3 работещи потока",Toast.LENGTH_LONG).show();return;}
+                    int saved=tvKeepStream(c,old,new String[]{src.stream,src.ref,src.org,src.ua,"0"});if(saved>0)tvMarkManual(src.stream);
+                    if(saved<0){Toast.makeText(this,"Този сайт вече има "+(TV_MAX_ALTS+1)+" потока",Toast.LENGTH_LONG).show();return;}
                     extra=saved>0;
                 }
                 if(old.page.isEmpty())old.page=src.page;
@@ -10239,7 +7387,7 @@ private static final String[] TV_SOURCES = {
             @Override
             public void run() {
                 tvDialogClose();
-                if(tvMode && !tvVod && tvCur==c && tvPlaying)tvMoreStart(false);
+                if(tvMode && tvCur==c && tvPlaying)tvMoreStart(false);
                 else{tvMoreChan=c;tvTuneUser(c,-1);}
             }
         }), lpTopW(MP, u(62), u(10)));
@@ -10698,7 +7846,7 @@ private static final String[] TV_SOURCES = {
         for (int i : order) {
             TvSrc s = c.srcs.get(i);
             boolean cap = tvCapturable(s);
-            boolean capOk = cap && (tvVod || tvCapUsed(i) < TV_CAP_MAX);
+            boolean capOk = cap && tvCapUsed(i) < TV_CAP_MAX;
             // Поток, който няколко пъти поред не е тръгнал, вероятно е изтекъл: веднага към търсене.
             if (!s.stream.isEmpty() && !tvSessBad.contains(s.stream) && (s.fails < 3 || !cap)) {
                 tvPlan.add(new int[]{i, TV_DIRECT, -1});
@@ -10724,18 +7872,14 @@ private static final String[] TV_SOURCES = {
         tvStep = -1;
         // Докато се гледа, екранът със списъка не държи памет (изгледи и лога).
         tvPanelRelease();
-        if (!tvVod) tvEpgLoad();
+        tvEpgLoad();
         menuHolder.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
         nativeLayer.setVisibility(View.VISIBLE);
         tvHideListNow();
         tvHideBannerNow();
-        if (tvVod) {
-            subHide();
-            tvDialogClose();
-        }
         tvWaitShow(c);
         updateState();
-        logEvent((tvVod ? "Филм: пускам " : "ТВ: пускам ") + c.name, true);
+        logEvent("ТВ: пускам " + c.name, true);
         tvNextStep();
     }
 
@@ -10810,10 +7954,6 @@ private static final String[] TV_SOURCES = {
     }
 
     private void tvNextStep() {
-        if(tvVod && !tvPlaying && tvCur!=null && tvStep>=0 && tvStep<tvPlan.size()){
-            int source=tvPlan.get(tvStep)[0];
-            if(source>=0 && source<tvCur.srcs.size())prefs.edit().putLong("vodBad:"+hostOf(tvCur.srcs.get(source).page),System.currentTimeMillis()).apply();
-        }
         tvStopAttempt(false);
         tvStepGen++;
         tvStep++;
@@ -10841,7 +7981,7 @@ private static final String[] TV_SOURCES = {
                 tvTryUrl(s.stream, tvHeadersOf(s), tvUaOf(s), st[0], false);
             }
         } else {
-            tvWaitText(s.stream.isEmpty() ? (tvVod ? "Търся филма в " : "Търся канала в ") + s.site + "…"
+            tvWaitText(s.stream.isEmpty() ? "Търся канала в " + s.site + "…"
                     : "Запазеният поток не тръгна. Търся нов в " + s.site + "…");
             tvStartCapture(s, st[0]);
         }
@@ -10941,7 +8081,6 @@ private static final String[] TV_SOURCES = {
         final int my = ++tvTryGen;
         tvTrying = true;
         tvTryUrl = url;
-        vodSizeRetry = false;
         final HashMap<String, String> fprops = props;
         final String fua = ua;
         try {
@@ -10973,8 +8112,7 @@ private static final String[] TV_SOURCES = {
                     } else if (state == Player.STATE_BUFFERING) {
                         if (tvPlaying) tvBuffering();
                     } else if (state == Player.STATE_ENDED) {
-                        if (tvVod && tvPlaying) vodEnded();
-                        else tvTryFailed("потокът свърши");
+                        tvTryFailed("потокът свърши");
                     }
                 }
 
@@ -11002,7 +8140,7 @@ private static final String[] TV_SOURCES = {
             tvTryTimeoutGen = my;
             // Запазеният поток или тръгва бързо, или не си струва да се чака: хванатият през
             // страницата има малко повече време, а филмът - най-много.
-            ui.postDelayed(tvTryTimeout, tvVod ? 25000 : viaCapture ? 15000 : TV_SAVED_START_MS);
+            ui.postDelayed(tvTryTimeout, viaCapture ? 15000 : TV_SAVED_START_MS);
         } catch (Exception e) {
             tvTryFailed("грешка " + e.getClass().getSimpleName());
         }
@@ -11010,9 +8148,7 @@ private static final String[] TV_SOURCES = {
 
     @androidx.annotation.OptIn(markerClass=androidx.media3.common.util.UnstableApi.class)
     private DefaultLoadControl tvLoadControl(){
-        return (tvVod
-                ? new DefaultLoadControl.Builder().setBufferDurationsMs(30000,60000,1500,5000).setTargetBufferBytes(64*1024*1024).setPrioritizeTimeOverSizeThresholds(true)
-                : new DefaultLoadControl.Builder().setBufferDurationsMs(15000,30000,1500,3000).setTargetBufferBytes(32*1024*1024).setPrioritizeTimeOverSizeThresholds(true)).build();
+        return (new DefaultLoadControl.Builder().setBufferDurationsMs(15000,30000,1500,3000).setTargetBufferBytes(32*1024*1024).setPrioritizeTimeOverSizeThresholds(true)).build();
     }
 
     private int tvTryTimeoutGen;
@@ -11049,7 +8185,7 @@ private static final String[] TV_SOURCES = {
             return;
         }
         // В това гледане потокът, който не тръгна, не се пробва втори път.
-        if (!tvVod && tvTryUrl != null && !tvTryUrl.isEmpty()) tvSessBad.add(tvTryUrl);
+        if (tvTryUrl != null && !tvTryUrl.isEmpty()) tvSessBad.add(tvTryUrl);
         if (tvCapturing) {
             // Намереният в страницата адрес не е тръгнал: пробва се следващият.
             tvBad.add(nz(tvTryUrl));
@@ -11106,10 +8242,7 @@ private static final String[] TV_SOURCES = {
             return;
         }
         if (tvCur == null || si < 0 || si >= tvCur.srcs.size()) return;
-        if (tvVod) {
-            // Филмът е цял, не е на живо, има картина (рекламите и клиповете в страницата са кратки).
-            if (!vodAccept(url, props, ua, si, viaCapture)) return;
-        } else if (viaCapture && player != null) {
+        if (viaCapture && player != null) {
             // Рекламата или кратко клипче в страницата не е канал: каналът е на живо.
             boolean live = player.isCurrentMediaItemLive() || player.isCurrentMediaItemDynamic()
                     || player.getDuration() == C.TIME_UNSET;
@@ -11126,7 +8259,6 @@ private static final String[] TV_SOURCES = {
         ui.removeCallbacks(tvCheckRun);
         ui.removeCallbacks(tvPokeRun);
         TvSrc s = tvCur.srcs.get(si);
-        if(tvVod && vodT!=null)prefs.edit().putString("vodGood:"+(vodT.tv?"t":"m"),hostOf(s.page)).remove("vodBad:"+hostOf(s.page)).apply();
         long now = System.currentTimeMillis();
         s.bad = 0;
         boolean fresh = false;
@@ -11190,14 +8322,7 @@ private static final String[] TV_SOURCES = {
         tvStableUrl = url;
         tvStableSi = si;
         ui.removeCallbacks(tvStableRun);
-        if (!tvVod) ui.postDelayed(tvStableRun, TV_STABLE_MS);
-        if (tvVod) {
-            logEvent("Филм: тръгна " + tvCur.name + " от " + s.site + (viaCapture ? " (хванат поток)" : ""), true);
-            tvWaitHide();
-            vodOnPlaying();
-            updateState();
-            return;
-        }
+        ui.postDelayed(tvStableRun, TV_STABLE_MS);
         tvCur.last = now;
         tvSave();
         prefs.edit().putString("tvlast", tvCur.id).apply();
@@ -11216,7 +8341,7 @@ private static final String[] TV_SOURCES = {
     private final Runnable tvMoreStartRun = new Runnable() {
         @Override
         public void run() {
-            if (tvMode && tvPlaying && !tvVod) tvMoreStart(false);
+            if (tvMode && tvPlaying) tvMoreStart(false);
         }
     };
 
@@ -11240,7 +8365,7 @@ private static final String[] TV_SOURCES = {
     private final Runnable tvStableRun = new Runnable() {
         @Override
         public void run() {
-            if (!tvMode || !tvPlaying || tvVod || tvCur == null) return;
+            if (!tvMode || !tvPlaying || tvCur == null) return;
             if (tvStableSi < 0 || tvStableSi >= tvCur.srcs.size()) return;
             TvSrc s = tvCur.srcs.get(tvStableSi);
             boolean changed = false;
@@ -11266,7 +8391,7 @@ private static final String[] TV_SOURCES = {
         tvShowBanner(0, "Зареждане…");
         ui.removeCallbacks(tvStallRun);
         // На живо картина, която не помръдва 10 секунди, е заседнала; филмът има повече търпение.
-        ui.postDelayed(tvStallRun, tvVod ? 25000 : TV_STALL_MS);
+        ui.postDelayed(tvStallRun, TV_STALL_MS);
     }
 
     // Отбелязва заседнал поток: в това гледане не се пробва пак, а неуспехът му се записва
@@ -11316,22 +8441,8 @@ private static final String[] TV_SOURCES = {
         tvRestarts++;
         TvChan c = tvCur;
         if (c == null) return;
-        if (tvVod && player != null) {
-            long p = player.getCurrentPosition();
-            if (p > 0) vodResume = p;
-        }
         int cur = tvSrcNowIdx();
         logEvent("ТВ: връзката се скъса (" + why + "), опит " + tvRestarts + ", вървя " + (ran / 1000) + " сек.");
-        if (tvVod) {
-            if (tvRestarts <= 3) {
-                tvTune(c, cur);
-                return;
-            }
-            tvRestarts = 0;
-            if (c.srcs.size() > 1 && ++tvSwitches <= 2) tvTune(c, (cur + 1) % c.srcs.size());
-            else tvGiveUp();
-            return;
-        }
         // Докато върви търсенето на още потоци, скритата страница може да натовари кутията и картината
         // да заседне заради нея: тогава потокът не се обвинява.
         boolean searchBusy = now < tvSearchBusyUntil;
@@ -11345,10 +8456,6 @@ private static final String[] TV_SOURCES = {
 
     // Нищо не тръгна: чак сега се отваря самият сайт на основния източник.
     private void tvGiveUp() {
-        if (tvVod) {
-            vodGiveUp(tvFirstSrc);
-            return;
-        }
         final TvChan c = tvCur;
         int idx = tvFirstSrc;
         tvLeave(false);
@@ -11375,7 +8482,7 @@ private static final String[] TV_SOURCES = {
         Toast.makeText(this, "„" + c.name + "“ не тръгна сам. Отварям сайта " + s.site + ".",
                 Toast.LENGTH_LONG).show();
         openSite(new String[]{s.site, page, s.mode, "Телевизия"});
-        catReturn = new Runnable() {
+        siteReturn = new Runnable() {
             @Override
             public void run() {
                 tvShowPanel();
@@ -11388,7 +8495,6 @@ private static final String[] TV_SOURCES = {
         tvCloseTimeline();
         if(streamDialog!=null)streamDialog.dismiss();
         boolean was = tvMode;
-        vodCleanup(); // преди плеърът да се затвори: пази се мястото във филма
         tvMode = false;
         tvEpgStop();
         ui.removeCallbacks(tvZapGo);
@@ -11426,7 +8532,7 @@ private static final String[] TV_SOURCES = {
         tvTrying = false;
         tvCapMap.put(si, tvCapUsed(si) + 1);
         tvOpenHidden(s, false);
-        tvArmStep(tvVod ? 32000 : 25000);
+        tvArmStep(25000);
     }
 
     // Отваря страницата на източника в скритата страница. Вика се и от търсенето на още потоци
@@ -11434,9 +8540,6 @@ private static final String[] TV_SOURCES = {
     private void tvOpenHidden(TvSrc s, boolean quiet) {
         String url = s.page;
         allowedHost = Uri.parse(url).getHost();
-        srcQueue = null;
-        srcIdx = 0;
-        catReturn = null;
         cursorTemp = false;
         scrollMode = false;
         hovering = false;
@@ -11683,16 +8786,6 @@ private static final String[] TV_SOURCES = {
                 h = firstH;
             }
         }
-        if (cand == null && tvVod) {
-            synchronized (mediaFiles) {
-                for (Map.Entry<String, HashMap<String, String>> en : mediaFiles.entrySet()) {
-                    if (tvIsBad(en.getKey())) continue;
-                    cand = en.getKey();
-                    h = en.getValue();
-                    break;
-                }
-            }
-        }
         if (cand == null) return;
         HashMap<String, String> props = new HashMap<>();
         String ua = null;
@@ -11802,7 +8895,7 @@ private static final String[] TV_SOURCES = {
         nativeLayer.addView(tvListBox,new FrameLayout.LayoutParams(MP,MP));
     }
 
-    private TextView tvPauseControl,tvFavouriteControl,vodPauseControl,tvStreamControl,tvKeyEnd;
+    private TextView tvPauseControl,tvFavouriteControl,tvStreamControl,tvKeyEnd;
     private View tvControlsFirst;
     private String tvBannerStatus;
     private long tvBannerStatusUntil;
@@ -11823,7 +8916,7 @@ private static final String[] TV_SOURCES = {
             v.setVisibility(View.VISIBLE);
         }
         v.animate().alpha(1f).setDuration(180).start();
-        if (v == tvBanner || v == vodBar) tvClockTick();
+        if (v == tvBanner) tvClockTick();
     }
 
     // Часовникът в лентата на канала и в лентата на филма: върви само докато лентата се вижда,
@@ -11839,14 +8932,12 @@ private static final String[] TV_SOURCES = {
 
     private void tvClockTick() {
         ui.removeCallbacks(tvClockRun);
-        boolean live = tvBanner != null && tvBanner.getVisibility() == View.VISIBLE && !tvVod;
-        boolean film = vodBar != null && vodBar.getVisibility() == View.VISIBLE && tvVod;
-        if (!live && !film) return;
+        boolean live = tvBanner != null && tvBanner.getVisibility() == View.VISIBLE;
+        if (!live) return;
         long now = System.currentTimeMillis();
         String t = new java.text.SimpleDateFormat("HH:mm", Locale.US).format(new java.util.Date(now));
         if (tvBnClock != null) tvBnClock.setText(t);
         if(live && tvCur!=null)tvBannerRefresh();
-        if (vodBarClock != null) vodBarClock.setText(t);
         ui.postDelayed(tvClockRun, 60000 - now % 60000 + 150);
     }
 
@@ -11878,7 +8969,6 @@ private static final String[] TV_SOURCES = {
         tvBannerStatus=null;tvBannerStatusUntil=0;
         tvHideNow(tvBanner);
         tvHideNow(tvKeys);
-        vodHideBarNow();
     }
 
     private void tvHideListNow() {
@@ -11897,11 +8987,7 @@ private static final String[] TV_SOURCES = {
         tvWait.animate().cancel();
         tvWait.setAlpha(1f);
         tvWait.setVisibility(View.VISIBLE);
-        if (tvVod && vodT != null) {
-            tvWaitNo.setText(vodT.tv ? "Сезон " + vodSeason + "  ·  Епизод " + vodEpisode : "Филм");
-        } else {
-            tvWaitNo.setText("Канал " + (tvChans.indexOf(c) + 1));
-        }
+        tvWaitNo.setText("Канал " + (tvChans.indexOf(c) + 1));
         tvWaitName.setText(c.name);
         ts(tvWaitName, c.name.length() > 22 ? 64 : c.name.length() > 14 ? 84 : 110);
         tvWaitMsg.setText("");
@@ -11919,10 +9005,6 @@ private static final String[] TV_SOURCES = {
     // По един етикет за всеки източник: чака, търси или не е тръгнал.
     private void tvRefreshWait() {
         if (tvWaitChips == null || tvCur == null) return;
-        if (tvVod) {
-            vodRefreshWait();
-            return;
-        }
         tvWaitChips.removeAllViews();
         int n = tvCur.srcs.size();
         int cur = tvStep >= 0 && tvStep < tvPlan.size() ? tvPlan.get(tvStep)[0] : -1;
@@ -11989,10 +9071,6 @@ private static final String[] TV_SOURCES = {
 
     // Табелата с номера и името на канала (и бутоните за управление над нея).
     private void tvShowBanner(long hideMs, String status) {
-        if (tvVod) {
-            vodShowBar(hideMs, status);
-            return;
-        }
         if (tvBanner == null || tvCur == null) return;
         if(tvControlsOpen)hideMs=0;
         tvBannerStatus=status;
@@ -12041,7 +9119,6 @@ private static final String[] TV_SOURCES = {
         ui.removeCallbacks(tvBannerHideRun);
         tvFadeOut(tvBanner);
         tvFadeOut(tvKeys);
-        if (tvVod) vodHideBar();
     }
 
     // Смяна на канала със стрелките: табелата показва избрания веднага, а пускането
@@ -12121,7 +9198,7 @@ private static final String[] TV_SOURCES = {
 
     // Списъкът на каналите върху видеото.
     private void tvShowList() {
-        if(tvChans.isEmpty() || tvListBox==null || !tvMode || tvVod)return;
+        if(tvChans.isEmpty() || tvListBox==null || !tvMode)return;
         tvHideBannerNow();ui.removeCallbacks(tvZapGo);tvZapIdx=-1;
         tvListBox.removeAllViews();
         LinearLayout content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);
@@ -12144,7 +9221,6 @@ private static final String[] TV_SOURCES = {
 
     // Клавиши, докато се гледа канал (списъкът върху видеото сам си взима стрелките и OK).
     private boolean tvKey(KeyEvent e) {
-        if (tvVod) return vodKey(e);
         int code = e.getKeyCode();
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
         // Задържане на OK: избор на качество.
@@ -12207,2438 +9283,6 @@ private static final String[] TV_SOURCES = {
         return true;
     }
 
-
-    // ====================== НАШИ ФИЛМИ ПРЕЗ СКРИТАТА СТРАНИЦА ======================
-    // Филмът или епизодът се търси на заден план в адресите от „Източници“ (същата скрита страница
-    // като при каналите), хваща се истинският поток и тръгва в родния плеър - без реклами.
-    // Ако един източник не даде поток, се пробва следващият; чак накрая се отваря самият сайт.
-
-    private static final long VOD_MIN_MS = 8 * 60 * 1000L; // по-кратко от това е реклама или клип
-
-    private boolean tvVod;                  // гледа се филм (а не канал)
-    private CTitle vodT;
-    private int vodSeason, vodEpisode;
-    private ArrayList<String> vodUrls = new ArrayList<>();
-    private Runnable vodBack;               // връща към каталога
-    private long vodResume;                 // откъде да продължи след скъсване или смяна на източника
-    private String vodKey = "";             // ключ за запомненото място
-    private long vodBackAt;
-    private boolean vodSizeRetry;
-    private long vodSaveAt;
-    private long vodPending = -1;           // къде е насочено превъртането (докато не се изпълни)
-    private boolean vodOkWasPlaying;
-    private boolean vodDone;                // филмът е изгледан до края
-    private String vodStatus;
-
-    private FrameLayout vodBar;
-    private TextView vodBarTitle, vodBarStatus, vodBarTime, vodBarClock;
-    private VodProgress vodProg;
-    private View vodChipSubs;
-
-    // Лента за напредъка: пътека, заредено и изиграно.
-    private static class VodProgress extends View {
-        private float frac, buf;
-        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-
-        VodProgress(Context c) {
-            super(c);
-        }
-
-        void set(float f, float b) {
-            frac = Math.max(0f, Math.min(1f, f));
-            buf = Math.max(frac, Math.min(1f, b));
-            invalidate();
-        }
-
-        @Override
-        protected void onDraw(Canvas c) {
-            float w = getWidth();
-            float h = getHeight();
-            float th = h * 0.36f;
-            float top = (h - th) / 2f;
-            float r = th / 2f;
-            p.setColor(0x33FFFFFF);
-            c.drawRoundRect(0, top, w, top + th, r, r, p);
-            p.setColor(0x66FFFFFF);
-            c.drawRoundRect(0, top, Math.max(th, w * buf), top + th, r, r, p);
-            p.setColor(T_SKY);
-            c.drawRoundRect(0, top, Math.max(th, w * frac), top + th, r, r, p);
-            p.setColor(Color.WHITE);
-            c.drawCircle(Math.max(h * 0.3f, Math.min(w - h * 0.3f, w * frac)), h / 2f, h * 0.3f, p);
-        }
-    }
-
-    // Пуска филма или епизода. false = не може (няма адреси): тогава се продължава постарому.
-    private void vodOrderSources(ArrayList<String> urls,boolean series){
-        final String good=prefs.getString("vodGood:"+(series?"t":"m"),"");
-        final long now=System.currentTimeMillis();
-        Collections.sort(urls,(a,b)->Integer.compare(vodSourceRank(a,good,now),vodSourceRank(b,good,now)));
-    }
-    private int vodSourceRank(String url,String good,long now){
-        String host=hostOf(url);long failed=prefs.getLong("vodBad:"+host,0);
-        return (failed>0 && now>=failed && now-failed<5*60*1000L?100:0)+(host.equals(good)?-10:0);
-    }
-
-    private boolean vodStart(CTitle t, int season, int episode, Runnable back) {
-        if (isFinishing()) return false;
-        ArrayList<String> urls = sourceUrls(t, season, episode);
-        if (urls.isEmpty()) return false;
-        vodOrderSources(urls,t.tv);
-        TvChan c = new TvChan();
-        c.id = "vod";
-        c.name = t.name;
-        for (String u : urls) {
-            TvSrc s = new TvSrc();
-            s.site = hostOf(u);
-            s.page = u;
-            c.srcs.add(s);
-        }
-        vodT = t;
-        vodSeason = season;
-        vodEpisode = episode;
-        vodUrls = urls;
-        vodBack = back;
-        vodKey = "vp:" + (t.tv ? "t" : "m") + t.id + (t.tv ? ":" + season + ":" + episode : "");
-        vodResume = prefs.getLong(vodKey, 0);
-        vodBackAt = 0;
-        vodDone = false;
-        vodPending = -1;
-        vodSizeRetry = false;
-        vodStatus = null;
-        hideCatalog();
-        tvVod = true;
-        subReset();
-        tvTuneUser(c, 0);
-        return true;
-    }
-
-    private String vodTitleLine() {
-        if (vodT == null) return "";
-        return vodT.tv ? vodT.name + "  ·  С" + vodSeason + " Е" + vodEpisode : vodT.name;
-    }
-
-    // Приключва гледането на филма: чисти всичко (вика се от tvLeave, преди плеърът да се затвори).
-    private void vodCleanup() {
-        if (!tvVod) return;
-        if (tvPlaying && player != null) vodSavePos(player.getCurrentPosition());
-        tvVod = false;
-        ui.removeCallbacks(vodTickRun);
-        ui.removeCallbacks(vodSeekGo);
-        ui.removeCallbacks(vodBarHideRun);
-        vodPending = -1;
-        vodT = null;
-        vodUrls = new ArrayList<>();
-        vodBack = null;
-        vodStatus = null;
-        vodHideBarNow();
-        subCleanup();
-    }
-
-    // Нищо не тръгна: чак сега се отваря самият сайт на избрания източник (както преди).
-    private void vodGiveUp(int idx) {
-        final ArrayList<String> urls = vodUrls;
-        final Runnable back = vodBack;
-        final String label = vodT != null && vodT.tv
-                ? vodT.name + " (С" + vodSeason + " Е" + vodEpisode + ")"
-                : (vodT != null ? vodT.name : "Филм");
-        tvLeave(false);
-        if (urls == null || urls.isEmpty()) {
-            if (back != null) back.run();
-            else backToMenu();
-            return;
-        }
-        if (idx < 0 || idx >= urls.size()) idx = 0;
-        logEvent("Филм: не успях да го намеря сам, отварям сайта " + hostOf(urls.get(idx)), true);
-        Toast.makeText(this, "„" + label + "“ не тръгна сам. Отварям сайта.", Toast.LENGTH_LONG).show();
-        openSite(new String[]{label, urls.get(idx), "", "Наши филми"});
-        srcQueue = urls;
-        srcIdx = idx;
-        catReturn = back;
-        srcArm();
-    }
-
-    // Излиза от филма и се връща в каталога.
-    private void vodExit() {
-        Runnable b = vodBack;
-        tvLeave(false);
-        if (b != null) b.run();
-        else backToMenu();
-    }
-
-    private void vodBackPressed() {
-        if (!tvPlaying || vodDone) {
-            vodExit();
-            return;
-        }
-        long now = SystemClock.uptimeMillis();
-        if (now - vodBackAt < 3000) {
-            vodExit();
-            return;
-        }
-        vodBackAt = now;
-        vodShowBar(3000, "Натисни „Назад“ още веднъж за изход");
-    }
-
-    // Изречение върху екрана: върху лентата, докато върви филмът, иначе върху екрана за чакане.
-    private void vodSay(String msg) {
-        if (tvPlaying) vodShowBar(3000, msg);
-        else tvWaitText(msg);
-    }
-
-    // ---- проверка на намерения поток, продължаване, край ----
-
-    // Дали намереният поток прилича на цял филм: не е на живо, има дължина и картина.
-    private boolean vodAccept(final String url, final HashMap<String, String> props, final String ua,
-                              final int si, final boolean viaCapture) {
-        if (player == null) return false;
-        long d = player.getDuration();
-        if (player.isCurrentMediaItemLive() || player.isCurrentMediaItemDynamic()) {
-            tvTryFailed("на живо, а не филм");
-            return false;
-        }
-        if (d == C.TIME_UNSET || d < VOD_MIN_MS) {
-            tvTryFailed(d == C.TIME_UNSET ? "без дължина" : "кратко видео (" + (d / 1000) + " сек.)");
-            return false;
-        }
-        VideoSize vs = player.getVideoSize();
-        if (vs == null || vs.width <= 0) {
-            if (!vodSizeRetry) {
-                // Размерът на картината може да се получи малко след готовността.
-                vodSizeRetry = true;
-                final int my = tvTryGen;
-                ui.postDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (my != tvTryGen || !tvVod || tvPlaying) return;
-                        tvReady(url, props, ua, si, viaCapture);
-                    }
-                }, 1200);
-                return false;
-            }
-            tvTryFailed("няма картина");
-            return false;
-        }
-        return true;
-    }
-
-    // Картината на филма тръгна.
-    private void vodOnPlaying() {
-        String note = null;
-        long dur = player != null ? player.getDuration() : C.TIME_UNSET;
-        if (player != null && vodResume > 20000
-                && (dur == C.TIME_UNSET || vodResume < dur - 90000)) {
-            player.seekTo(vodResume);
-            note = "Продължавам от " + vodFmt(vodResume) + "  ·  меню → „От началото“";
-        }
-        vodResume = 0;
-        vodSizeRetry = false;
-        ui.removeCallbacks(vodTickRun);
-        vodSaveAt = SystemClock.uptimeMillis();
-        ui.postDelayed(vodTickRun, 250);
-        subOnPlaying();
-        vodShowBar(note != null ? 6000 : 5000, note);
-    }
-
-    // Потокът свърши. Ако е близо до края - филмът е гледан; иначе е скъсване.
-    private void vodEnded() {
-        long dur = player != null ? player.getDuration() : C.TIME_UNSET;
-        long pos = player != null ? player.getCurrentPosition() : 0;
-        if (dur != C.TIME_UNSET && dur - pos > 90000) {
-            tvDropped("потокът прекъсна");
-            return;
-        }
-        if (!vodKey.isEmpty()) prefs.edit().remove(vodKey).apply();
-        ui.removeCallbacks(vodTickRun);
-        vodDone = true;
-        subHide();
-        int[] nx = vodNextEp();
-        if (nx != null) {
-            vodNextDialog(nx);
-        } else {
-            vodShowBar(0, "Край  ·  Назад — към каталога");
-        }
-    }
-
-    // Кой е следващият епизод (в същия сезон или първият на следващия), или null.
-    private int[] vodNextEp() {
-        if (vodT == null || !vodT.tv) return null;
-        for (int[] se : vodT.seasons) {
-            if (se[0] == vodSeason && vodEpisode < se[1]) return new int[]{vodSeason, vodEpisode + 1};
-        }
-        int best = -1;
-        for (int[] se : vodT.seasons) {
-            if (se[0] > vodSeason && se[1] > 0 && (best < 0 || se[0] < best)) best = se[0];
-        }
-        return best > 0 ? new int[]{best, 1} : null;
-    }
-
-    private void vodNextDialog(final int[] nx) {
-        LinearLayout card = tvCard("Край на епизода",
-                "Следва сезон " + nx[0] + ", епизод " + nx[1] + ".");
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout first = tvChoice(null, "Пусни следващия", "С" + nx[0] + " Е" + nx[1], 1, new Runnable() {
-            @Override
-            public void run() {
-                tvDialogClose();
-                vodPlayNext(nx);
-            }
-        });
-        list.addView(first, lpTopW(MP, u(62), 0));
-        list.addView(tvChoice(null, "Към каталога", null, 0, new Runnable() {
-            @Override
-            public void run() {
-                tvDialogClose();
-                vodExit();
-            }
-        }), lpTopW(MP, u(62), u(10)));
-        card.addView(list, lpTopW(MP, WC, u(24)));
-        tvDialogShow(card, 700, first);
-    }
-
-    private void vodPlayNext(int[] nx) {
-        final CTitle t = vodT;
-        final Runnable back = vodBack;
-        tvLeave(false);
-        if (t == null) return;
-        prefs.edit().putString("tvlast:" + t.id, nx[0] + ":" + nx[1]).apply();
-        if (!vodStart(t, nx[0], nx[1], back)) {
-            if (back != null) back.run();
-            else backToMenu();
-        }
-    }
-
-    private void vodSavePos(long pos) {
-        if (vodKey.isEmpty() || player == null) return;
-        long dur = player.getDuration();
-        SharedPreferences.Editor ed = prefs.edit();
-        if (dur != C.TIME_UNSET && dur > 0 && pos > dur - 180000) ed.remove(vodKey);
-        else if (pos > 90000) ed.putLong(vodKey, pos);
-        else return;
-        ed.apply();
-    }
-
-    private final Runnable vodTickRun = new Runnable() {
-        @Override
-        public void run() {
-            if (!tvVod || !tvPlaying || player == null) return;
-            long pos = player.getCurrentPosition();
-            subTick(pos);
-            if (vodBar != null && vodBar.getVisibility() == View.VISIBLE) vodUpdateBar(vodPending >= 0 ? vodPending : pos);
-            long now = SystemClock.uptimeMillis();
-            if (now - vodSaveAt > 20000) {
-                vodSaveAt = now;
-                vodSavePos(pos);
-            }
-            ui.postDelayed(this, 250);
-        }
-    };
-
-    // ---- превъртане, пауза ----
-
-    private void vodSeekBy(long delta) {
-        if (player == null || !tvPlaying) return;
-        long dur = player.getDuration();
-        long base = vodPending >= 0 ? vodPending : player.getCurrentPosition();
-        long t = base + delta;
-        if (t < 0) t = 0;
-        if (dur != C.TIME_UNSET && dur > 0 && t > dur - 2000) t = Math.max(0, dur - 2000);
-        vodPending = t;
-        vodShowBar(4000, null);
-        vodUpdateBar(t);
-        ui.removeCallbacks(vodSeekGo);
-        ui.postDelayed(vodSeekGo, 450);
-    }
-
-    private final Runnable vodSeekGo = new Runnable() {
-        @Override
-        public void run() {
-            long t = vodPending;
-            vodPending = -1;
-            if (t >= 0 && player != null && tvVod && tvPlaying) {
-                player.seekTo(t);
-                subSeeked();
-                if (vodDone) {
-                    // Превъртяно е след края: следенето на времето започва наново.
-                    vodDone = false;
-                    ui.removeCallbacks(vodTickRun);
-                    ui.postDelayed(vodTickRun, 250);
-                }
-            }
-        }
-    };
-
-    private void vodTogglePause() {
-        if (player == null || !tvPlaying) return;
-        boolean play = !player.getPlayWhenReady();
-        player.setPlayWhenReady(play);
-        vodShowBar(play ? 2500 : 0, play ? null : "❚❚  Пауза");
-    }
-
-    // Следващ (1) или предишен (-1) източник. Мястото във филма се запазва.
-    private void vodSkipSource(int dir) {
-        TvChan c = tvCur;
-        if (c == null) return;
-        int n = c.srcs.size();
-        if (n < 2) {
-            vodSay("Има само един източник");
-            return;
-        }
-        if (tvPlaying && player != null) {
-            long p = player.getCurrentPosition();
-            if (p > 0) vodResume = p;
-        }
-        int next = ((tvSrcNowIdx() + dir) % n + n) % n;
-        tvTuneUser(c, next);
-    }
-
-    // Клавиши, докато върви или се чака филм.
-    private boolean vodKey(KeyEvent e) {
-        int code = e.getKeyCode();
-        boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
-        if (code == KeyEvent.KEYCODE_VOLUME_UP || code == KeyEvent.KEYCODE_VOLUME_DOWN
-                || code == KeyEvent.KEYCODE_VOLUME_MUTE) {
-            return super.dispatchKeyEvent(e);
-        }
-        if (!down) return true;
-        int rep = e.getRepeatCount();
-        boolean okKey = code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER
-                || code == KeyEvent.KEYCODE_NUMPAD_ENTER;
-        if (!tvPlaying || player == null) {
-            // Чака се: OK отваря самия сайт, ◀ ▶ сменят източника.
-            if (rep != 0) return true;
-            if (okKey) {
-                if (tvCapturing && tvCapSrc >= 0) tvFirstSrc = tvCapSrc;
-                tvGiveUp();
-            } else if (code == KeyEvent.KEYCODE_DPAD_LEFT) {
-                vodSkipSource(-1);
-            } else if (code == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                vodSkipSource(1);
-            }
-            return true;
-        }
-        if (okKey) {
-            if (rep == 0) {
-                vodOkWasPlaying = player.getPlayWhenReady();
-                vodTogglePause();
-            } else if (rep == 10) {
-                // Задържане на OK: меню (паузата от първото натискане се връща).
-                player.setPlayWhenReady(vodOkWasPlaying);
-                vodMenu();
-            }
-            return true;
-        }
-        switch (code) {
-            case KeyEvent.KEYCODE_DPAD_LEFT:
-            case KeyEvent.KEYCODE_DPAD_RIGHT: {
-                if (rep != 0 && rep % 6 != 0) break;
-                long step = rep < 12 ? 10000 : rep < 36 ? 30000 : 60000;
-                vodSeekBy(code == KeyEvent.KEYCODE_DPAD_LEFT ? -step : step);
-                break;
-            }
-            case KeyEvent.KEYCODE_MEDIA_REWIND:
-                vodSeekBy(-30000);
-                break;
-            case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
-                vodSeekBy(30000);
-                break;
-            case KeyEvent.KEYCODE_DPAD_UP:
-                if (rep == 0) subDialog();
-                break;
-            case KeyEvent.KEYCODE_DPAD_DOWN:
-            case KeyEvent.KEYCODE_MENU:
-                if (rep == 0) vodMenu();
-                break;
-            case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
-            case KeyEvent.KEYCODE_MEDIA_PLAY:
-            case KeyEvent.KEYCODE_MEDIA_PAUSE:
-                if (rep == 0) vodTogglePause();
-                break;
-            default:
-                break;
-        }
-        return true;
-    }
-
-    // ---- меню по време на филма ----
-
-    private void vodMenu() {
-        if (!tvVod || player == null || vodT == null) return;
-        vodHideBarNow();
-        LinearLayout card = tvCard(vodT.name, vodT.tv ? "Сезон " + vodSeason + "  ·  епизод " + vodEpisode : null);
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout first = tvChoice(null, "Субтитри", subShort(), 1, new Runnable() {
-            @Override
-            public void run() {
-                subDialog();
-            }
-        });
-        list.addView(first, lpTopW(MP, u(62), 0));
-        list.addView(tvChoice(null, "Синхрон на субтитрите", subShiftText(), 0, new Runnable() {
-            @Override
-            public void run() {
-                subSyncDialog();
-            }
-        }), lpTopW(MP, u(62), u(10)));
-        list.addView(tvChoice(null, "Размер на субтитрите", subSizeName(), 0, new Runnable() {
-            @Override
-            public void run() {
-                subCycleSize();
-                vodMenu();
-            }
-        }), lpTopW(MP, u(62), u(10)));
-        list.addView(tvChoice(null, "Качество на видеото", qualityName(videoQuality()), 0, new Runnable() {
-            @Override
-            public void run() {
-                tvQualityDialog();
-            }
-        }), lpTopW(MP, u(62), u(10)));
-        int n = tvCur != null ? tvCur.srcs.size() : 0;
-        if (n > 1) {
-            list.addView(tvChoice(null, "Друг източник", (tvSrcNowIdx() + 1) + " от " + n, 0, new Runnable() {
-                @Override
-                public void run() {
-                    tvDialogClose();
-                    vodSkipSource(1);
-                }
-            }), lpTopW(MP, u(62), u(10)));
-        }
-        list.addView(tvChoice(null, "От началото", null, 0, new Runnable() {
-            @Override
-            public void run() {
-                tvDialogClose();
-                if (player != null) {
-                    player.seekTo(0);
-                    subSeeked();
-                }
-                if (!vodKey.isEmpty()) prefs.edit().remove(vodKey).apply();
-            }
-        }), lpTopW(MP, u(62), u(10)));
-        list.addView(tvChoice(null, "Затвори", null, 0, new Runnable() {
-            @Override
-            public void run() {
-                tvDialogClose();
-            }
-        }), lpTopW(MP, u(62), u(10)));
-        card.addView(list, lpTopW(MP, WC, u(24)));
-        tvDialogShow(card, 760, first);
-    }
-
-    // ---- лентата долу: заглавие, време, бутони ----
-
-    private static String vodFmt(long ms) {
-        if (ms < 0 || ms == C.TIME_UNSET) return "--:--";
-        long s = ms / 1000;
-        long h = s / 3600;
-        long m = s / 60 % 60;
-        long ss = s % 60;
-        return h > 0 ? String.format(Locale.US, "%d:%02d:%02d", h, m, ss)
-                : String.format(Locale.US, "%02d:%02d", m, ss);
-    }
-
-    private void vodBuildBar() {
-        if (vodBar != null || nativeLayer == null) return;
-        vodBar = new FrameLayout(this);
-        LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-        col.setPadding(u(56), u(36), u(56), u(28));
-        col.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0x000D1119,0xC90D1119,0xF50D1119}));
-
-        LinearLayout r1 = new LinearLayout(this);
-        r1.setOrientation(LinearLayout.HORIZONTAL);
-        r1.setGravity(Gravity.CENTER_VERTICAL);
-        vodBarTitle = text("", 38, T_TEXT, tfCondBold, true);
-        r1.addView(vodBarTitle, new LinearLayout.LayoutParams(0, WC, 1f));
-        r1.addView(tvDashboardPill(IC_BARS,"Субтитри",()->subDialog()),lp(WC,u(48)));
-        vodBarStatus = text("", 19, T_SKY2, tfMedium, true);
-        LinearLayout.LayoutParams stl = lp(WC, WC);
-        stl.leftMargin = u(20);
-        r1.addView(vodBarStatus, stl);
-        vodBarClock = text("", 30, T_TEXT, tfCondBold, true);
-        vodBarClock.setIncludeFontPadding(false);
-        LinearLayout.LayoutParams ckl = lp(WC, WC);
-        ckl.leftMargin = u(26);
-        r1.addView(vodBarClock, ckl);
-        col.addView(r1, lp(MP, WC));
-
-        vodProg = new VodProgress(this);
-        col.addView(vodProg, lpTopW(MP, u(30), u(10)));
-
-        LinearLayout r3 = new LinearLayout(this);
-        r3.setOrientation(LinearLayout.HORIZONTAL);
-        r3.setGravity(Gravity.CENTER_VERTICAL);
-        vodBarTime = text("", 24, T_TEXT, tfCondBold, true);
-        r3.addView(vodBarTime, new LinearLayout.LayoutParams(0, WC, 1f));
-        String[][] ks = {{"OK", "пауза"}, {"◀ ▶", "превърти"}, {"▲", "субтитри"}, {"▼", "меню"}};
-        for (int i = 0; i < ks.length; i++) {
-            LinearLayout.LayoutParams kl = lp(WC, u(38));
-            kl.leftMargin = u(10);
-            View chip = tvKeyChip(ks[i][0], ks[i][1]);
-            if (i == 2) vodChipSubs = chip;
-            r3.addView(chip, kl);
-        }
-        col.addView(r3, lpTopW(MP, WC, u(8)));
-        LinearLayout transport=new LinearLayout(this);transport.setGravity(Gravity.CENTER);
-        transport.addView(playerControl("−10","Назад 10 секунди",()->vodSeekBy(-10000),false));
-        vodPauseControl=playerControl("❚❚","Пауза / Пусни",()->vodTogglePause(),true);transport.addView(vodPauseControl);
-        transport.addView(playerControl("+10","Напред 10 секунди",()->vodSeekBy(10000),false));
-        LinearLayout.LayoutParams sourceButton=lp(WC,u(48));sourceButton.leftMargin=u(28);transport.addView(tvDashboardPill(IC_MONITOR,"Източник",()->vodMenu()),sourceButton);
-        LinearLayout.LayoutParams qualityButton=lp(WC,u(48));qualityButton.leftMargin=u(14);transport.addView(tvDashboardPill(IC_SLIDERS,"Качество",()->tvQualityDialog()),qualityButton);
-        col.addView(transport,lpTopW(MP,u(74),u(10)));
-
-
-        vodBar.addView(col, new FrameLayout.LayoutParams(MP, WC));
-        FrameLayout.LayoutParams bl = new FrameLayout.LayoutParams(MP, WC, Gravity.BOTTOM);
-        bl.leftMargin = 0;
-        bl.rightMargin = 0;
-        bl.bottomMargin = 0;
-        vodBar.setVisibility(View.GONE);
-        nativeLayer.addView(vodBar, bl);
-    }
-
-    private void vodFillBar() {
-        if (vodBar == null) return;
-        if(vodPauseControl!=null)vodPauseControl.setText(player!=null && player.getPlayWhenReady()?"❚❚":"▶");
-        vodBarTitle.setText(vodTitleLine());
-        boolean paused = player != null && !player.getPlayWhenReady();
-        String st = vodStatus;
-        if (st == null || st.isEmpty()) st = paused ? "❚❚  Пауза" : subStatus();
-        vodBarStatus.setText(st);
-        if (player != null) vodUpdateBar(vodPending >= 0 ? vodPending : player.getCurrentPosition());
-    }
-
-    private void vodUpdateBar(long pos) {
-        if (vodBar == null || player == null) return;
-        long dur = player.getDuration();
-        float f = 0f;
-        float b = 0f;
-        if (dur != C.TIME_UNSET && dur > 0) {
-            f = pos / (float) dur;
-            b = player.getBufferedPosition() / (float) dur;
-        }
-        vodProg.set(f, b);
-        vodBarTime.setText(vodFmt(pos) + "  /  " + vodFmt(dur));
-    }
-
-    private final Runnable vodBarHideRun = new Runnable() {
-        @Override
-        public void run() {
-            if (player != null && !player.getPlayWhenReady() && tvPlaying) return; // на пауза лентата стои
-            vodHideBar();
-        }
-    };
-
-    // Показва лентата. hideMs = 0: стои, докато не бъде скрита (пауза, зареждане).
-    private void vodShowBar(long hideMs, String status) {
-        if (!tvVod || isFinishing()) return;
-        vodBuildBar();
-        if (vodBar == null) return;
-        vodStatus = status;
-        vodFillBar();
-        tvFadeIn(vodBar);
-        subLift(true);
-        ui.removeCallbacks(vodBarHideRun);
-        if (hideMs > 0) ui.postDelayed(vodBarHideRun, hideMs);
-    }
-
-    private void vodHideBar() {
-        ui.removeCallbacks(vodBarHideRun);
-        vodStatus = null;
-        if (vodBar != null) tvFadeOut(vodBar);
-        subLift(false);
-    }
-
-    private void vodHideBarNow() {
-        ui.removeCallbacks(vodBarHideRun);
-        if (vodBar != null) tvHideNow(vodBar);
-        subLift(false);
-    }
-
-    // Екранът за чакане на филма: един етикет за източника, който се пробва, и броячът.
-    private void vodRefreshWait() {
-        if (tvWaitChips == null || tvCur == null) return;
-        tvWaitChips.removeAllViews();
-        int n = tvCur.srcs.size();
-        int cur = tvStep >= 0 && tvStep < tvPlan.size() ? tvPlan.get(tvStep)[0] : 0;
-        if (cur < 0 || cur >= n) cur = 0;
-        String[] words = {tvCur.srcs.get(cur).site + "  ·  търся потока",
-                "източник " + (cur + 1) + " от " + n};
-        for (int i = 0; i < words.length; i++) {
-            LinearLayout chip = new LinearLayout(this);
-            chip.setOrientation(LinearLayout.HORIZONTAL);
-            chip.setGravity(Gravity.CENTER_VERTICAL);
-            chip.setPadding(u(20), 0, u(22), 0);
-            GradientDrawable g = new GradientDrawable();
-            g.setCornerRadius(u(22));
-            if (i == 0) {
-                g.setColor(0x1F38BDF8);
-                g.setStroke(Math.max(1, u(1.5f)), T_SKY);
-            } else {
-                g.setColor(0x12FFFFFF);
-                g.setStroke(Math.max(1, u(1.5f)), 0x1FFFFFFF);
-            }
-            chip.setBackground(g);
-            chip.addView(text(words[i], 18, i == 0 ? T_TEXT : T_TEXT3, tfMedium, true));
-            LinearLayout.LayoutParams cl = lp(WC, u(44));
-            if (i > 0) cl.leftMargin = u(12);
-            tvWaitChips.addView(chip, cl);
-        }
-    }
-
-    // ====================== СУБТИТРИ ======================
-    // Четири източника (OpenSubtitles, Subdl, SubSource, Subs.sab.bz) се питат едновременно. Субтитрите
-    // се свалят, превръщат се в текст (кирилицата често е в windows-1251), разчитат се (SRT, VTT, ASS) и
-    // се рисуват върху видеото. Синхронът (изместването във времето) се променя по всяко време.
-
-    private static final ExecutorService SUBNET = newSubPool();
-
-    private static ExecutorService newSubPool() {
-        ThreadPoolExecutor p = new ThreadPoolExecutor(4, 4, 20, TimeUnit.SECONDS,
-                new LinkedBlockingQueue<Runnable>(), lowPriority("tvs-sub"));
-        p.allowCoreThreadTimeOut(true);
-        return p;
-    }
-
-    private static class SubQuery {
-        boolean tv;
-        String title = "", orig = "", year = "", imdb = "";
-        int tmdb, season, episode;
-        final ArrayList<String> langs = new ArrayList<>();
-
-        // Заглавие за търсене по име: оригиналното, ако е с латински букви.
-        String latin() {
-            if (!orig.isEmpty()) {
-                int ok = 0;
-                for (int i = 0; i < orig.length(); i++) {
-                    if (orig.charAt(i) < 0x250) ok++;
-                }
-                if (ok * 10 >= orig.length() * 8) return orig;
-            }
-            return title;
-        }
-
-        String key() {
-            StringBuilder sb = new StringBuilder();
-            sb.append(tv ? "t" : "m").append(tmdb).append('|').append(season).append('|').append(episode);
-            for (String l : langs) sb.append('|').append(l);
-            return sb.toString();
-        }
-    }
-
-    private static class SubItem {
-        String provider = "", providerName = "", lang = "", release = "", ref = "";
-        int downloads;
-        boolean trusted, hearing;
-
-        String uid() {
-            return provider + "|" + ref;
-        }
-    }
-
-    private static class SubFile {
-        final String name;
-        final byte[] bytes;
-
-        SubFile(String n, byte[] b) {
-            name = n;
-            bytes = b;
-        }
-    }
-
-    private static class SubCues {
-        long[] from = new long[0], to = new long[0];
-        String[] txt = new String[0];
-        long end;
-    }
-
-    private static class SubHttpErr extends IOException {
-        final int code;
-
-        SubHttpErr(int code, String msg) {
-            super(msg);
-            this.code = code;
-        }
-    }
-
-    // ---- настройки ----
-
-    private String subCfg(String prefKey, String codeValue) {
-        String v = prefs.getString(prefKey, "").trim();
-        return v.isEmpty() ? codeValue.trim() : v;
-    }
-
-    private String subOsKey() {
-        return subCfg("osKey", SUB_OS_KEY);
-    }
-
-    private String subOsUser() {
-        return subCfg("osUser", SUB_OS_USER);
-    }
-
-    private String subOsPass() {
-        return subCfg("osPass", SUB_OS_PASS);
-    }
-
-    private String subSubdlKey() {
-        return subCfg("subdlKey", SUB_SUBDL_KEY);
-    }
-
-    private String subSsKey() {
-        return subCfg("ssKey", SUB_SUBSOURCE_KEY);
-    }
-
-    private static final String[] SUB_IDS = {"sabbz", "opensubtitles", "subdl", "subsource"};
-
-    private static String subProviderName(String id) {
-        if (id.equals("opensubtitles")) return "OpenSubtitles";
-        if (id.equals("subdl")) return "Subdl";
-        if (id.equals("subsource")) return "SubSource";
-        return "Subs.sab.bz";
-    }
-
-    private boolean subConfigured(String id, SubQuery q) {
-        if (id.equals("opensubtitles")) {
-            return !subOsKey().isEmpty() && !subOsUser().isEmpty() && !subOsPass().isEmpty();
-        }
-        if (id.equals("subdl")) return !subSubdlKey().isEmpty();
-        if (id.equals("subsource")) return !subSsKey().isEmpty();
-        return q == null || q.langs.contains("bg");
-    }
-
-    private static final String[][] SUB_LANG_SETS = {
-            {"bg"}, {"bg", "en"}, {"en"}, {"en", "bg"}};
-    private static final String[] SUB_LANG_NAMES = {"Български", "Български, после English",
-            "English", "English, после български"};
-    private static final String[] SUB_SIZE_NAMES = {"малък", "среден", "голям"};
-    private static final float[] SUB_SIZE_UNITS = {30f, 38f, 48f};
-
-    private int subLangSet() {
-        int i = prefs.getInt("subLang", 1);
-        return i < 0 || i >= SUB_LANG_SETS.length ? 1 : i;
-    }
-
-    private int subSizeIdx() {
-        int i = prefs.getInt("subSize", 1);
-        return i < 0 || i >= SUB_SIZE_UNITS.length ? 1 : i;
-    }
-
-    private String subSizeName() {
-        return SUB_SIZE_NAMES[subSizeIdx()];
-    }
-
-    private void subCycleSize() {
-        prefs.edit().putInt("subSize", (subSizeIdx() + 1) % SUB_SIZE_UNITS.length).apply();
-        subApplyStyle();
-    }
-
-    // ---- състояние ----
-
-    private SubQuery subQ;
-    private final ArrayList<SubItem> subResults = new ArrayList<>();
-    private final ArrayList<String> subNotes = new ArrayList<>();
-    private int subPending;
-    private volatile int subGen;
-    private boolean subSearched;
-    private boolean subAutoDone;
-    private boolean subWantAuto;
-    private boolean subLoading;
-    private boolean subSearching;
-    private String subSavedUid = "";
-    private long subSavedShift;
-    private boolean subOff;
-    private long[] subFrom = new long[0];
-    private long[] subTo = new long[0];
-    private String[] subTxt = new String[0];
-    private long subShift;
-    private SubItem subCur;
-    private String subShown = "";
-    private TextView subView;
-    private Dialog subDlg;
-
-    private final ThreadLocal<Integer> subRequestGeneration=new ThreadLocal<>();
-    private final java.util.Set<HttpURLConnection> subConnections=java.util.Collections.synchronizedSet(new HashSet<>());
-    private void subExecute(int generation,Runnable action){
-        SUBNET.execute(()->{if(generation!=subGen)return;subRequestGeneration.set(generation);
-            try{action.run();}finally{subRequestGeneration.remove();}});
-    }
-    private void subCancelRequests(){
-        ArrayList<HttpURLConnection> active;
-        synchronized(subConnections){active=new ArrayList<>(subConnections);subConnections.clear();}
-        for(HttpURLConnection connection:active)connection.disconnect();
-    }
-
-    // Нов филм: всичко от предишния се чисти.
-    private void subReset() {
-        subGen++;
-        subCancelRequests();
-        ui.removeCallbacks(subWatchRun);
-        subResults.clear();
-        subNotes.clear();
-        subPending = 0;
-        subSearched = false;
-        subAutoDone = false;
-        subWantAuto = false;
-        subLoading = false;
-        subSearching = false;
-        subSavedUid = "";
-        subSavedShift = 0;
-        subOff = false;
-        subFrom = new long[0];
-        subTo = new long[0];
-        subTxt = new String[0];
-        subShift = 0;
-        subCur = null;
-        subShown = "";
-        subQ = null;
-        if (subView != null) subView.setVisibility(View.GONE);
-    }
-
-    private void subCleanup() {
-        subReset();
-        subDlg = null;
-        if (subView != null && nativeLayer != null) {
-            try {
-                nativeLayer.removeView(subView);
-            } catch (Exception ignored) {
-            }
-        }
-        subView = null;
-    }
-
-    private SubQuery subBuildQuery() {
-        SubQuery q = new SubQuery();
-        q.tv = vodT.tv;
-        q.tmdb = vodT.id;
-        q.title = vodT.name;
-        q.orig = vodT.orig;
-        q.year = vodT.year;
-        q.imdb = vodT.imdb;
-        q.season = vodSeason;
-        q.episode = vodEpisode;
-        for (String l : SUB_LANG_SETS[subLangSet()]) q.langs.add(l);
-        return q;
-    }
-
-    // ---- мрежа ----
-
-    private static final String SUB_UA = "tvsites v1.0";
-
-    private byte[] subHttp(String url, String method, Map<String, String> headers, String body)
-            throws IOException {
-        Integer expected=subRequestGeneration.get();
-        final int generation=expected==null?subGen:expected;
-        if(generation!=subGen)throw new IOException("Търсенето е прекратено");
-        String cur = url;
-        String m = method;
-        String b = body;
-        for (int hop = 0; hop < 6; hop++) {
-            HttpURLConnection c = (HttpURLConnection) new URL(cur).openConnection();
-            synchronized(subConnections){
-                if(generation!=subGen){c.disconnect();throw new IOException("Търсенето е прекратено");}
-                subConnections.add(c);
-            }
-            try {
-                c.setConnectTimeout(12000);
-                c.setReadTimeout(15000);
-                c.setInstanceFollowRedirects(false);
-                c.setRequestMethod(m);
-                c.setRequestProperty("User-Agent", SUB_UA);
-                if (headers != null) {
-                    for (Map.Entry<String, String> en : headers.entrySet()) {
-                        c.setRequestProperty(en.getKey(), en.getValue());
-                    }
-                }
-                if (b != null) {
-                    byte[] bb = b.getBytes("UTF-8");
-                    c.setDoOutput(true);
-                    c.setFixedLengthStreamingMode(bb.length);
-                    OutputStream os = c.getOutputStream();
-                    os.write(bb);
-                    os.close();
-                }
-                int rc = c.getResponseCode();
-                if (rc >= 300 && rc < 400) {
-                    String loc = c.getHeaderField("Location");
-                    if (loc == null || loc.isEmpty()) throw new IOException("пренасочване без адрес");
-                    cur = new URL(new URL(cur), loc).toString();
-                    if (rc != 307 && rc != 308) {
-                        m = "GET";
-                        b = null;
-                    }
-                    continue;
-                }
-                InputStream in = rc >= 400 ? c.getErrorStream() : c.getInputStream();
-                byte[] data = subReadAll(in, 12 * 1024 * 1024);
-                if (rc >= 400) {
-                    String msg = "HTTP " + rc;
-                    try {
-                        String t = new String(data, "UTF-8").trim();
-                        if (t.startsWith("{")) {
-                            JSONObject o = new JSONObject(t);
-                            String mm = jstr(o, "message");
-                            if (mm.isEmpty()) mm = jstr(o, "error");
-                            if (!mm.isEmpty()) msg += ": " + mm;
-                        }
-                    } catch (Exception ignored) {
-                        // тялото не е JSON
-                    }
-                    throw new SubHttpErr(rc, msg);
-                }
-                return data;
-            } finally {
-                subConnections.remove(c);
-                c.disconnect();
-            }
-        }
-        throw new IOException("твърде много пренасочвания");
-    }
-
-    private static byte[] subReadAll(InputStream in, int max) throws IOException {
-        if (in == null) return new byte[0];
-        try {
-            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-            byte[] buf = new byte[16384];
-            int n;
-            while ((n = in.read(buf)) > 0) {
-                out.write(buf, 0, n);
-                if (out.size() > max) throw new IOException("файлът е твърде голям");
-            }
-            return out.toByteArray();
-        } finally {
-            try {
-                in.close();
-            } catch (IOException ignored) {
-            }
-        }
-    }
-
-    private static String subStr(byte[] b) throws IOException {
-        return new String(b, "UTF-8");
-    }
-
-    private static String subEnc(String s) {
-        try {
-            return java.net.URLEncoder.encode(s, "UTF-8");
-        } catch (Exception e) {
-            return s;
-        }
-    }
-
-    private static String subLangNorm(String raw) {
-        String s = raw == null ? "" : raw.trim().toLowerCase(Locale.US);
-        if (s.equals("bulgarian")) return "bg";
-        if (s.equals("english")) return "en";
-        if (s.equals("russian")) return "ru";
-        if (s.equals("turkish")) return "tr";
-        if (s.equals("greek")) return "el";
-        if (s.equals("romanian")) return "ro";
-        if (s.equals("serbian")) return "sr";
-        if (s.equals("german")) return "de";
-        int k = s.indexOf('-');
-        if (k > 0) s = s.substring(0, k);
-        k = s.indexOf('_');
-        if (k > 0) s = s.substring(0, k);
-        return s.length() > 2 ? s.substring(0, 2) : s;
-    }
-
-    private static String subJoin(List<String> l, String sep) {
-        StringBuilder sb = new StringBuilder();
-        for (String s : l) {
-            if (sb.length() > 0) sb.append(sep);
-            sb.append(s);
-        }
-        return sb.toString();
-    }
-
-    // ---- доставчици: търсене ----
-
-    private List<SubItem> subSearchOne(String id, SubQuery q) throws Exception {
-        if (id.equals("opensubtitles")) return subOsSearch(q);
-        if (id.equals("subdl")) return subSubdlSearch(q);
-        if (id.equals("subsource")) return subSsSearch(q);
-        return subSabSearch(q);
-    }
-
-    private String osHost = "api.opensubtitles.com";
-    private String osToken;
-    private long osTokenAt;
-
-    private HashMap<String, String> osHeaders() {
-        HashMap<String, String> h = new HashMap<>();
-        h.put("Api-Key", subOsKey());
-        h.put("User-Agent", SUB_UA);
-        h.put("Accept", "application/json");
-        h.put("Content-Type", "application/json");
-        return h;
-    }
-
-    private synchronized String osLogin(boolean force) throws Exception {
-        String user = subOsUser();
-        String pass = subOsPass();
-        if (user.isEmpty() || pass.isEmpty()) return null;
-        if (!force && osToken != null && System.currentTimeMillis() - osTokenAt < 20L * 3600 * 1000) {
-            return osToken;
-        }
-        JSONObject body = new JSONObject().put("username", user).put("password", pass);
-        JSONObject resp = new JSONObject(subStr(subHttp("https://api.opensubtitles.com/api/v1/login",
-                "POST", osHeaders(), body.toString())));
-        String bu = jstr(resp, "base_url");
-        if (!bu.isEmpty()) {
-            bu = bu.replace("https://", "").replace("http://", "");
-            while (bu.endsWith("/")) bu = bu.substring(0, bu.length() - 1);
-            if (!bu.isEmpty()) osHost = bu;
-        }
-        osToken = jstr(resp, "token");
-        osTokenAt = System.currentTimeMillis();
-        return osToken.isEmpty() ? null : osToken;
-    }
-
-    private List<SubItem> subOsSearch(SubQuery q) throws Exception {
-        String imdb = q.imdb.startsWith("tt") ? q.imdb.substring(2) : q.imdb;
-        java.util.TreeMap<String, String> p = new java.util.TreeMap<>();
-        p.put("languages", subJoin(q.langs, ","));
-        p.put("order_by", "download_count");
-        p.put("order_direction", "desc");
-        if (q.tv) {
-            p.put("type", "episode");
-            if (!imdb.isEmpty()) p.put("parent_imdb_id", imdb);
-            else p.put("query", q.latin());
-            p.put("season_number", String.valueOf(q.season));
-            p.put("episode_number", String.valueOf(q.episode));
-        } else {
-            p.put("type", "movie");
-            if (!imdb.isEmpty()) {
-                p.put("imdb_id", imdb);
-            } else {
-                p.put("query", q.latin());
-                if (!q.year.isEmpty()) p.put("year", q.year);
-            }
-        }
-        StringBuilder qs = new StringBuilder();
-        for (Map.Entry<String, String> en : p.entrySet()) {
-            if (qs.length() > 0) qs.append('&');
-            qs.append(en.getKey()).append('=').append(subEnc(en.getValue()));
-        }
-        String url = "https://" + osHost + "/api/v1/subtitles?" + qs;
-        JSONObject j = new JSONObject(subStr(subHttp(url, "GET", osHeaders(), null)));
-        JSONArray data = j.optJSONArray("data");
-        ArrayList<SubItem> out = new ArrayList<>();
-        if (data == null) return out;
-        for (int i = 0; i < data.length(); i++) {
-            JSONObject o = data.optJSONObject(i);
-            if (o == null) continue;
-            JSONObject a = o.optJSONObject("attributes");
-            if (a == null) continue;
-            JSONArray files = a.optJSONArray("files");
-            if (files == null || files.length() == 0) continue;
-            JSONObject f0 = files.optJSONObject(0);
-            if (f0 == null) continue;
-            long fileId = f0.optLong("file_id");
-            if (fileId <= 0) continue;
-            SubItem it = new SubItem();
-            it.provider = "opensubtitles";
-            it.providerName = "OpenSubtitles";
-            it.lang = subLangNorm(jstr(a, "language"));
-            it.release = jstr(a, "release");
-            if (it.release.isEmpty()) it.release = jstr(f0, "file_name");
-            it.ref = String.valueOf(fileId);
-            it.downloads = a.optInt("download_count");
-            it.trusted = a.optBoolean("from_trusted", false);
-            it.hearing = a.optBoolean("hearing_impaired", false);
-            out.add(it);
-        }
-        return out;
-    }
-
-    private List<SubFile> subOsDownload(SubItem r) throws Exception {
-        String tk = osLogin(false);
-        if (tk == null) throw new IOException("въведи потребител и парола за OpenSubtitles");
-        String body = new JSONObject().put("file_id", Long.parseLong(r.ref)).put("sub_format", "srt").toString();
-        String resp;
-        try {
-            resp = subOsCall(body, tk);
-        } catch (SubHttpErr e) {
-            if (e.code != 401) throw e;
-            tk = osLogin(true);
-            if (tk == null) throw e;
-            resp = subOsCall(body, tk);
-        }
-        JSONObject j = new JSONObject(resp);
-        String link = jstr(j, "link");
-        if (link.isEmpty()) {
-            String m = jstr(j, "message");
-            throw new IOException(m.isEmpty() ? "няма адрес за сваляне" : m);
-        }
-        ArrayList<SubFile> out = new ArrayList<>();
-        String fn = jstr(j, "file_name");
-        out.add(new SubFile(fn.isEmpty() ? "sub.srt" : fn, subHttp(link, "GET", null, null)));
-        return out;
-    }
-
-    private String subOsCall(String body, String token) throws Exception {
-        HashMap<String, String> h = osHeaders();
-        h.put("Authorization", "Bearer " + token);
-        return subStr(subHttp("https://" + osHost + "/api/v1/download", "POST", h, body));
-    }
-
-    private List<SubItem> subSubdlSearch(SubQuery q) throws Exception {
-        StringBuilder sb = new StringBuilder("https://api.subdl.com/api/v1/subtitles?api_key=");
-        sb.append(subEnc(subSubdlKey())).append("&subs_per_page=30&languages=");
-        StringBuilder ls = new StringBuilder();
-        for (String l : q.langs) {
-            if (ls.length() > 0) ls.append(',');
-            ls.append(l.toUpperCase(Locale.US));
-        }
-        sb.append(ls);
-        if (!q.imdb.isEmpty()) sb.append("&imdb_id=").append(subEnc(q.imdb));
-        else sb.append("&film_name=").append(subEnc(q.latin()));
-        sb.append("&type=").append(q.tv ? "tv" : "movie");
-        if (q.tv) sb.append("&season_number=").append(q.season).append("&episode_number=").append(q.episode);
-        JSONObject j = new JSONObject(subStr(subHttp(sb.toString(), "GET", null, null)));
-        if (!j.optBoolean("status", true)) {
-            String e = jstr(j, "error");
-            throw new IOException(e.isEmpty() ? "грешка" : e);
-        }
-        JSONArray arr = j.optJSONArray("subtitles");
-        ArrayList<SubItem> out = new ArrayList<>();
-        if (arr == null) return out;
-        for (int i = 0; i < arr.length(); i++) {
-            JSONObject o = arr.optJSONObject(i);
-            if (o == null) continue;
-            String url = jstr(o, "url");
-            if (url.isEmpty()) continue;
-            SubItem it = new SubItem();
-            it.provider = "subdl";
-            it.providerName = "Subdl";
-            String lg = jstr(o, "language");
-            if (lg.isEmpty()) lg = jstr(o, "lang");
-            it.lang = subLangNorm(lg);
-            it.release = jstr(o, "release_name");
-            if (it.release.isEmpty()) it.release = jstr(o, "name");
-            it.ref = url;
-            it.hearing = o.optBoolean("hi", false);
-            out.add(it);
-        }
-        return out;
-    }
-
-    private List<SubFile> subSubdlDownload(SubItem r) throws Exception {
-        String url = r.ref.startsWith("http") ? r.ref : "https://dl.subdl.com" + r.ref;
-        return subExtract(subHttp(url, "GET", null, null));
-    }
-
-    // SubSource: схемата на отговорите не е напълно известна - работи „най-добро усилие“.
-    private static final String SS_BASE = "https://api.subsource.net/api/v1";
-
-    private HashMap<String, String> ssHeaders() {
-        HashMap<String, String> h = new HashMap<>();
-        h.put("X-API-Key", subSsKey());
-        h.put("Accept", "application/json");
-        return h;
-    }
-
-    private static JSONArray subListOf(JSONObject j) {
-        JSONArray a = j.optJSONArray("data");
-        if (a == null) a = j.optJSONArray("results");
-        if (a == null) a = j.optJSONArray("subtitles");
-        if (a == null) a = j.optJSONArray("movies");
-        return a == null ? new JSONArray() : a;
-    }
-
-    private static String subFlat(JSONObject o, String name) {
-        Object v = o.opt(name);
-        if (v == null || v == JSONObject.NULL) return "";
-        if (v instanceof JSONArray) {
-            JSONArray a = (JSONArray) v;
-            return a.length() > 0 ? a.optString(0, "") : "";
-        }
-        return v.toString();
-    }
-
-    private List<SubItem> subSsSearch(SubQuery q) throws Exception {
-        String murl = !q.imdb.isEmpty()
-                ? SS_BASE + "/movies/search?searchType=imdb&imdb=" + subEnc(q.imdb)
-                : SS_BASE + "/movies/search?searchType=text&q=" + subEnc(q.latin());
-        JSONArray found = subListOf(new JSONObject(subStr(subHttp(murl, "GET", ssHeaders(), null))));
-        ArrayList<SubItem> out = new ArrayList<>();
-        if (found.length() == 0) return out;
-        JSONObject first = found.optJSONObject(0);
-        if (first == null) return out;
-        String movieId = jstr(first, "movieId");
-        if (movieId.isEmpty()) movieId = jstr(first, "id");
-        if (movieId.isEmpty()) return out;
-        String[][] names = {{"bg", "bulgarian"}, {"en", "english"}, {"ru", "russian"}, {"tr", "turkish"},
-                {"el", "greek"}, {"ro", "romanian"}, {"sr", "serbian"}, {"de", "german"}};
-        for (String lang : q.langs) {
-            String full = null;
-            for (String[] n : names) {
-                if (n[0].equals(lang)) full = n[1];
-            }
-            if (full == null) continue;
-            JSONArray arr = subListOf(new JSONObject(subStr(subHttp(
-                    SS_BASE + "/subtitles?movieId=" + subEnc(movieId) + "&language=" + subEnc(full),
-                    "GET", ssHeaders(), null))));
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject o = arr.optJSONObject(i);
-                if (o == null) continue;
-                String sid = jstr(o, "subtitleId");
-                if (sid.isEmpty()) sid = jstr(o, "id");
-                if (sid.isEmpty()) continue;
-                String release = subFlat(o, "releaseInfo");
-                if (release.isEmpty()) release = subFlat(o, "release_info");
-                if (release.isEmpty()) release = subFlat(o, "releases");
-                if (release.isEmpty()) release = jstr(o, "name");
-                if (q.tv) {
-                    java.util.regex.Pattern ep = java.util.regex.Pattern.compile("(?i)s0*" + q.season
-                            + " ?e0*" + q.episode + "(?!\\d)|\\b" + q.season + "x0*" + q.episode + "(?!\\d)");
-                    java.util.regex.Pattern pack = java.util.regex.Pattern.compile("(?i)\\bs0*" + q.season
-                            + "\\b(?! ?e\\d)|season ?0*" + q.season + "\\b");
-                    if (!ep.matcher(release).find() && !pack.matcher(release).find()) continue;
-                }
-                SubItem it = new SubItem();
-                it.provider = "subsource";
-                it.providerName = "SubSource";
-                it.lang = lang;
-                it.release = release;
-                it.ref = sid;
-                it.downloads = o.optInt("downloads");
-                it.hearing = o.optBoolean("hearingImpaired", false);
-                out.add(it);
-            }
-        }
-        return out;
-    }
-
-    private List<SubFile> subSsDownload(SubItem r) throws Exception {
-        return subExtract(subHttp(SS_BASE + "/subtitles/" + r.ref + "/download", "GET", ssHeaders(), null));
-    }
-
-    // Subs.sab.bz: български субтитри, няма API - чете се страницата с резултатите (windows-1251).
-    private static final String SAB = "http://subs.sab.bz";
-
-    private List<SubItem> subSabSearch(SubQuery q) throws Exception {
-        if (!q.langs.contains("bg")) return new ArrayList<>();
-        String name = q.latin();
-        if (q.tv) name += String.format(Locale.US, " S%02dE%02d", q.season, q.episode);
-        String url = SAB + "/index.php?act=search&movie=" + subEnc(name) + "&select-language=2&upl=&yr="
-                + subEnc(q.year);
-        HashMap<String, String> h = new HashMap<>();
-        h.put("Referer", SAB + "/");
-        String html = new String(subHttp(url, "GET", h, null), java.nio.charset.Charset.forName("windows-1251"));
-        java.util.regex.Matcher m = java.util.regex.Pattern.compile(
-                "<a\\b[^>]*?href\\s*=\\s*[\"']([^\"']*attach_id=(\\d+)[^\"']*)[\"'][^>]*>(.*?)</a>",
-                java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.DOTALL).matcher(html);
-        LinkedHashMap<String, String> labels = new LinkedHashMap<>();
-        while (m.find() && labels.size() < 30) {
-            String id = m.group(2);
-            String label = subCleanHtml(m.group(3));
-            if (label.isEmpty()) {
-                // Няма текст в връзката: взема се редът от таблицата.
-                int a = html.lastIndexOf("<tr", m.start());
-                int b = html.indexOf("</tr>", m.end());
-                if (a >= 0 && b > a && b - a < 3000) label = subCleanHtml(html.substring(a, b));
-            }
-            String old = labels.get(id);
-            if (old == null || (label.length() > old.length() && label.length() < 160)) {
-                labels.put(id, label.length() > 140 ? label.substring(0, 140) : label);
-            }
-        }
-        ArrayList<SubItem> out = new ArrayList<>();
-        for (Map.Entry<String, String> en : labels.entrySet()) {
-            if (out.size() >= 15) break;
-            SubItem it = new SubItem();
-            it.provider = "sabbz";
-            it.providerName = "Subs.sab.bz";
-            it.lang = "bg";
-            it.release = en.getValue().isEmpty() ? "Субтитри " + en.getKey() : en.getValue();
-            it.ref = en.getKey();
-            out.add(it);
-        }
-        return out;
-    }
-
-    private List<SubFile> subSabDownload(SubItem r) throws Exception {
-        HashMap<String, String> h = new HashMap<>();
-        h.put("Referer", SAB + "/");
-        return subExtract(subHttp(SAB + "/index.php?act=download&attach_id=" + r.ref, "GET", h, null));
-    }
-
-    private static String subCleanHtml(String s) {
-        String t = s.replaceAll("(?s)<[^>]*>", " ");
-        t = t.replace("&nbsp;", " ").replace("&amp;", "&").replace("&quot;", "\"")
-                .replace("&lt;", "<").replace("&gt;", ">").replace("&#39;", "'");
-        return t.replaceAll("\\s+", " ").trim();
-    }
-
-    private List<SubFile> subDownloadOne(SubItem r) throws Exception {
-        if (r.provider.equals("opensubtitles")) return subOsDownload(r);
-        if (r.provider.equals("subdl")) return subSubdlDownload(r);
-        if (r.provider.equals("subsource")) return subSsDownload(r);
-        return subSabDownload(r);
-    }
-
-    // ---- архиви, текст, разчитане ----
-
-    private static boolean subIsSubExt(String name) {
-        String n = name.toLowerCase(Locale.ROOT);
-        return n.endsWith(".srt") || n.endsWith(".ass") || n.endsWith(".ssa") || n.endsWith(".vtt");
-    }
-
-    private List<SubFile> subExtract(byte[] b) throws Exception {
-        ArrayList<SubFile> out = new ArrayList<>();
-        if (b.length > 4 && b[0] == 'P' && b[1] == 'K') {
-            java.util.zip.ZipInputStream z = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(b));
-            try {
-                java.util.zip.ZipEntry e;
-                while ((e = z.getNextEntry()) != null) {
-                    if (e.isDirectory() || !subIsSubExt(e.getName())) continue;
-                    byte[] d = subReadZipEntry(z);
-                    String nm = e.getName();
-                    int k = nm.lastIndexOf('/');
-                    if (d.length > 0) out.add(new SubFile(k >= 0 ? nm.substring(k + 1) : nm, d));
-                }
-            } finally {
-                z.close();
-            }
-            return out;
-        }
-        if (b.length > 7 && b[0] == 'R' && b[1] == 'a' && b[2] == 'r') return subUnrar(b);
-        out.add(new SubFile("sub.srt", b));
-        return out;
-    }
-
-    private static byte[] subReadZipEntry(java.util.zip.ZipInputStream z) throws IOException {
-        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-        byte[] buf = new byte[8192];
-        int n;
-        while ((n = z.read(buf)) > 0) {
-            out.write(buf, 0, n);
-            if (out.size() > 6 * 1024 * 1024) break;
-        }
-        return out.toByteArray();
-    }
-
-    // RAR се разархивира с библиотеката junrar, ако е добавена към приложението (иначе се съобщава).
-    private List<SubFile> subUnrar(byte[] b) throws Exception {
-        Class<?> c;
-        try {
-            c = Class.forName("com.github.junrar.Junrar");
-        } catch (ClassNotFoundException e) {
-            throw new IOException("архивът е RAR, а тази версия не го чете (избери друг субтитър)");
-        }
-        File dir = new File(getCacheDir(), "sub" + System.nanoTime());
-        File rar = new File(dir, "a.rar");
-        File dest = new File(dir, "out");
-        ArrayList<SubFile> out = new ArrayList<>();
-        try {
-            dest.mkdirs();
-            java.io.FileOutputStream fo = new java.io.FileOutputStream(rar);
-            fo.write(b);
-            fo.close();
-            c.getMethod("extract", File.class, File.class).invoke(null, rar, dest);
-            subCollect(dest, out);
-        } finally {
-            subDelete(dir);
-        }
-        return out;
-    }
-
-    private static void subCollect(File d, ArrayList<SubFile> out) throws IOException {
-        File[] fs = d.listFiles();
-        if (fs == null) return;
-        for (File f : fs) {
-            if (f.isDirectory()) {
-                subCollect(f, out);
-            } else if (subIsSubExt(f.getName()) && f.length() > 0 && f.length() < 6L * 1024 * 1024) {
-                java.io.FileInputStream in = new java.io.FileInputStream(f);
-                out.add(new SubFile(f.getName(), subReadAll(in, 7 * 1024 * 1024)));
-            }
-        }
-    }
-
-    private static void subDelete(File f) {
-        File[] fs = f.listFiles();
-        if (fs != null) {
-            for (File x : fs) subDelete(x);
-        }
-        f.delete();
-    }
-
-    // Explicit episode markers take priority over file size. Manual selection can override a mismatch.
-    private static SubFile subPick(List<SubFile> files, boolean tv, int season, int episode, boolean auto) {
-        String[] names=new String[files.size()];int[] sizes=new int[files.size()];
-        for(int i=0;i<files.size();i++){names[i]=files.get(i).name;sizes[i]=files.get(i).bytes.length;}
-        int index=SubtitleMatch.pick(names,sizes,tv,season,episode,auto);
-        return index<0?null:files.get(index);
-    }
-
-    // Субтитрите често са в windows-1251: всичко се превръща в обикновен текст.
-    private static String subDecode(byte[] b, String lang) {
-        try {
-            if (b.length >= 3 && (b[0] & 0xFF) == 0xEF && (b[1] & 0xFF) == 0xBB && (b[2] & 0xFF) == 0xBF) {
-                return new String(b, 3, b.length - 3, "UTF-8");
-            }
-            if (b.length >= 2 && (b[0] & 0xFF) == 0xFF && (b[1] & 0xFF) == 0xFE) {
-                return new String(b, 2, b.length - 2, "UTF-16LE");
-            }
-            if (b.length >= 2 && (b[0] & 0xFF) == 0xFE && (b[1] & 0xFF) == 0xFF) {
-                return new String(b, 2, b.length - 2, "UTF-16BE");
-            }
-            try {
-                java.nio.charset.CharsetDecoder dec = java.nio.charset.Charset.forName("UTF-8").newDecoder()
-                        .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
-                        .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT);
-                return dec.decode(java.nio.ByteBuffer.wrap(b)).toString();
-            } catch (java.nio.charset.CharacterCodingException e) {
-                // не е UTF-8: следва кодовата таблица според езика
-            }
-            String cs;
-            if (lang.equals("bg") || lang.equals("ru") || lang.equals("sr") || lang.equals("mk")
-                    || lang.equals("uk")) cs = "windows-1251";
-            else if (lang.equals("el")) cs = "windows-1253";
-            else if (lang.equals("tr")) cs = "windows-1254";
-            else if (lang.equals("ro") || lang.equals("pl") || lang.equals("cs") || lang.equals("hu")) cs = "windows-1250";
-            else cs = "windows-1252";
-            return new String(b, cs);
-        } catch (Exception e) {
-            return new String(b);
-        }
-    }
-
-    private static long subStamp(String s) {
-        // 00:01:02,345  |  01:02.345  |  1:02:03.45
-        String[] p = s.trim().split("[:.,]");
-        try {
-            long h = 0, m, sec, ms;
-            if (p.length >= 4) {
-                h = Long.parseLong(p[0]);
-                m = Long.parseLong(p[1]);
-                sec = Long.parseLong(p[2]);
-                ms = subFrac(p[3]);
-            } else if (p.length == 3) {
-                m = Long.parseLong(p[0]);
-                sec = Long.parseLong(p[1]);
-                ms = subFrac(p[2]);
-            } else {
-                return -1;
-            }
-            return ((h * 60 + m) * 60 + sec) * 1000 + ms;
-        } catch (NumberFormatException e) {
-            return -1;
-        }
-    }
-
-    private static long subFrac(String f) {
-        String t = f.length() > 3 ? f.substring(0, 3) : f;
-        while (t.length() < 3) t += "0";
-        return Long.parseLong(t);
-    }
-
-    private static String subCleanText(String s) {
-        String t = s.replace("\\N", "\n").replace("\\n", "\n").replace("\\h", " ");
-        t = t.replaceAll("(?s)\\{[^}]*\\}", "").replaceAll("(?s)<[^>]*>", "");
-        t = t.replace("&nbsp;", " ").replace("&amp;", "&").replace("&quot;", "\"")
-                .replace("&lt;", "<").replace("&gt;", ">").replace("&#39;", "'");
-        StringBuilder sb = new StringBuilder();
-        int lines = 0;
-        for (String ln : t.split("\n")) {
-            String x = ln.replace('\r', ' ').trim();
-            if (x.isEmpty()) continue;
-            if (lines >= 4) break;
-            if (sb.length() > 0) sb.append('\n');
-            sb.append(x);
-            lines++;
-        }
-        return sb.toString();
-    }
-
-    private static class SubCue {
-        long a, b;
-        String t;
-    }
-
-    private static SubCues subParse(String text) {
-        ArrayList<SubCue> list = new ArrayList<>();
-        String norm = text.replace("\r\n", "\n").replace('\r', '\n');
-        if (norm.contains("[Script Info]") || norm.contains("\nDialogue:") || norm.startsWith("Dialogue:")) {
-            subParseAss(norm, list);
-        } else {
-            subParseSrt(norm, list);
-        }
-        java.util.Collections.sort(list, new java.util.Comparator<SubCue>() {
-            @Override
-            public int compare(SubCue x, SubCue y) {
-                return x.a < y.a ? -1 : x.a > y.a ? 1 : 0;
-            }
-        });
-        SubCues c = new SubCues();
-        int n = list.size();
-        c.from = new long[n];
-        c.to = new long[n];
-        c.txt = new String[n];
-        for (int i = 0; i < n; i++) {
-            SubCue x = list.get(i);
-            c.from[i] = x.a;
-            c.to[i] = x.b;
-            c.txt[i] = x.t;
-            if (x.b > c.end) c.end = x.b;
-        }
-        return c;
-    }
-
-    private static void subParseSrt(String norm, ArrayList<SubCue> list) {
-        java.util.regex.Pattern tp = java.util.regex.Pattern.compile(
-                "((?:\\d{1,3}:)?\\d{1,2}:\\d{2}[.,:]\\d{1,3})\\s*-->\\s*((?:\\d{1,3}:)?\\d{1,2}:\\d{2}[.,:]\\d{1,3})");
-        String[] lines = norm.split("\n");
-        int i = 0;
-        while (i < lines.length && list.size() < 12000) {
-            java.util.regex.Matcher m = tp.matcher(lines[i]);
-            if (!m.find()) {
-                i++;
-                continue;
-            }
-            long a = subStamp(m.group(1));
-            long b = subStamp(m.group(2));
-            i++;
-            StringBuilder sb = new StringBuilder();
-            while (i < lines.length && !lines[i].trim().isEmpty() && !tp.matcher(lines[i]).find()) {
-                sb.append(lines[i]).append('\n');
-                i++;
-            }
-            String t = subCleanText(sb.toString());
-            if (a >= 0 && b > a && !t.isEmpty()) {
-                SubCue c = new SubCue();
-                c.a = a;
-                c.b = b;
-                c.t = t;
-                list.add(c);
-            }
-        }
-    }
-
-    private static void subParseAss(String norm, ArrayList<SubCue> list) {
-        int iStart = 1, iEnd = 2, iText = 9, nCols = 10;
-        for (String ln : norm.split("\n")) {
-            String s = ln.trim();
-            if (s.startsWith("Format:") && s.contains("Start") && s.contains("Text")) {
-                String[] cols = s.substring(7).split(",");
-                nCols = cols.length;
-                for (int k = 0; k < cols.length; k++) {
-                    String c = cols[k].trim();
-                    if (c.equalsIgnoreCase("Start")) iStart = k;
-                    else if (c.equalsIgnoreCase("End")) iEnd = k;
-                    else if (c.equalsIgnoreCase("Text")) iText = k;
-                }
-            } else if (s.startsWith("Dialogue:") && list.size() < 12000) {
-                String[] p = s.substring(9).trim().split(",", nCols);
-                if (p.length <= Math.max(iText, Math.max(iStart, iEnd))) continue;
-                long a = subStamp(p[iStart]);
-                long b = subStamp(p[iEnd]);
-                String t = subCleanText(p[iText]);
-                if (a >= 0 && b > a && !t.isEmpty()) {
-                    SubCue c = new SubCue();
-                    c.a = a;
-                    c.b = b;
-                    c.t = t;
-                    list.add(c);
-                }
-            }
-        }
-    }
-
-    // ---- търсене: ход ----
-
-    private final Runnable subWatchRun = new Runnable() {
-        @Override
-        public void run() {
-            if (!tvVod || !subSearching) return;
-            subPending = 0;
-            subSearchFinished();
-        }
-    };
-
-    private static final HashMap<String, Object[]> SUB_CACHE = new HashMap<>();
-
-    private void subStartSearch(boolean auto) {
-        if (!tvVod || vodT == null) return;
-        final SubQuery q = subBuildQuery();
-        subQ = q;
-        subGen++;
-        subCancelRequests();
-        final int gen = subGen;
-        subResults.clear();
-        subNotes.clear();
-        subSearched = true;
-        subWantAuto = auto;
-        // Същото търсене до 10 минути пази отговора (за да не се хабят заявките на доставчиците).
-        Object[] hit;
-        synchronized (SUB_CACHE) {
-            hit = SUB_CACHE.get(q.key());
-        }
-        if (hit != null && System.currentTimeMillis() - (Long) hit[0] < 10 * 60 * 1000L) {
-            @SuppressWarnings("unchecked")
-            ArrayList<SubItem> cached = (ArrayList<SubItem>) hit[1];
-            subResults.addAll(cached);
-            subNotes.add("от паметта");
-            subPending = 0;
-            subSearching = true;
-            subSearchFinished();
-            return;
-        }
-        ArrayList<String> ids = new ArrayList<>();
-        for (String id : SUB_IDS) {
-            if (subConfigured(id, q)) ids.add(id);
-        }
-        subPending = ids.size();
-        subSearching = subPending > 0;
-        if (subPending == 0) {
-            subSearchFinished();
-            return;
-        }
-        ui.removeCallbacks(subWatchRun);
-        ui.postDelayed(subWatchRun, 24000);
-        for (final String id : ids) {
-            subExecute(gen, new Runnable() {
-                @Override
-                public void run() {
-                    List<SubItem> res = null;
-                    String err = null;
-                    try {
-                        res = subSearchOne(id, q);
-                    } catch (Exception e) {
-                        err = subErrText(e);
-                    }
-                    final List<SubItem> fres = res;
-                    final String ferr = err;
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            subGot(gen, id, fres, ferr);
-                        }
-                    });
-                }
-            });
-        }
-    }
-
-    private static String subErrText(Exception e) {
-        String m = e.getMessage();
-        if (m == null || m.isEmpty()) {
-            m = e instanceof java.net.UnknownHostException ? "няма връзка" : e.getClass().getSimpleName();
-        }
-        if (e instanceof java.net.SocketTimeoutException) m = "времето изтече";
-        if (e instanceof SubHttpErr && ((SubHttpErr) e).code == 401) m = "ключът не е приет (401)";
-        return m.length() > 70 ? m.substring(0, 70) : m;
-    }
-
-    private void subGot(int gen, String id, List<SubItem> res, String err) {
-        if (gen != subGen || !tvVod) return;
-        subPending--;
-        String name = subProviderName(id);
-        if (err != null) {
-            subNotes.add(name + ": " + err);
-        } else if (res != null) {
-            int add = 0;
-            for (SubItem it : res) {
-                if (add >= 25) break;
-                subResults.add(it);
-                add++;
-            }
-            subNotes.add(name + ": " + add);
-        }
-        subSort();
-        if (subPending <= 0) subSearchFinished();
-        else subRefreshDialog();
-    }
-
-    private int subLangRank(String lang) {
-        String[] set = SUB_LANG_SETS[subLangSet()];
-        for (int i = 0; i < set.length; i++) {
-            if (set[i].equals(lang)) return i;
-        }
-        return 99;
-    }
-
-    private int subScore(SubItem r) {
-        int sc = Math.min(r.downloads, 5000) / 100 + (r.trusted ? 20 : 0) - (r.hearing ? 10 : 0);
-        if(subQ!=null)sc+=SubtitleMatch.rank(r.release,subQ.title,subQ.orig,subQ.year,subQ.tv,subQ.season,subQ.episode,subVideoName());
-        if (r.provider.equals("sabbz")) sc += 25;
-        return sc;
-    }
-
-    private void subSort() {
-        java.util.Collections.sort(subResults, new java.util.Comparator<SubItem>() {
-            @Override
-            public int compare(SubItem x, SubItem y) {
-                int a = subLangRank(x.lang);
-                int b = subLangRank(y.lang);
-                if (a != b) return a < b ? -1 : 1;
-                return subScore(y) - subScore(x);
-            }
-        });
-    }
-
-    private void subSearchFinished() {
-        ui.removeCallbacks(subWatchRun);
-        boolean wasSearching = subSearching;
-        subSearching = false;
-        if (wasSearching && subQ != null) {
-            boolean errors = false;
-            for (String n : subNotes) {
-                if (n.contains(": ") && !n.matches(".*: \\d+")) errors = true;
-            }
-            if (!errors && !subResults.isEmpty() && !subNotes.contains("от паметта")) {
-                synchronized (SUB_CACHE) {
-                    if (SUB_CACHE.size() > 12) SUB_CACHE.clear();
-                    SUB_CACHE.put(subQ.key(), new Object[]{System.currentTimeMillis(),
-                            new ArrayList<SubItem>(subResults)});
-                }
-            }
-        }
-        subSort();
-        subRefreshDialog();
-        if (subWantAuto) {
-            subWantAuto = false;
-            subAutoPick();
-        } else {
-            subStatusChanged();
-        }
-    }
-
-    // Автоматичният избор: най-добрите от най-предпочитания наличен език; запомненият избор е пръв.
-    private void subAutoPick() {
-        if (!tvVod) return;
-        if (subResults.isEmpty()) {
-            subStatusChanged();
-            vodShowBar(5000, "Не намерих субтитри  ·  ▲ за ръчно търсене");
-            return;
-        }
-        ArrayList<SubItem> eligible=new ArrayList<>();
-        for(SubItem it:subResults)if(subQ==null || !subQ.tv || SubtitleMatch.episode(it.release,subQ.season,subQ.episode)>=0)eligible.add(it);
-        if(eligible.isEmpty()){subStatusChanged();vodShowBar(6000,"Няма подходящ епизод · ▲ за ръчен избор");return;}
-        ArrayList<SubItem> cands = new ArrayList<>();
-        if(!subSavedUid.isEmpty())for(SubItem it:eligible)if(it.uid().equals(subSavedUid))cands.add(it);
-        int bestRank=subLangRank(eligible.get(0).lang);
-        if(bestRank>=99){subStatusChanged();return;}
-        for(SubItem it:eligible){if(cands.size()>=5)break;if(subLangRank(it.lang)==bestRank && !cands.contains(it))cands.add(it);}
-        subLoad(cands, true);
-    }
-
-    // Сваля и разчита субтитрите. При автоматичен избор се пробват до пет, докато една
-    // не пасне по дължина на филма.
-    private void subLoad(final ArrayList<SubItem> cands, final boolean auto) {
-        if (cands.isEmpty() || !tvVod) return;
-        final int gen = subGen;
-        final boolean tv = vodT.tv;
-        final int season = vodSeason;
-        final int episode = vodEpisode;
-        final long videoMs = player != null ? player.getDuration() : C.TIME_UNSET;
-        subLoading = true;
-        subStatusChanged();
-        subExecute(gen, new Runnable() {
-            @Override
-            public void run() {
-                SubCues got = null;
-                SubItem gotItem = null;
-                String warn = null;
-                String err = null;
-                for (SubItem it : cands) {
-                    if(gen!=subGen)return;
-                    try {
-                        List<SubFile> files = subDownloadOne(it);
-                        if(gen!=subGen)return;
-                        SubFile f = subPick(files, tv, season, episode, auto);
-                        if (f == null) {
-                            err = "Няма файл за избрания епизод в архива";
-                            continue;
-                        }
-                        SubCues c = subParse(subDecode(f.bytes, it.lang));
-                        if (c.txt.length < 10) {
-                            err = "файлът не е разчетен";
-                            continue;
-                        }
-                        String w = subFitText(c.end, videoMs);
-                        if(tv && (SubtitleMatch.episode(f.name,season,episode)<0 || SubtitleMatch.episode(it.release,season,episode)<0))
-                            w="Файлът е означен за друг епизод · избран е ръчно";
-                        if (auto && w != null) {
-                            err = w;
-                            continue;
-                        }
-                        got = c;
-                        gotItem = it;
-                        warn = w;
-                        break;
-                    } catch (Exception e) {
-                        err = subErrText(e);
-                    }
-                }
-                final SubCues fc = got;
-                final SubItem fi = gotItem;
-                final String fw = warn;
-                final String fe = err;
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (gen != subGen || !tvVod) return;
-                        subLoading = false;
-                        if (fc != null) {
-                            subSet(fc, fi, auto);
-                            if (fw != null) vodShowBar(7000, fw);
-                        } else {
-                            subStatusChanged();
-                            if (!auto) {
-                                vodShowBar(5000, "Субтитрите не се свалиха: " + (fe == null ? "грешка" : fe));
-                            } else if (fe != null) {
-                                vodShowBar(6000, "Не намерих субтитри, които пасват  ·  ▲ за избор");
-                            }
-                        }
-                    }
-                });
-            }
-        });
-    }
-
-    // Duration is a sanity check; streams usually expose no original-file hash for an exact match.
-    private static String subFitText(long subEndMs, long videoMs) {
-        return SubtitleMatch.durationWarning(subEndMs,videoMs);
-    }
-
-    private String subVideoName() {
-        String path=Uri.parse(tvStableUrl==null?"":tvStableUrl).getLastPathSegment();
-        return path==null?"":path;
-    }
-
-    private String subMatchDescription(SubItem item) {
-        String note=item.providerName;
-        if(subQ!=null && subQ.tv){int ep=SubtitleMatch.episode(item.release,subQ.season,subQ.episode);
-            note+=ep>0?" · точен епизод":ep<0?" · друг епизод, ръчен избор":" · епизодът не е указан";}
-        String source=SubtitleMatch.source(item.release);
-        if(!source.isEmpty())note+=" · "+source;
-        return note;
-    }
-
-    private void subSet(SubCues c, SubItem it, boolean auto) {
-        subReadSaved();
-        subFrom = c.from;
-        subTo = c.to;
-        subTxt = c.txt;
-        subCur = it;
-        subOff = false;
-        subShown = "";
-        subShift = it.uid().equals(subSavedUid) ? subSavedShift : 0;
-        subSaveChoice();
-        subEnsureView();
-        subStatusChanged();
-        vodShowBar(5000, null);
-        subSeeked();
-    }
-
-    private void subClear(boolean userOff) {
-        subFrom = new long[0];
-        subTo = new long[0];
-        subTxt = new String[0];
-        subCur = null;
-        subShown = "";
-        subOff = userOff;
-        if (subView != null) subView.setVisibility(View.GONE);
-        subSaveChoice();
-        subStatusChanged();
-    }
-
-    private void subSaveChoice() {
-        if (vodKey.isEmpty()) return;
-        String v;
-        if (subOff) v = "off";
-        else if (subCur != null) v = subCur.uid() + "\t" + subShift;
-        else return;
-        prefs.edit().putString("vs:" + vodKey, v).apply();
-    }
-
-    // Запомненият избор от предишното гледане.
-    private void subReadSaved() {
-        String v = prefs.getString("vs:" + vodKey, "");
-        subSavedUid = "";
-        subSavedShift = 0;
-        if (v.equals("off")) {
-            subOff = true;
-        } else if (!v.isEmpty()) {
-            int k = v.indexOf('\t');
-            if (k > 0) {
-                subSavedUid = v.substring(0, k);
-                try {
-                    subSavedShift = Long.parseLong(v.substring(k + 1));
-                } catch (NumberFormatException ignored) {
-                    subSavedShift = 0;
-                }
-            }
-        }
-    }
-
-    // При пускане се прочита само запомненият избор. Търсене и сваляне — от менюто.
-    private void subOnPlaying() {
-        if (subAutoDone) {
-            subEnsureView();
-            return;
-        }
-        subAutoDone = true;
-        subReadSaved();
-        subStatusChanged();
-    }
-
-    // ---- рисуване ----
-
-    private void subEnsureView() {
-        if (subView != null || nativeLayer == null) return;
-        subView = new TextView(this);
-        subView.setGravity(Gravity.CENTER);
-        subView.setTextColor(Color.WHITE);
-        subView.setTypeface(Typeface.DEFAULT_BOLD);
-        subView.setShadowLayer(Math.max(2f, u(5)), 0f, Math.max(1f, u(1.5f)), 0xFF000000);
-        subView.setPadding(u(20), u(6), u(20), u(8));
-        subApplyStyle();
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(WC, WC,
-                Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        lp.bottomMargin = u(60);
-        lp.leftMargin = u(120);
-        lp.rightMargin = u(120);
-        subView.setVisibility(View.GONE);
-        nativeLayer.addView(subView, lp);
-    }
-
-    private void subApplyStyle() {
-        if (subView == null) return;
-        ts(subView, SUB_SIZE_UNITS[subSizeIdx()]);
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(0x73000000);
-        g.setCornerRadius(u(12));
-        subView.setBackground(g);
-    }
-
-    private void subLift(boolean up) {
-        if (subView != null) subView.setTranslationY(up ? -u(185) : 0);
-    }
-
-    private void subHide() {
-        if (subView != null) subView.setVisibility(View.GONE);
-        subShown = "";
-    }
-
-    // Принуждава обновяване на надписа (след превъртане или промяна на синхрона).
-    private void subSeeked() {
-        subShown = "\u0000";
-        if (player != null) subTick(player.getCurrentPosition());
-    }
-
-    private void subTick(long pos) {
-        int n = subTxt.length;
-        if (n == 0 || subView == null) return;
-        long t = pos - subShift;
-        int lo = 0, hi = n - 1, ans = -1;
-        while (lo <= hi) {
-            int mid = (lo + hi) >>> 1;
-            if (subFrom[mid] <= t) {
-                ans = mid;
-                lo = mid + 1;
-            } else {
-                hi = mid - 1;
-            }
-        }
-        String show = "";
-        if (ans >= 0) {
-            String cur = subTo[ans] > t ? subTxt[ans] : "";
-            // Два реда, които се застъпват (двама говорещи): показват се заедно.
-            String prev = "";
-            if (ans > 0 && subTo[ans - 1] > t && subFrom[ans - 1] <= t) prev = subTxt[ans - 1];
-            if (!prev.isEmpty() && !cur.isEmpty()) show = prev + "\n" + cur;
-            else show = !cur.isEmpty() ? cur : prev;
-        }
-        if (show.equals(subShown)) return;
-        subShown = show;
-        if (show.isEmpty()) {
-            subView.setVisibility(View.GONE);
-        } else {
-            subView.setText(show);
-            subView.setVisibility(View.VISIBLE);
-        }
-    }
-
-    // ---- надписи ----
-
-    private String subShiftText() {
-        float s = subShift / 1000f;
-        return String.format(Locale.US, "%s%.2f s", s > 0 ? "+" : "", s);
-    }
-
-    private String subShort() {
-        if (subLoading) return "свалям…";
-        if (subCur != null) return subCur.lang.toUpperCase(Locale.ROOT) + " · " + subCur.providerName;
-        if (subOff) return "изключени";
-        if (subSearching) return "търся…";
-        return subSearched && subResults.isEmpty() ? "няма" : "избери";
-    }
-
-    // Състоянието на субтитрите за лентата.
-    private String subStatus() {
-        if (subLoading) return "Свалям субтитри…";
-        if (subCur != null) {
-            return "Субтитри: " + subCur.lang.toUpperCase(Locale.ROOT) + " · " + subCur.providerName
-                    + (subShift != 0 ? "  (" + subShiftText() + ")" : "");
-        }
-        if (subOff) return "Без субтитри";
-        if (subSearching) return "Търся субтитри…";
-        if (subSearched) return "Няма субтитри  ·  ▲ за избор";
-        return "";
-    }
-
-    private void subStatusChanged() {
-        if (!tvVod || vodBar == null || vodBar.getVisibility() != View.VISIBLE) return;
-        if (vodStatus == null && vodBarStatus != null) vodBarStatus.setText(subStatus());
-    }
-
-    // ---- прозорци ----
-
-    private boolean subDlgShowing() {
-        return subDlg != null && tvDialog == subDlg && subDlg.isShowing();
-    }
-
-    private void subRefreshDialog() {
-        if (!subDlgShowing()) return;
-        String keep = null;
-        View f = subDlg.getCurrentFocus();
-        if (f != null && f.getTag() instanceof String) keep = (String) f.getTag();
-        subBuildDialog(keep);
-    }
-
-    private void subDialog() {
-        if (!tvVod || vodT == null) return;
-        vodHideBarNow();
-        if (!subSearched) {
-            if (!subSavedUid.isEmpty() || subOff) {
-                // нищо: използва се обичайното търсене
-            }
-            subStartSearch(false);
-        }
-        subBuildDialog(null);
-    }
-
-    private void subBuildDialog(String focusTag) {
-        StringBuilder sub = new StringBuilder();
-        if (subSearching) sub.append("Търся… ");
-        else if (subResults.isEmpty()) sub.append("Няма намерени субтитри. ");
-        else sub.append("Намерени: ").append(subResults.size()).append(". ");
-        if (!subNotes.isEmpty()) sub.append(subJoin(subNotes, "  ·  "));
-        ArrayList<String> off = new ArrayList<>();
-        for (String id : SUB_IDS) {
-            if (!subConfigured(id, null) && !id.equals("sabbz")) {
-                off.add(id.equals("opensubtitles") ? "OpenSubtitles (ключ, потребител, парола)"
-                        : subProviderName(id));
-            }
-        }
-        if (!off.isEmpty()) {
-            sub.append("\nБез ключ (от бутона Източници): ").append(subJoin(off, ", "));
-        }
-        LinearLayout card = tvCard("Субтитри", sub.toString());
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        View focus = null;
-        View firstRow = null;
-
-        LinearLayout none = tvChoice(null, "Без субтитри", subCur == null ? "● избрано" : null,
-                subCur == null ? 1 : 0, new Runnable() {
-                    @Override
-                    public void run() {
-                        tvDialogClose();
-                        subClear(true);
-                    }
-                });
-        none.setTag("none");
-        list.addView(none, lpTopW(MP, u(60), 0));
-        firstRow = none;
-        View curRow = null;
-
-        LinearLayout sync = tvChoice(null, "Синхрон", subCur != null ? subShiftText() : "първо избери субтитри", 0,
-                new Runnable() {
-                    @Override
-                    public void run() {
-                        if (subCur == null) return;
-                        subSyncDialog();
-                    }
-                });
-        sync.setTag("sync");
-        list.addView(sync, lpTopW(MP, u(60), u(8)));
-        LinearLayout set = tvChoice(null, "Настройки на субтитрите", null, 0, new Runnable() {
-            @Override
-            public void run() {
-                subSettingsDialog();
-            }
-        });
-        set.setTag("set");
-        list.addView(set, lpTopW(MP, u(60), u(8)));
-
-        int shown = 0;
-        for (final SubItem it : subResults) {
-            if (shown >= 40) break;
-            String rel = it.release.trim();
-            if (rel.length() > 42) rel = rel.substring(0, 42) + "…";
-            boolean cur = subCur != null && subCur.uid().equals(it.uid());
-            String label = it.lang.toUpperCase(Locale.ROOT) + " · " + (rel.isEmpty() ? "субтитри" : rel);
-            LinearLayout row = tvChoice(null, label, cur ? "● избрано" : subMatchDescription(it), cur ? 1 : 0,
-                    new Runnable() {
-                        @Override
-                        public void run() {
-                            tvDialogClose();
-                            ArrayList<SubItem> one = new ArrayList<>();
-                            one.add(it);
-                            subLoad(one, false);
-                        }
-                    });
-            row.setTag(it.uid());
-            list.addView(row, lpTopW(MP, u(60), u(8)));
-            if (cur) curRow = row;
-            shown++;
-        }
-        if (focusTag != null) {
-            for (int i = 0; i < list.getChildCount(); i++) {
-                if (focusTag.equals(list.getChildAt(i).getTag())) focus = list.getChildAt(i);
-            }
-        }
-        if (focus == null) focus = curRow != null ? curRow : firstRow;
-        ScrollView sv = new ScrollView(this);
-        sv.setVerticalScrollBarEnabled(false);
-        sv.addView(list, new ViewGroup.LayoutParams(MP, WC));
-        card.addView(sv, lpTopW(MP, u(420), u(20)));
-        tvDialogShow(card, 880, focus);
-        subDlg = tvDialog;
-    }
-
-    private void subSettingsDialog() {
-        LinearLayout card = tvCard("Настройки на субтитрите", "Търсене и сваляне — само по твой избор.");
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout first = tvChoice(null, "Езици", SUB_LANG_NAMES[subLangSet()], 1, new Runnable() {
-            @Override
-            public void run() {
-                prefs.edit().putInt("subLang", (subLangSet() + 1) % SUB_LANG_SETS.length).apply();
-                subSettingsDialog();
-            }
-        });
-        list.addView(first, lpTopW(MP, u(62), 0));
-        list.addView(tvChoice(null, "Размер на текста", subSizeName(), 0, new Runnable() {
-            @Override
-            public void run() {
-                subCycleSize();
-                subSettingsDialog();
-            }
-        }), lpTopW(MP, u(62), u(10)));
-        list.addView(tvChoice(null, "Търси отново", null, 0, new Runnable() {
-            @Override
-            public void run() {
-                subStartSearch(false);
-                subBuildDialog(null);
-            }
-        }), lpTopW(MP, u(62), u(10)));
-        list.addView(tvChoice(null, "Назад", null, 0, new Runnable() {
-            @Override
-            public void run() {
-                subBuildDialog(null);
-            }
-        }), lpTopW(MP, u(62), u(10)));
-        card.addView(list, lpTopW(MP, WC, u(24)));
-        tvDialogShow(card, 760, first);
-        subDlg = null;
-    }
-
-    // Ръчно отместване или изчисляване по началото на избрана реплика.
-    private void subSyncDialog() {
-        if (subCur == null) return;
-        LinearLayout card = tvCard("Синхрон на субтитрите",
-                "◀ по-рано   ▶ по-късно.  Ако надписът идва след репликата, натискай ◀.");
-        final LinearLayout row = tvChoice(null, subShiftText(), "OK — готово", 1, new Runnable() {
-            @Override
-            public void run() {
-                tvDialogClose();
-                subSaveChoice();
-            }
-        });
-        final TextView val = (TextView) row.getChildAt(0);
-        ts(val, 54);
-        row.setOnKeyListener(new View.OnKeyListener() {
-            @Override
-            public boolean onKey(View v, int keyCode, KeyEvent ev) {
-                if (ev.getAction() != KeyEvent.ACTION_DOWN) return false;
-                if (keyCode != KeyEvent.KEYCODE_DPAD_LEFT && keyCode != KeyEvent.KEYCODE_DPAD_RIGHT) return false;
-                long step = ev.getRepeatCount() >= 8 ? 1000 : 250;
-                subShift += keyCode == KeyEvent.KEYCODE_DPAD_LEFT ? -step : step;
-                val.setText(subShiftText());
-                subSeeked();
-                return true;
-            }
-        });
-        card.addView(row, lpTopW(MP, u(110), u(22)));
-        card.addView(tvChoice(null, "По реплика", "изчисли автоматично", 0,
-                () -> subLineDialog()), lpTopW(MP, u(60), u(12)));
-        LinearLayout reset = tvChoice(null, "Нулирай", null, 0, new Runnable() {
-            @Override
-            public void run() {
-                subShift = 0;
-                val.setText(subShiftText());
-                subSeeked();
-            }
-        });
-        card.addView(reset, lpTopW(MP, u(60), u(12)));
-        tvDialogShow(card, 760, row);
-        subDlg = null;
-        final Dialog dd = tvDialog;
-        if (dd != null) {
-            dd.setOnDismissListener(new DialogInterface.OnDismissListener() {
-                @Override
-                public void onDismiss(DialogInterface d) {
-                    if (tvDialog == dd) tvDialog = null;
-                    subSaveChoice();
-                    hideSystemBars();
-                }
-            });
-        }
-    }
-
-    private boolean subSyncCurrent(long[] times, String[] lines, String movie) {
-        return tvVod && player != null && subCur != null && subFrom == times
-                && subTxt == lines && vodKey.equals(movie);
-    }
-
-    private void subLineDialog() {
-        if (!tvVod || player == null || subCur == null || subTxt.length == 0) return;
-        final long[] times = subFrom;
-        final String[] lines = subTxt;
-        final String movie = vodKey;
-        LinearLayout card = tvCard("Синхрон по реплика",
-                "Избери реплика. После натисни „Репликата е сега“, когато започнеш да я чуваш.");
-        EditText search = new EditText(this);
-        search.setSingleLine(true);
-        search.setHint("Търси реплика…");
-        search.setContentDescription("Търси реплика");
-        search.setTextColor(T_TEXT);
-        search.setHintTextColor(T_TEXT3);
-        search.setPadding(u(20), u(8), u(20), u(8));
-        search.setBackground(stateBg(0x14FFFFFF, 0x1FFFFFFF, T_SKY, u(18), 0x40FFFFFF));
-        ts(search, 24);
-        search.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
-        card.addView(search, lpTopW(MP, u(60), u(18)));
-
-        final ArrayList<Integer> visible = new ArrayList<>();
-        for (int i = 0; i < lines.length; i++) visible.add(i);
-        ListView list = new ListView(this);
-        list.setDivider(new ColorDrawable(Color.TRANSPARENT));
-        list.setDividerHeight(u(6));
-        list.setSelector(tvPrimaryBg(u(14)));
-        list.setDrawSelectorOnTop(false);
-        list.setVerticalScrollBarEnabled(true);
-        list.setFocusable(true);
-        list.setContentDescription("Реплики от субтитрите");
-        BaseAdapter adapter = new BaseAdapter() {
-            @Override public int getCount() { return visible.size(); }
-            @Override public Object getItem(int position) { return visible.get(position); }
-            @Override public long getItemId(int position) { return visible.get(position); }
-            @Override public View getView(int position, View convert, ViewGroup parent) {
-                LinearLayout row;
-                if (convert instanceof LinearLayout) row = (LinearLayout) convert;
-                else {
-                    row = new LinearLayout(MainActivity.this);
-                    row.setOrientation(LinearLayout.VERTICAL);
-                    row.setPadding(u(20), u(10), u(20), u(10));
-                    row.addView(text("", 16, T_TEXT3, tfMedium, true));
-                    TextView line = text("", 25, T_TEXT, tfMedium, false);
-                    line.setMaxLines(3);
-                    line.setEllipsize(TextUtils.TruncateAt.END);
-                    row.addView(line);
-                }
-                int index = visible.get(position);
-                ((TextView) row.getChildAt(0)).setText(vodFmt(times[index]));
-                ((TextView) row.getChildAt(1)).setText(lines[index]);
-                return row;
-            }
-        };
-        list.setAdapter(adapter);
-        FrameLayout results = new FrameLayout(this);
-        results.addView(list, new FrameLayout.LayoutParams(MP, MP));
-        TextView empty = text("Няма такава реплика", 24, T_TEXT2, tfMedium, false);
-        empty.setGravity(Gravity.CENTER);
-        results.addView(empty, new FrameLayout.LayoutParams(MP, MP));
-        list.setEmptyView(empty);
-        card.addView(results, lpTopW(MP, u(300), u(14)));
-        list.setOnItemClickListener((parent, view, position, id) -> {
-            if (!subSyncCurrent(times, lines, movie)) { tvDialogClose(); return; }
-            ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE))
-                    .hideSoftInputFromWindow(search.getWindowToken(), 0);
-            subLineConfirm(visible.get(position), times, lines, movie);
-        });
-        search.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
-                String query = s.toString().trim().toLowerCase(Locale.ROOT);
-                visible.clear();
-                for (int i = 0; i < lines.length; i++) {
-                    if (lines[i].toLowerCase(Locale.ROOT).contains(query)) visible.add(i);
-                }
-                adapter.notifyDataSetChanged();
-                list.setSelection(0);
-            }
-            @Override public void afterTextChanged(Editable s) { }
-        });
-        search.setOnEditorActionListener((v, action, event) -> {
-            ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE))
-                    .hideSoftInputFromWindow(search.getWindowToken(), 0);
-            list.requestFocus();
-            return true;
-        });
-        card.addView(tvChoice(null, "Назад", null, 0, () -> subSyncDialog()),
-                lpTopW(MP, u(54), u(14)));
-        long at = player.getCurrentPosition() - subShift;
-        int lo = 0, hi = times.length - 1;
-        while (lo < hi) {
-            int mid = (lo + hi + 1) >>> 1;
-            if (times[mid] <= at) lo = mid;
-            else hi = mid - 1;
-        }
-        tvDialogShow(card, 900, list);
-        list.setSelection(lo);
-        subDlg = null;
-    }
-
-    private void subLineConfirm(int index, long[] times, String[] lines, String movie) {
-        if (!subSyncCurrent(times, lines, movie) || index < 0 || index >= times.length) return;
-        LinearLayout card = tvCard("Синхрон по реплика",
-                "Пусни филма и натисни „Репликата е сега“ при началото на избраната реплика.");
-        TextView line = text(lines[index], 30, T_TEXT, tfMedium, false);
-        line.setMaxLines(4);
-        line.setEllipsize(TextUtils.TruncateAt.END);
-        card.addView(line, lpTopW(MP, WC, u(20)));
-        LinearLayout now = tvChoice(null, "Репликата е сега", null, 1, () -> {
-            if (!subSyncCurrent(times, lines, movie)) { tvDialogClose(); return; }
-            if (player.getPlaybackState() != Player.STATE_READY) {
-                Toast.makeText(this, "Изчакай филмът да се зареди", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            subShift = player.getCurrentPosition() - times[index];
-            subSaveChoice();
-            subSeeked();
-            tvDialogClose();
-            vodShowBar(5000, "Синхрон: " + subShiftText());
-        });
-        card.addView(now, lpTopW(MP, u(68), u(22)));
-        card.addView(tvChoice(null, player.getPlayWhenReady() ? "Пауза" : "Продължи филма", null, 0, () -> {
-            if (!subSyncCurrent(times, lines, movie)) { tvDialogClose(); return; }
-            player.setPlayWhenReady(!player.getPlayWhenReady());
-            subLineConfirm(index, times, lines, movie);
-        }), lpTopW(MP, u(58), u(12)));
-        card.addView(tvChoice(null, "Избери друга реплика", null, 0, () -> subLineDialog()),
-                lpTopW(MP, u(58), u(12)));
-        card.addView(tvChoice(null, "Отказ", null, 0, () -> tvDialogClose()),
-                lpTopW(MP, u(58), u(12)));
-        tvDialogShow(card, 840, now);
-        subDlg = null;
-    }
 
     // ---- готов списък канали, проверка на линковете, неработещи ----
 
@@ -15020,7 +9664,7 @@ private static final String[] TV_SOURCES = {
         card.addView(stop, lpTopW(MP, u(62), u(24)));
         tvDialogShow(card, 760, stop);
         for (final ChkJob j : jobs) {
-            SUBNET.execute(new Runnable() {
+            CHKNET.execute(new Runnable() {
                 @Override
                 public void run() {
                     if (gen != chkGen) return;
@@ -15284,14 +9928,14 @@ private static final String[] TV_SOURCES = {
     // Има ли смисъл да се търси: текущият сайт има страница, която сочи точно към канала.
     private boolean tvSearchable() {
         TvChan c = tvCur;
-        if (c == null || tvVod) return false;
+        if (c == null) return false;
         int i = tvSrcNowIdx();
         return i >= 0 && i < c.srcs.size() && tvCapturable(c.srcs.get(i));
     }
 
     private void tvMoreStart(boolean thenTune) {
         TvChan c = tvCur;
-        if (!tvMode || tvVod || c == null) return;
+        if (!tvMode || c == null) return;
         if (tvSearching) {
             tvSearchTune = tvSearchTune || thenTune;
             tvShowBanner(0, "Още търся потоци…");
@@ -15363,7 +10007,7 @@ private static final String[] TV_SOURCES = {
         ui.removeCallbacks(tvPokeFallback);
         if(web==tvSearchWeb)tvDropWeb();
         tvSearchWeb=null;
-        if (!tvMode || tvVod || c == null || si < 0 || si >= c.srcs.size()) return;
+        if (!tvMode || c == null || si < 0 || si >= c.srcs.size()) return;
         TvSrc s = c.srcs.get(si);
         // Известните потоци не се дублират; резервите могат да идват от различен CDN.
         final HashSet<String> known = new HashSet<>();
@@ -15552,7 +10196,7 @@ private static final String[] TV_SOURCES = {
     // Резултатът от търсенето: новите потоци стават резервни; ако е натиснато ◀ - първият се пуска.
     private void tvSearchDone(TvChan c, int si, ArrayList<String[]> found, int candidates,
                               boolean thenTune, int gen) {
-        if (gen != tvSearchGen || !tvSearching || !tvMode || tvVod || tvCur != c || si < 0 || si >= c.srcs.size()) return;
+        if (gen != tvSearchGen || !tvSearching || !tvMode || tvCur != c || si < 0 || si >= c.srcs.size()) return;
         thenTune=thenTune || tvSearchTune;
         tvSearching=false;tvSearchChecking=false;tvSearchTune=false;
         ui.removeCallbacks(tvSearchProbeTimeout);
@@ -15560,16 +10204,23 @@ private static final String[] TV_SOURCES = {
         TvSrc s = c.srcs.get(si);
         int added = 0;
         int full=0;
-        for(String[] f:found){int saved=tvKeepStream(c,s,new String[]{f[0],f[1],f[2],f[3],"0"});if(saved>0)added++;else if(saved<0)full++;}
+        String firstNew=null;
+        for(String[] f:found){int saved=tvKeepStream(c,s,new String[]{f[0],f[1],f[2],f[3],"0"},true);if(saved>0){added++;if(firstNew==null)firstNew=f[0];}else if(saved<0)full++;}
         if (added > 0) tvSave();
         logEvent("ТВ: още потоци в " + s.site + ": страницата поиска " + candidates
                 + " плейлиста, нови потоци " + added);
         if (added == 0) {
-            tvShowBanner(3500, full>0?"Запазени са 3 работещи потока":"Не намерих нов работещ поток · → за друг сайт");
+            tvShowBanner(3500, full>0?"Местата за потоци са пълни":"Не намерих нов работещ поток · → за друг сайт");
             return;
         }
-        if (thenTune && !tvPlaying) {
-            tvTuneStream(c, si, 0);
+        int newIdx=-2;
+        if(firstNew!=null){
+            if(s.stream.equals(firstNew))newIdx=-1;
+            else for(int k=0;k<s.alts.size();k++)if(s.alts.get(k)[0].equals(firstNew)){newIdx=k;break;}
+        }
+        if (thenTune && newIdx>=-1) {
+            tvShowBanner(2500, "Нов поток · " + s.site);
+            tvTuneStream(c, si, newIdx);
         } else {
             tvShowBanner(4000, "Добавих " + added + (added == 1 ? " нов поток" : " нови потока")
                     + " към " + s.site);
@@ -16358,62 +11009,6 @@ private static final String[] TV_SOURCES = {
 
     // Нарисувана картинка (без файлове): прожектор, голям "play", филмова лента
     // и червена лента "В РАЗРАБОТКА" в ъгъла. Картината е в средата: текстът е вдясно.
-    private static class CatalogArt extends View {
-        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint tp = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Path path = new Path();
-        private final RectF rf = new RectF();
-
-        CatalogArt(Context c, Typeface tf) {
-            super(c);
-            tp.setTypeface(tf);
-            tp.setColor(Color.WHITE);
-            tp.setTextAlign(Paint.Align.CENTER);
-        }
-
-        @Override
-        protected void onDraw(Canvas c) {
-            float w = getWidth();
-            float h = getHeight();
-            if (w <= 0 || h <= 0) return;
-            p.setStyle(Paint.Style.FILL);
-            float cx = w * 0.36f;
-            float cy = h * 0.46f;
-            float r = h * 0.25f;
-            // мек прожектор около "play"
-            p.setColor(0x22FFFFFF);
-            c.drawCircle(cx, cy, h * 0.98f, p);
-            p.setColor(0x18FFFFFF);
-            c.drawCircle(cx, cy, h * 0.64f, p);
-            // филмова лента отдолу
-            float stripH = h * 0.22f;
-            p.setColor(0x55000000);
-            c.drawRect(0, h - stripH, w, h, p);
-            p.setColor(0xCCFFFFFF);
-            float hole = stripH * 0.46f;
-            float gap = hole * 0.9f;
-            for (float x = gap * 0.7f; x < w; x += hole + gap) {
-                float top = h - stripH + (stripH - hole) / 2f;
-                rf.set(x, top, x + hole, top + hole);
-                c.drawRoundRect(rf, hole * 0.25f, hole * 0.25f, p);
-            }
-            // голям "play"
-            p.setColor(0x33FFFFFF);
-            c.drawCircle(cx, cy, r * 1.4f, p);
-            p.setColor(0xF2FFFFFF);
-            c.drawCircle(cx, cy, r, p);
-            p.setColor(0xFFC2410C);
-            path.reset();
-            path.moveTo(cx - r * 0.28f, cy - r * 0.46f);
-            path.lineTo(cx - r * 0.28f, cy + r * 0.46f);
-            path.lineTo(cx + r * 0.50f, cy);
-            path.close();
-            c.drawPath(path, p);
-            // червена лента в ъгъла: показва, че разделът още се доработва
-            drawDevRibbon(c, p, tp, path, h);
-        }
-    }
-
     // Ред "Мои раздели" в менюто: надпис вляво и две широки плочки - филми и телевизия.
     private View makeCatalogLane() {
         LinearLayout lane = new LinearLayout(this);
@@ -16436,20 +11031,6 @@ private static final String[] TV_SOURCES = {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setClipChildren(false);
-
-        FrameLayout films = sectionTile(new CatalogArt(this, tfCondBold), "Филми и сериали",
-                "търси и предложения", new int[]{0xFF1B7A8C, 0xFF0F3541, 0xFFC2570C},
-                new Runnable() {
-                    @Override
-                    public void run() {
-                        catFocusKey = null;
-                        showCatalog(null);
-                    }
-                });
-        catTile = films;
-        LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(0, u(112), 2f);
-        flp.leftMargin = u(16);
-        row.addView(films, flp);
 
         tvLoad();
         FrameLayout tv = sectionTile(new TvArt(this, tfCondBold), "Моята телевизия",

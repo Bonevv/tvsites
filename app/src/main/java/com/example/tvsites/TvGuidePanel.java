@@ -7,6 +7,7 @@ import android.view.*;
 import android.widget.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import android.graphics.drawable.ClipDrawable;
 
 /** The same virtualised channel list and programme panel, in the TV section and over video. */
 @android.annotation.SuppressLint("ViewConstructor") // Constructed in Java with explicit actions, never inflated from XML.
@@ -38,11 +39,11 @@ final class TvGuidePanel extends LinearLayout {
     TvGuidePanel(Context context, float unit, Actions actions, boolean overVideo) {
         super(context); this.unit=unit; this.actions=actions; this.overVideo=overVideo;
         setOrientation(HORIZONTAL); setPadding(px(3),px(3),px(3),px(3));
-        setBackgroundColor(overVideo?0xEE040313:android.graphics.Color.TRANSPARENT);
+        setBackgroundColor(overVideo?0xEE070E1C:android.graphics.Color.TRANSPARENT);
         list=new ListView(context); list.setId(View.generateViewId());list.setFocusable(true);list.setFocusableInTouchMode(true);
         list.setDivider(null); list.setDividerHeight(px(5)); list.setVerticalScrollBarEnabled(false);
         list.setItemsCanFocus(false); list.setChoiceMode(ListView.CHOICE_MODE_SINGLE);
-        list.setSelector(shape(0x20136BFF, TvTheme.BLUE_LIGHT));
+        list.setSelector(shape(0x2257C9FF, TvTheme.FOCUS, 3));
         list.setDrawSelectorOnTop(false);
         adapter=new BaseAdapter() {
             @Override public int getCount(){return channels.size();}
@@ -71,6 +72,7 @@ final class TvGuidePanel extends LinearLayout {
         details=new LinearLayout(context);details.setOrientation(VERTICAL);details.setPadding(px(12),0,px(12),px(20));
 
         detailScroll.addView(details,new ScrollView.LayoutParams(LayoutParams.MATCH_PARENT,LayoutParams.WRAP_CONTENT));
+        if(overVideo)detailScroll.setBackground(shape(TvTheme.SURFACE,TvTheme.OUTLINE,1));
         addView(detailScroll,new LayoutParams(0,LayoutParams.MATCH_PARENT,1f));
     }
     void setChannels(List<Channel> values, String preferredId) {
@@ -106,6 +108,7 @@ final class TvGuidePanel extends LinearLayout {
         details.removeAllViews();
         long now=System.currentTimeMillis();
         EpgGuide.Event current=guide==null?null:guide.current(channel.name,now);
+        if(overVideo){showOverVideo(channel,current,now,id);return;}
         if(!overVideo){
             FrameLayout hero=new FrameLayout(getContext());
             GradientDrawable backdrop=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{TvTheme.BACKGROUND_TOP,TvTheme.BACKGROUND});
@@ -159,6 +162,37 @@ final class TvGuidePanel extends LinearLayout {
         if(count==0)details.addView(text(guide==null?(guideError==null?"Зареждане на EPG…":"Програмата временно не е достъпна."):"Няма следващи предавания в източника.",17,TvTheme.MUTED,false),top(12));
         if(guideError!=null)details.addView(button("Обнови програмата",()->actions.retry(),false),top(12));
     }
+    // Десният панел върху видеото: текущ канал, предаване, прогрес, следващо и големият бутон „Гледай“.
+    private void showOverVideo(Channel channel,EpgGuide.Event current,long now,String id){
+        details.setPadding(px(30),px(26),px(30),px(26));
+        details.addView(text("Текущ канал",21,TvTheme.MUTED,false));
+        TextView name=text(channel.name,56,TvTheme.TEXT,true);name.setSingleLine(true);name.setEllipsize(android.text.TextUtils.TruncateAt.END);details.addView(name,top(10));
+        TextView title=text(current==null?"Телевизия на живо":current.title,34,TvTheme.TEXT,true);title.setMaxLines(2);title.setEllipsize(android.text.TextUtils.TruncateAt.END);details.addView(title,top(22));
+        details.addView(text(current==null?(guide==null?(guideError==null?"Зареждане на програмата…":"Програмата временно не е достъпна."):"Няма данни за предаването"):times(current),25,TvTheme.BLUE_LIGHT,false),top(12));
+        ProgressBar progress=new ProgressBar(getContext(),null,android.R.attr.progressBarStyleHorizontal);progress.setMax(1000);
+        GradientDrawable track=shape(TvTheme.SURFACE_ALT,0);track.setCornerRadius(px(4));GradientDrawable fill=shape(TvTheme.FOCUS,0);fill.setCornerRadius(px(4));
+        android.graphics.drawable.LayerDrawable bar=new android.graphics.drawable.LayerDrawable(new Drawable[]{track,new ClipDrawable(fill,Gravity.START,ClipDrawable.HORIZONTAL)});
+        bar.setId(0,android.R.id.background);bar.setId(1,android.R.id.progress);progress.setProgressDrawable(bar);
+        if(current!=null)progress.setProgress((int)Math.max(0,Math.min(1000,(now-current.start)*1000/Math.max(1,current.end-current.start))));
+        LayoutParams pp=new LayoutParams(LayoutParams.MATCH_PARENT,px(8));pp.topMargin=px(18);details.addView(progress,pp);
+        EpgGuide.Event next=null;if(guide!=null)for(EpgGuide.Event e:guide.forChannel(channel.name,now))if(e.start>now){next=e;break;}
+        if(next!=null){
+            SimpleDateFormat f=new SimpleDateFormat("HH:mm",Locale.getDefault());
+            TextView nx=text("Следва   "+f.format(new Date(next.start))+"   "+next.title,24,TvTheme.MUTED,false);nx.setMaxLines(2);nx.setEllipsize(android.text.TextUtils.TruncateAt.END);details.addView(nx,top(30));
+        }
+        LinearLayout row=new LinearLayout(getContext());row.setOrientation(HORIZONTAL);
+        View watch=button("▶  Гледай",()->actions.watch(id),true);((TextView)watch).setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,px(24));
+        row.addView(watch,new LayoutParams(0,px(62),1f));
+        details.addView(row,top(34));
+        LinearLayout more=new LinearLayout(getContext());more.setOrientation(HORIZONTAL);
+        more.addView(button("Потоци и източници",()->actions.sources(id),false),new LayoutParams(0,px(52),1f));
+        LayoutParams favouriteLp=new LayoutParams(0,px(52),1f);favouriteLp.leftMargin=px(12);
+        View favourite=button(channel.favourite?"★ В любими":"☆ Любим",()->actions.favourite(id),false);if(channel.favourite)((TextView)favourite).setTextColor(TvTheme.WARNING);
+        more.addView(favourite,favouriteLp);
+        details.addView(more,top(14));
+        if(guideError!=null)details.addView(button("Обнови програмата",()->actions.retry(),false),top(14));
+    }
+
     private View button(String label,Runnable action,boolean primary){
         TextView b=text(label,18,TvTheme.TEXT,true);b.setGravity(Gravity.CENTER);b.setPadding(px(16),px(12),px(16),px(12));
         b.setFocusable(true);b.setClickable(true);b.setBackground(selector(primary));
@@ -168,23 +202,24 @@ final class TvGuidePanel extends LinearLayout {
     private int px(float n){return Math.round(n*unit);}
     private LayoutParams top(int margin){LayoutParams p=new LayoutParams(LayoutParams.MATCH_PARENT,LayoutParams.WRAP_CONTENT);p.topMargin=px(margin);return p;}
     private TextView text(String value,int size,int color,boolean bold){TextView t=new TextView(getContext());t.setText(value);t.setTextColor(color);t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,px(size));t.setTypeface(android.graphics.Typeface.create("sans-serif",bold?Typeface.BOLD:Typeface.NORMAL));return t;}
-    private GradientDrawable shape(int color,int stroke){GradientDrawable bg=new GradientDrawable();bg.setColor(color);bg.setCornerRadius(px(8));if(stroke!=0)bg.setStroke(Math.max(1,px(1)),stroke);return bg;}
+    private GradientDrawable shape(int color,int stroke){return shape(color,stroke,1);}
+    private GradientDrawable shape(int color,int stroke,float width){GradientDrawable bg=new GradientDrawable();bg.setColor(color);bg.setCornerRadius(px(14));if(stroke!=0)bg.setStroke(Math.max(1,px(width)),stroke);return bg;}
     private StateListDrawable selector(boolean primary){return TvTheme.control(unit,primary);}
 
     private final class Row extends LinearLayout {
         final TextView name,programme,time,number;final FrameLayout logo;final ProgressBar rowProgress;
         Row(){super(TvGuidePanel.this.getContext());setOrientation(HORIZONTAL);setGravity(Gravity.CENTER_VERTICAL);setPadding(px(14),px(12),px(14),px(12));
             setDescendantFocusability(FOCUS_BLOCK_DESCENDANTS);
-            number=text("",16,TvTheme.MUTED,false);addView(number,new LayoutParams(px(26),LayoutParams.WRAP_CONTENT));
+            number=text("",18,TvTheme.MUTED,false);addView(number,new LayoutParams(px(56),LayoutParams.WRAP_CONTENT));
             logo=new FrameLayout(getContext());LayoutParams lo=new LayoutParams(px(68),px(52));lo.rightMargin=px(16);addView(logo,lo);
             LinearLayout labels=new LinearLayout(getContext());labels.setOrientation(VERTICAL);
-            name=text("",22,TvTheme.TEXT,true);name.setSingleLine(true);name.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(name);
-            programme=text("",16,TvTheme.MUTED,false);programme.setSingleLine(true);programme.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(programme,top(4));
-            time=text("",13,TvTheme.MUTED,false);labels.addView(time,top(2));
+            name=text("",25,TvTheme.TEXT,true);name.setSingleLine(true);name.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(name);
+            programme=text("",19,TvTheme.BLUE_LIGHT,false);programme.setSingleLine(true);programme.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(programme,top(4));
+            time=text("",13,TvTheme.MUTED,false);time.setVisibility(View.GONE);labels.addView(time,top(2));
             rowProgress=new ProgressBar(getContext(),null,android.R.attr.progressBarStyleHorizontal);rowProgress.setMax(1000);rowProgress.setProgressTintList(android.content.res.ColorStateList.valueOf(TvTheme.BLUE));
-            LayoutParams bar=new LayoutParams(LayoutParams.MATCH_PARENT,px(3));bar.topMargin=px(5);labels.addView(rowProgress,bar);addView(labels,new LayoutParams(0,LayoutParams.WRAP_CONTENT,1f));
+            rowProgress.setVisibility(View.GONE);LayoutParams bar=new LayoutParams(LayoutParams.MATCH_PARENT,px(3));bar.topMargin=px(5);labels.addView(rowProgress,bar);addView(labels,new LayoutParams(0,LayoutParams.WRAP_CONTENT,1f));
         }
-        void bind(Channel c,int index){setBackground(shape(c.id.equals(selectedId)?TvTheme.SURFACE_ALT:TvTheme.SURFACE,c.id.equals(selectedId)?TvTheme.FOCUS:TvTheme.OUTLINE));number.setText(String.valueOf(index));name.setText(c.name+(c.favourite?"  ★":""));logo.removeAllViews();logo.addView(actions.logo(c.name),new FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT,LayoutParams.MATCH_PARENT));
+        void bind(Channel c,int index){setBackground(shape(c.id.equals(selectedId)?TvTheme.SURFACE_ALT:TvTheme.BUTTON,c.id.equals(selectedId)?TvTheme.FOCUS:TvTheme.OUTLINE,c.id.equals(selectedId)?2:1));number.setText(String.format(Locale.US,"%03d",index));name.setText(c.name+(c.favourite?"  ★":""));logo.removeAllViews();logo.addView(actions.logo(c.name),new FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT,LayoutParams.MATCH_PARENT));
             EpgGuide.Event event=guide==null?null:guide.current(c.name,System.currentTimeMillis());
             programme.setText(event==null?"На живо":event.title);time.setText(event==null?"":times(event));
             rowProgress.setProgress(event==null?0:(int)Math.max(0,Math.min(1000,(System.currentTimeMillis()-event.start)*1000/Math.max(1,event.end-event.start))));
