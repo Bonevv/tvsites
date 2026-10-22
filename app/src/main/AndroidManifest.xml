@@ -8,7 +8,7 @@
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
     <application
-        android:label="ТВ Сайтове"
+        android:label="TVsites"
         android:icon="@drawable/app_icon"
         android:banner="@drawable/app_banner"
         android:usesCleartextTraffic="true"
