@@ -5195,6 +5195,28 @@ public class MainActivity extends Activity {
                     || code==KeyEvent.KEYCODE_DPAD_LEFT || code==KeyEvent.KEYCODE_DPAD_RIGHT)return true;
             return super.dispatchKeyEvent(e);
         }
+        if (tvMoveChan != null) {
+            if (!tvPanelShown() || tvOverviewGuide == null || tvMode) {
+                tvMoveEnd();
+            } else if (code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN) {
+                if (down) tvMoveStep(code == KeyEvent.KEYCODE_DPAD_UP ? -1 : 1);
+                return true;
+            } else if (code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                return true;
+            } else if (okKey || code == KeyEvent.KEYCODE_BACK) {
+                if (down && e.getRepeatCount() == 0) {
+                    tvMoveEnd();
+                    tvMoveSwallow = code;
+                }
+                return true;
+            } else if (code == KeyEvent.KEYCODE_MENU) {
+                tvMoveEnd();
+            }
+        } else if (tvMoveSwallow >= 0 && code == tvMoveSwallow) {
+            // Остатъкът от натискането, което приключи местенето, не трябва да пуска канал.
+            if (!down) tvMoveSwallow = -1;
+            return true;
+        }
         if(code==KeyEvent.KEYCODE_MENU){if(down && e.getRepeatCount()==0)showSectionMenu();return true;}
         if(tvTimelineLayer!=null)return super.dispatchKeyEvent(e);
 
@@ -5476,6 +5498,7 @@ public class MainActivity extends Activity {
         super.onStop();
         memoryForeground=false;ui.removeCallbacks(appMemoryTick);
         if(hvLayer!=null)hvStop(true);
+        tvMoveEnd();
         // Когато излезеш (Home), всичко се спира и при връщане започваш от менюто.
         if (!exiting && !isFinishing() && !isChangingConfigurations()) {
             logEvent("Приложението е скрито (Home, друго приложение или угаснал екран)", true);
@@ -6399,7 +6422,7 @@ public class MainActivity extends Activity {
     // Пълни екрана: празно състояние или списък. focusId е каналът, който да остане на фокус.
     private void tvFill(final String focusId) {
         tvCount(); tvLayoutFor(tvChans.isEmpty()); tvFillHead(""); tvBuildContent();
-        tvHint.setText("↑ ↓ Канали    OK Гледай    MENU Всички раздели    → Програма");
+        tvHint.setText(TV_HINT_NORMAL);
         tvPanel.post(()->{if(tvPanelShown())tvFocusContent();});
     }
 
@@ -7392,6 +7415,65 @@ public class MainActivity extends Activity {
         tvDialogShow(card, 760, save);
     }
 
+    private interface TvNumCb {
+        void done(int n);
+    }
+
+    private void tvAskNumber(String title, String sub, final int max, final TvNumCb cb) {
+        LinearLayout card = tvCard(title, sub);
+        final EditText et = new EditText(this);
+        et.setBackground(TvTheme.control(U, false));
+        et.setPadding(u(22), u(10), u(22), u(10));
+        et.setSingleLine(true);
+        et.setHint("Номер от 1 до " + max);
+        et.setTextColor(T_TEXT);
+        et.setHintTextColor(T_TEXT3);
+        ts(et, 28);
+        et.setTypeface(tfMedium);
+        et.setInputType(InputType.TYPE_CLASS_NUMBER);
+        et.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        card.addView(et, lpTopW(MP, u(68), u(22)));
+        final Runnable ok = new Runnable() {
+            @Override
+            public void run() {
+                int n = 0;
+                try {
+                    n = Integer.parseInt(et.getText().toString().trim());
+                } catch (NumberFormatException ignored) {
+                    // остава 0: не е число
+                }
+                if (n < 1 || n > max) {
+                    Toast.makeText(MainActivity.this, "Напиши номер от 1 до " + max, Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                tvDialogClose();
+                cb.done(n);
+            }
+        };
+        et.setOnEditorActionListener(new TextView.OnEditorActionListener() {
+            @Override
+            public boolean onEditorAction(TextView v, int actionId, KeyEvent ev) {
+                ok.run();
+                return true;
+            }
+        });
+        LinearLayout btns = new LinearLayout(this);
+        btns.setOrientation(LinearLayout.HORIZONTAL);
+        btns.setClipChildren(false);
+        LinearLayout save = tvPrimary(IC_CHECK, "Премести", 64, 22, ok);
+        btns.addView(save, lp(WC, u(64)));
+        LinearLayout.LayoutParams cl = lp(WC, u(64));
+        cl.leftMargin = u(14);
+        btns.addView(tvPill(-1, "Отказ", new Runnable() {
+            @Override
+            public void run() {
+                tvDialogClose();
+            }
+        }), cl);
+        card.addView(btns, lpTopW(WC, u(64), u(22)));
+        tvDialogShow(card, 760, et);
+    }
+
     // ---- запазване на канал от страница (бутон "В ТВ" в опциите) ----
 
     private View tvSaveBtn(final String url) {
@@ -7695,6 +7777,122 @@ public class MainActivity extends Activity {
 
     // ---- промяна на канал (задържане на OK върху канал) ----
 
+    // ---- местене на канал: на номер или с ↑ ↓ ----
+    // Номерата са тези, които се виждат в списъка (при филтър - в него).
+
+    private TvChan tvMoveChan;       // канал, който се мести със стрелките
+    private boolean tvMoveDirty;
+    private int tvMoveSwallow = -1;  // бутон, чието край на натискане след затваряне на режима се поглъща
+    private final Runnable tvMoveSaveRun = new Runnable() {
+        @Override
+        public void run() {
+            if (tvMoveDirty) {
+                tvMoveDirty = false;
+                tvSave();
+            }
+        }
+    };
+    private static final String TV_HINT_NORMAL = "↑ ↓ Канали    OK Гледай    MENU Всички раздели    → Програма";
+
+    private ArrayList<TvGuidePanel.Channel> tvShownList() {
+        return guideChannels(tvPanelShown() && tvOverviewGuide != null && !tvMode);
+    }
+
+    private int tvShownPos(TvChan c) {
+        ArrayList<TvGuidePanel.Channel> vis = tvShownList();
+        for (int i = 0; i < vis.size(); i++) {
+            if (vis.get(i).id.equals(c.id)) return i + 1;
+        }
+        return -1;
+    }
+
+    private void tvShowMoved(TvChan c) {
+        if (tvPanelShown() && tvOverviewGuide != null) {
+            tvOverviewGuide.setChannels(guideChannels(true), c.id);
+            tvOverviewGuide.focusChannels();
+        }
+    }
+
+    private void tvMoveToNumber(TvChan c, int n) {
+        ArrayList<TvGuidePanel.Channel> vis = tvShownList();
+        if (vis.isEmpty()) return;
+        n = Math.max(1, Math.min(vis.size(), n));
+        TvChan target = tvById(vis.get(n - 1).id);
+        int from = tvChans.indexOf(c);
+        int to = target == null ? -1 : tvChans.indexOf(target);
+        if (from < 0 || to < 0 || from == to) return;
+        tvChans.remove(from);
+        tvChans.add(to, c);
+        tvSave();
+        Toast.makeText(this, "„" + c.name + "“ е на №" + n, Toast.LENGTH_SHORT).show();
+        tvShowMoved(c);
+    }
+
+    private void tvMoveAsk(final TvChan c) {
+        int max = tvShownList().size();
+        int now = tvShownPos(c);
+        if (max < 2) return;
+        tvAskNumber("Премести „" + c.name + "“",
+                (now > 0 ? "Сега е на №" + now + " от " + max + ". " : "") + "Напиши номера, на който да е.",
+                max, new TvNumCb() {
+                    @Override
+                    public void done(int n) {
+                        tvMoveToNumber(c, n);
+                    }
+                });
+    }
+
+    // Белязва канала: ↑ ↓ го местят с по едно място, OK или Назад приключват.
+    private void tvMoveStart(TvChan c) {
+        if (!tvPanelShown() || tvOverviewGuide == null || tvMode || tvShownPos(c) < 0) {
+            Toast.makeText(this, "Каналът не е в списъка, който се вижда сега.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        tvMoveChan = c;
+        tvMoveDirty = false;
+        tvOverviewGuide.setChannels(guideChannels(true), c.id);
+        tvOverviewGuide.focusChannels();
+        if (tvHint != null) tvHint.setText("↑ ↓ Мести „" + c.name + "“    OK Готово");
+        Toast.makeText(this, "Мести „" + c.name + "“ със ↑ ↓. OK приключва.", Toast.LENGTH_LONG).show();
+    }
+
+    private void tvMoveStep(int dir) {
+        TvChan c = tvMoveChan;
+        if (c == null || tvOverviewGuide == null) return;
+        ArrayList<TvGuidePanel.Channel> vis = guideChannels(true);
+        int p = -1;
+        for (int i = 0; i < vis.size(); i++) {
+            if (vis.get(i).id.equals(c.id)) p = i;
+        }
+        int q = p + dir;
+        if (p < 0 || q < 0 || q >= vis.size()) return;
+        TvChan other = tvById(vis.get(q).id);
+        int a = tvChans.indexOf(c);
+        int b = other == null ? -1 : tvChans.indexOf(other);
+        if (a < 0 || b < 0) return;
+        Collections.swap(tvChans, a, b);
+        tvMoveDirty = true;
+        tvOverviewGuide.rememberPosition();
+        tvOverviewGuide.setChannels(guideChannels(true), c.id);
+        tvOverviewGuide.focusChannels();
+        ui.removeCallbacks(tvMoveSaveRun);
+        ui.postDelayed(tvMoveSaveRun, 2000);
+    }
+
+    private void tvMoveEnd() {
+        TvChan c = tvMoveChan;
+        if (c == null) return;
+        tvMoveChan = null;
+        ui.removeCallbacks(tvMoveSaveRun);
+        if (tvMoveDirty) {
+            tvMoveDirty = false;
+            tvSave();
+        }
+        if (tvHint != null) tvHint.setText(TV_HINT_NORMAL);
+        int pos = tvShownPos(c);
+        if (pos > 0) Toast.makeText(this, "„" + c.name + "“ е на №" + pos, Toast.LENGTH_SHORT).show();
+    }
+
     private void tvChannelMenu(final TvChan c) {
         final int idx = tvChans.indexOf(c);
         if (idx < 0) return;
@@ -7723,28 +7921,21 @@ public class MainActivity extends Activity {
             }
         });
         list.addView(first, lp(MP, u(62)));
-        if (idx > 0) {
-            list.addView(tvChoice(null, "Премести по-горе", "ще е канал " + idx, 0, new Runnable() {
+        final int shownPos = tvShownPos(c);
+        list.addView(tvChoice(null, "Премести на номер", shownPos > 0 ? "сега №" + shownPos : null, 0, new Runnable() {
+            @Override
+            public void run() {
+                tvMoveAsk(c);
+            }
+        }), lpTopW(MP, u(62), u(10)));
+        if (tvPanelShown() && tvOverviewGuide != null && !tvMode) {
+            list.addView(tvChoice(null, "Премести със ↑ ↓", "OK приключва", 0, new Runnable() {
                 @Override
                 public void run() {
                     tvDialogClose();
-                    Collections.swap(tvChans, idx, idx - 1);
-                    tvSave();
-                    if (tvPanelShown()) tvFill(c.id);
+                    tvMoveStart(c);
                 }
             }), lpTopW(MP, u(62), u(10)));
-        }
-        if (idx < tvChans.size() - 1) {
-            list.addView(tvChoice(null, "Премести по-долу", "ще е канал " + (idx + 2), 0,
-                    new Runnable() {
-                        @Override
-                        public void run() {
-                            tvDialogClose();
-                            Collections.swap(tvChans, idx, idx + 1);
-                            tvSave();
-                            if (tvPanelShown()) tvFill(c.id);
-                        }
-                    }), lpTopW(MP, u(62), u(10)));
         }
         list.addView(tvChoice(null, "Обнови потоците", "пуска канала и търси още", 0, new Runnable() {
             @Override
@@ -8893,6 +9084,7 @@ public class MainActivity extends Activity {
 
     // Вика се при връщане към менюто или излизане от приложението.
     private void tvReset() {
+        tvMoveEnd();
         if (tvMode) tvLeave(false);
         tvEpgStop();
         if (tvPanelShown()) tvHidePanelQuiet();
