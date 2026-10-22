@@ -19,7 +19,7 @@ final class AppNavigation extends FrameLayout {
         LinearLayout header=new LinearLayout(context);header.setGravity(Gravity.CENTER_VERTICAL);header.setPadding(px(54),0,px(48),0);header.setBackgroundColor(TvTheme.BACKGROUND);
         LayoutParams hp=new LayoutParams(LayoutParams.MATCH_PARENT,px(96),Gravity.TOP);addView(header,hp);
         LinearLayout brand=new LinearLayout(context);brand.setGravity(Gravity.CENTER_VERTICAL);
-        NavigationIcon brandIcon=new NavigationIcon(context,0);brandIcon.tint=TvTheme.BLUE;brand.addView(brandIcon,new LinearLayout.LayoutParams(px(30),px(30)));
+        ImageView brandIcon=new ImageView(context);int logo=context.getResources().getIdentifier("app_icon","drawable",context.getPackageName());if(logo!=0)brandIcon.setImageResource(logo);brandIcon.setScaleType(ImageView.ScaleType.FIT_CENTER);brand.addView(brandIcon,new LinearLayout.LayoutParams(px(46),px(46)));
         TextView name=label("ТВ Сайтове",24,true);LinearLayout.LayoutParams nl=new LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT,LayoutParams.WRAP_CONTENT);nl.leftMargin=px(13);brand.addView(name,nl);header.addView(brand,new LinearLayout.LayoutParams(px(240),LayoutParams.MATCH_PARENT));
         int[] sections={5,0,2,3,4};String[] names={"Начало","Телевизия","Радио","Сайтове","Настройки"};
         for(int j=0;j<sections.length;j++){

@@ -5103,6 +5103,7 @@ public class MainActivity extends Activity {
 
     private void handleBack() {
         if(tvTimelineLayer!=null){tvCloseTimeline();return;}
+        if(tvMode && tvSearching){tvSearchCancel();return;}
         if(tvMode && !tvListShown() && tvBanner!=null && tvControlsOpen){tvHideBannerNow();nativeLayer.setFocusableInTouchMode(true);nativeLayer.requestFocusFromTouch();return;}
         if (scrollMode) {
             setScrollMode(false);
@@ -5353,7 +5354,7 @@ public class MainActivity extends Activity {
     private static final int T_SKY = TvTheme.BLUE;
     private static final int T_SKY2 = TvTheme.BLUE_LIGHT;
     private static final int T_INK = Color.WHITE;
-    private static final int T_LIVE = 0xFFFF4D5E;
+    private static final int T_LIVE = TvTheme.LIVE;
     private static final int T_OK = 0xFF34D399;
     private static final int[] T_CHAN = {0xFF2563EB, 0xFF0EA5E9, 0xFF6366F1, 0xFF14B8A6,
             0xFFF43F5E, 0xFF8B5CF6, 0xFFF59E0B, 0xFF10B981, 0xFFEAB308, 0xFF3B82F6, 0xFF06B6D4,
@@ -5910,7 +5911,7 @@ public class MainActivity extends Activity {
         tvPanel.addView(tvScroll, new FrameLayout.LayoutParams(MP, MP));
 
         // Мек преход най-долу, за да се чете подсказката.
-        tvFade = new ScrimView(this, true, new int[]{0x000D1119, 0xEB0D1119}, new float[]{0f, 1f});
+        tvFade = new ScrimView(this, true, new int[]{0x00070E1C, 0xEB0D1119}, new float[]{0f, 1f});
         tvPanel.addView(tvFade, new FrameLayout.LayoutParams(MP, u(80), Gravity.BOTTOM));
         tvHint = text("", 16, T_TEXT3, tfMedium, true);
         tvHint.setGravity(Gravity.CENTER);
@@ -6352,7 +6353,7 @@ public class MainActivity extends Activity {
 
     private LinearLayout tvDashboardLink(int icon, String title, Runnable action) {
         LinearLayout v = tvDashboardPill(icon, title, action);
-        v.setBackground(stateBg(TvTheme.SURFACE, 0xFF232238, TvTheme.FOCUS, u(14), TvTheme.OUTLINE));
+        v.setBackground(stateBg(TvTheme.SURFACE, TvTheme.SURFACE_ALT, TvTheme.FOCUS, u(14), TvTheme.OUTLINE));
         return v;
     }
 
@@ -6360,7 +6361,7 @@ public class MainActivity extends Activity {
         LinearLayout tile = new LinearLayout(this);
         tile.setOrientation(LinearLayout.VERTICAL);
         tile.setPadding(u(16), u(10), u(16), u(10));
-        tile.setBackground(stateBg(TvTheme.SURFACE, 0xFF232238, TvTheme.FOCUS, u(16), TvTheme.OUTLINE));
+        tile.setBackground(stateBg(TvTheme.SURFACE, TvTheme.SURFACE_ALT, TvTheme.FOCUS, u(16), TvTheme.OUTLINE));
         tile.setFocusable(true); tile.setClickable(true); tile.setLongClickable(true);
         tile.setTag("ch:" + channel.id);
         LinearLayout logoRow = new LinearLayout(this);
@@ -6618,7 +6619,7 @@ public class MainActivity extends Activity {
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setFocusable(true); row.setClickable(true); row.setLongClickable(true);
             row.setTag("epg:" + c.id);
-            row.setBackground(stateBg(TvTheme.SURFACE, 0xFF232238, TvTheme.FOCUS, u(6), TvTheme.OUTLINE));
+            row.setBackground(stateBg(TvTheme.SURFACE, TvTheme.SURFACE_ALT, TvTheme.FOCUS, u(6), TvTheme.OUTLINE));
             TvPlate logo = new TvPlate(this, 6, 5, true);
             logo.setChan(c.name);
             row.addView(logo, lp(u(90), u(48)));
@@ -6670,7 +6671,7 @@ public class MainActivity extends Activity {
         card.addView(artwork, art);
         tvHeroArtwork = new TvArtwork(this);
         card.addView(tvHeroArtwork, new FrameLayout.LayoutParams(MP, MP));
-        card.addView(new ScrimView(this, false, new int[]{0xFF0D1119, 0xE60D1119, 0x260D1119},
+        card.addView(new ScrimView(this, false, new int[]{TvTheme.BACKGROUND, 0xE60D1119, 0x260D1119},
                 new float[]{0f, 0.45f, 1f}), new FrameLayout.LayoutParams(MP, MP));
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
@@ -6906,12 +6907,8 @@ public class MainActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(u(40), u(32), u(40), u(34));
-        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                new int[]{0xFF15264A, 0xFF0A1226});
-        bg.setCornerRadius(u(30));
-        bg.setStroke(Math.max(1, u(1)), 0x408FDBFF);
-        card.setBackground(bg);
-        card.addView(text(title, 42, T_TEXT, tfCondBold, true));
+        card.setBackground(TvTheme.panel(u(20), TvTheme.SURFACE, TvTheme.OUTLINE, U));
+        card.addView(text(title, 34, T_TEXT, Typeface.DEFAULT_BOLD, true));
         if (sub != null) {
             TextView s = text(sub, 18, T_TEXT2, tfMedium, false);
             s.setPadding(0, u(8), 0, 0);
@@ -6955,21 +6952,21 @@ public class MainActivity extends Activity {
         r.setFocusable(true);
         r.setClickable(true);
         if (style == 1) {
-            r.setBackground(tvPrimaryBg(u(20)));
+            r.setBackground(TvTheme.control(U, true));
         } else if (style == 2) {
-            r.setBackground(stateBg(0x1AFB7185, 0x33FB7185, Color.WHITE, u(20), 0x33FB7185));
+            r.setBackground(TvTheme.tinted(U, 0x26FF6576, 0x66FF6576));
         } else {
-            r.setBackground(stateBg(0x0FFFFFFF, T_SURF2, Color.WHITE, u(20), 0x1AFFFFFF));
+            r.setBackground(TvTheme.control(U, false));
         }
-        int fg = style == 1 ? T_INK : style == 2 ? 0xFFFDA4AF : T_TEXT;
+        int fg = style == 1 ? Color.WHITE : style == 2 ? TvTheme.FAILURE : T_TEXT;
         if (num != null) {
-            r.addView(text(num, 30, style == 1 ? T_INK : T_SKY2, tfCondBold, true),
+            r.addView(text(num, 26, style == 1 ? Color.WHITE : T_SKY2, Typeface.DEFAULT_BOLD, true),
                     lp(u(44), WC));
         }
-        r.addView(text(label, 28, fg, tfCondBold, true),
+        r.addView(text(label, 24, fg, Typeface.DEFAULT_BOLD, true),
                 new LinearLayout.LayoutParams(0, WC, 1f));
         if (right != null) {
-            TextView rt = text(right, 16, style == 1 ? 0xAA04121F : T_TEXT3, tfMedium, true);
+            TextView rt = text(right, 17, style == 1 ? 0xCCFFFFFF : T_TEXT3, tfMedium, true);
             LinearLayout.LayoutParams rl = lp(WC, WC);
             rl.leftMargin = u(14);
             r.addView(rt, rl);
@@ -6992,7 +6989,7 @@ public class MainActivity extends Activity {
                            final TvNameCb cb) {
         LinearLayout card = tvCard(title, sub);
         final EditText et = new EditText(this);
-        et.setBackground(stateBg(0x14FFFFFF, 0x1FFFFFFF, T_SKY, u(18), 0x40FFFFFF));
+        et.setBackground(TvTheme.control(U, false));
         et.setPadding(u(22), u(10), u(22), u(10));
         et.setText(initial);
         et.setSelection(et.getText().length());
@@ -7001,7 +6998,7 @@ public class MainActivity extends Activity {
         et.setTextColor(T_TEXT);
         et.setHintTextColor(T_TEXT3);
         ts(et, 28);
-        et.setTypeface(tfCondBold);
+        et.setTypeface(tfMedium);
         et.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         et.setImeOptions(EditorInfo.IME_ACTION_DONE);
         card.addView(et, lpTopW(MP, u(68), u(22)));
@@ -7232,24 +7229,53 @@ public class MainActivity extends Activity {
         source.alts.add(incoming);return 1;
     }
 
-    private void tvAddStreamDialog(final TvChan channel,final int site,Runnable done){
-        if(site<0 || site>=channel.srcs.size())return;final TvSrc source=channel.srcs.get(site);
+    private void tvAddStreamDialog(final TvChan channel,final int site,final Runnable done){
+        if(site<0 || site>=channel.srcs.size())return;
+        final TvSrc source=channel.srcs.get(site);
         tvDialogClose();
-        EditText input=new EditText(this);input.setSingleLine(true);input.setHint("https://…");input.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Добави поток · "+source.site).setView(input)
-                .setPositiveButton("Запази",null).setNegativeButton("Отказ",null).create();
-        tvDialog=dialog;
-        dialog.setOnDismissListener(d->{if(tvDialog==dialog)tvDialog=null;hideSystemBars();});
-        dialog.show();
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+        LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setPadding(u(46),u(40),u(46),u(36));
+        card.setBackground(TvTheme.panel(u(22),TvTheme.SURFACE,TvTheme.OUTLINE,U));
+        card.addView(text("Добави поток · "+source.site,38,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true));
+        card.addView(text("Въведи директен HTTP или HTTPS адрес на потока.",21,TvTheme.MUTED,tfMedium,true),lpTopW(MP,WC,u(14)));
+        card.addView(text("URL на потока",22,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true),lpTopW(MP,WC,u(30)));
+        final EditText input=new EditText(this);input.setSingleLine(true);input.setHint("https://example.com/live/channel.m3u8");
+        input.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI|InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        input.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        input.setTextColor(TvTheme.TEXT);input.setHintTextColor(0xFF5F7898);ts(input,25);input.setTypeface(tfMedium);
+        input.setPadding(u(24),u(12),u(24),u(12));input.setBackground(TvTheme.tinted(U,TvTheme.SURFACE_ALT,TvTheme.FOCUS));
+        card.addView(input,lpTopW(MP,u(70),u(12)));
+        LinearLayout info=new LinearLayout(this);info.setGravity(Gravity.CENTER_VERTICAL);
+        final TextView badge=text("—",19,TvTheme.MUTED,Typeface.DEFAULT_BOLD,true);badge.setGravity(Gravity.CENTER);badge.setPadding(u(20),u(8),u(20),u(8));badge.setBackground(TvTheme.panel(u(10),TvTheme.BUTTON,0,0));
+        info.addView(badge,lp(WC,WC));
+        LinearLayout.LayoutParams hl=lp(WC,WC);hl.leftMargin=u(16);info.addView(text("Реалната проверка се извършва отделно.",20,TvTheme.MUTED,tfMedium,true),hl);
+        card.addView(info,lpTopW(MP,WC,u(18)));
+        input.addTextChangedListener(new android.text.TextWatcher(){
+            @Override public void beforeTextChanged(CharSequence s,int a,int b,int c){}
+            @Override public void onTextChanged(CharSequence s,int a,int b,int c){}
+            @Override public void afterTextChanged(android.text.Editable e){
+                String v=e.toString().trim().toLowerCase(Locale.ROOT);
+                if(v.startsWith("https://")){badge.setText("HTTPS");badge.setTextColor(TvTheme.PLAYING);}
+                else if(v.startsWith("http://")){badge.setText("HTTP");badge.setTextColor(TvTheme.WARNING);}
+                else{badge.setText("—");badge.setTextColor(TvTheme.MUTED);}
+            }
+        });
+        final Runnable save=()->{
             String url=input.getText().toString().trim();Uri uri=Uri.parse(url);
             if((!"https".equalsIgnoreCase(uri.getScheme()) && !"http".equalsIgnoreCase(uri.getScheme())) || nz(uri.getHost()).isEmpty()){
                 input.setError("Въведи пълен HTTP или HTTPS адрес");return;
             }
             int saved=tvKeepStream(channel,source,new String[]{url,source.ref,source.org,source.ua,"0"});
             if(saved<0){input.setError("Има "+(TV_MAX_ALTS+1)+" потока. Премахни ненужния от управлението на канала.");return;}
-            if(saved>0){tvMarkManual(url);tvSave();}tvBannerRefresh();dialog.dismiss();if(done!=null)done.run();
-        });
+            if(saved>0){tvMarkManual(url);tvSave();}
+            tvBannerRefresh();tvDialogClose();if(done!=null)done.run();
+        };
+        input.setOnEditorActionListener((v,actionId,event)->{if(actionId==EditorInfo.IME_ACTION_DONE){save.run();return true;}return false;});
+        LinearLayout actions=new LinearLayout(this);
+        actions.addView(tvTextButton("✓  Запази",1,save),new LinearLayout.LayoutParams(u(260),u(62)));
+        LinearLayout.LayoutParams cl=new LinearLayout.LayoutParams(u(260),u(62));cl.leftMargin=u(16);
+        actions.addView(tvTextButton("Отказ",0,()->{tvDialogClose();if(done!=null)done.run();}),cl);
+        card.addView(actions,lpTopW(MP,u(62),u(34)));
+        tvDialogShow(card,1000,input);
     }
 
     // Записва източника в канала. Същото име = същият канал; същият сайт = заменя стария източник.
@@ -7538,73 +7564,58 @@ public class MainActivity extends Activity {
         return tvMode && tvPlaying && tvCur == c && tvSrcNowIdx() == i && tvStreamNowIdx() == k + 1;
     }
 
-    // Един поток на източника: пускане, повишаване, изтриване.
-    private void tvStreamMenu(final TvChan c, final int i, final int k) {
-        if (i < 0 || i >= c.srcs.size()) return;
-        final TvSrc s = c.srcs.get(i);
-        if (k >= s.alts.size()) {
-            tvSourceMenu(c, i);
-            return;
+    // Подробности за един поток (задържане на OK): точният източник и действията за него.
+    private void tvStreamMenu(final TvChan c,final int i,final int k){
+        if(i<0 || i>=c.srcs.size())return;
+        final TvSrc s=c.srcs.get(i);
+        if(k>=s.alts.size()){tvSourceMenu(c,i);return;}
+        final String url=k<0?s.stream:s.alts.get(k)[0];
+        final boolean live=tvMode && tvCur==c;
+        final Runnable back=()->{tvDialogClose();if(live)tvStreamPicker();else tvSourceMenu(c,i);};
+        LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setPadding(u(40),u(30),u(40),u(30));
+        card.setBackground(TvTheme.panel(u(20),TvTheme.BACKGROUND,TvTheme.OUTLINE,U));
+        LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);
+        head.addView(text("Детайли за потока",38,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true),new LinearLayout.LayoutParams(0,WC,1f));
+        TextView badge=text(k<0?"ОСНОВЕН":"РЕЗЕРВЕН "+(k+1),20,TvTheme.FOCUS,Typeface.DEFAULT_BOLD,true);badge.setPadding(u(20),u(9),u(20),u(9));badge.setBackground(TvTheme.panel(u(10),TvTheme.SURFACE_ALT,0,0));head.addView(badge,lp(WC,WC));
+        card.addView(head,lp(MP,WC));
+        String low=nz(url).toLowerCase(Locale.ROOT);
+        String format=low.contains(".m3u8")?"HLS (.m3u8)":low.contains(".mpd")?"DASH (.mpd)":low.contains(".mp4")?"Видео файл (.mp4)":"Неизвестен";
+        int failures=k<0?Math.max(0,s.fails):Math.max(0,tvAltFails(s.alts.get(k)));
+        String check=tvStreamActive(c,i,k)?"Възпроизвежда се":tvSessBad.contains(url)?"Прекъснал в това гледане":"Няма данни";
+        String shown=nz(url);int q=shown.indexOf('?');if(q>0)shown=shown.substring(0,q)+"?…";
+        String[][] fields={{"Сайт",s.site},{"Име",k<0?"Основен поток":"Резервен поток "+(k+1)},{"Адрес",shown},{"Хост",hostOf(url)},
+                {"Формат",format},{"Неуспешни опити",String.valueOf(failures)},{"Текуща проверка",check}};
+        for(int j=0;j<fields.length;j++){
+            LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);
+            line.addView(text(fields[j][0],21,TvTheme.MUTED,Typeface.DEFAULT_BOLD,true),new LinearLayout.LayoutParams(u(240),WC));
+            TextView value=text(fields[j][1],22,TvTheme.TEXT,tfMedium,true);value.setPadding(u(20),u(10),u(20),u(10));
+            value.setBackground(TvTheme.panel(u(10),0xFF0B182B,TvTheme.OUTLINE,U));
+            line.addView(value,new LinearLayout.LayoutParams(0,WC,1f));
+            card.addView(line,lpTopW(MP,WC,u(j==0?24:12)));
         }
-        String u = k < 0 ? s.stream : s.alts.get(k)[0];
-        LinearLayout card = tvCard(k < 0 ? "Основен поток" : "Резервен поток " + (k + 1),
-                s.site + "  ·  " + shortName(u));
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout play = tvChoice(null, "Пусни този поток", null, 1, new Runnable() {
-            @Override
-            public void run() {
-                tvDialogClose();
-                tvTuneStream(c, i, k);
-            }
+        LinearLayout actions=new LinearLayout(this);
+        TextView play=tvTextButton("▶  Пусни",1,()->{tvDialogClose();tvTuneStream(c,i,k);});
+        actions.addView(play,new LinearLayout.LayoutParams(u(200),u(58)));
+        if(k>=0){
+            TextView main=tvTextButton("↑  Направи основен",0,()->{
+                String[] al=s.alts.get(k);
+                s.alts.set(k,new String[]{s.stream,s.ref,s.org,s.ua,"0"});
+                s.stream=al[0];s.ref=al[1];s.org=al[2];s.ua=al[3];s.fails=0;
+                tvSave();back.run();
+            });
+            LinearLayout.LayoutParams ml=new LinearLayout.LayoutParams(WC,u(58));ml.leftMargin=u(14);actions.addView(main,ml);
+        }
+        TextView delete=tvTextButton("Изтрий",2,()->{
+            if(k>=0){s.alts.remove(k);}
+            else if(!s.alts.isEmpty()){String[] al=s.alts.remove(0);s.stream=al[0];s.ref=al[1];s.org=al[2];s.ua=al[3];}
+            else{s.stream="";s.ref="";s.org="";s.ua="";}
+            s.fails=0;tvSave();back.run();
         });
-        list.addView(play, lp(MP, u(62)));
-        if (k >= 0) {
-            list.addView(tvChoice(null, "Направи основен", null, 0, new Runnable() {
-                @Override
-                public void run() {
-                    String[] al = s.alts.get(k);
-                    s.alts.set(k, new String[]{s.stream, s.ref, s.org, s.ua, "0"});
-                    s.stream = al[0];
-                    s.ref = al[1];
-                    s.org = al[2];
-                    s.ua = al[3];
-                    s.fails = 0;
-                    tvSave();
-                    tvSourceMenu(c, i);
-                }
-            }), lpTopW(MP, u(62), u(10)));
-        }
-        list.addView(tvChoice(null, "Изтрий този поток", null, 2, new Runnable() {
-            @Override
-            public void run() {
-                if (k >= 0) {
-                    s.alts.remove(k);
-                } else if (!s.alts.isEmpty()) {
-                    String[] al = s.alts.remove(0);
-                    s.stream = al[0];
-                    s.ref = al[1];
-                    s.org = al[2];
-                    s.ua = al[3];
-                } else {
-                    s.stream = "";
-                    s.ref = "";
-                    s.org = "";
-                    s.ua = "";
-                }
-                s.fails = 0;
-                tvSave();
-                tvSourceMenu(c, i);
-            }
-        }), lpTopW(MP, u(62), u(10)));
-        list.addView(tvChoice(null, "Назад", null, 0, new Runnable() {
-            @Override
-            public void run() {
-                tvSourceMenu(c, i);
-            }
-        }), lpTopW(MP, u(62), u(10)));
-        card.addView(list, lpTopW(MP, WC, u(24)));
-        tvDialogShow(card, 760, play);
+        LinearLayout.LayoutParams dl=new LinearLayout.LayoutParams(WC,u(58));dl.leftMargin=u(14);actions.addView(delete,dl);
+        TextView backBtn=tvTextButton("Назад",0,back);
+        LinearLayout.LayoutParams bl=new LinearLayout.LayoutParams(WC,u(58));bl.leftMargin=u(14);actions.addView(backBtn,bl);
+        card.addView(actions,lpTopW(MP,u(58),u(28)));
+        tvDialogShow(card,1040,play);
     }
 
     // "Добави от сайт": избор на сайт, който да се отвори.
@@ -7898,6 +7909,7 @@ public class MainActivity extends Activity {
         tvSearchChecking = false;
         tvSearchTune = false;
         tvSearchWeb = null;
+        tvSearchPanelHide();
         if(tvSearchTask!=null){tvSearchTask.cancel(true);tvSearchTask=null;}
         TV_SEARCH_NET.purge();
         ui.removeCallbacks(tvSearchEndRun);
@@ -8603,7 +8615,7 @@ public class MainActivity extends Activity {
     // Страницата се е заредила: започва да се "буткат" плеърите да тръгнат.
     private void tvPageFinished(boolean loaded) {
         if(loaded && tvSearching && !tvSearchPageReady){
-            tvSearchPageReady=true;tvPokeN=0;ui.removeCallbacks(tvPokeRun);
+            tvSearchPageReady=true;tvPokeN=0;ui.removeCallbacks(tvPokeRun);tvSearchPhase(1);
             ui.removeCallbacks(tvSearchEndRun);
             ui.postDelayed(tvSearchEndRun,Math.max(0,Math.min(TV_SEARCH_MS,tvSearchDeadline-SystemClock.uptimeMillis())));
         }
@@ -8875,24 +8887,88 @@ public class MainActivity extends Activity {
         tvWait.setVisibility(View.GONE);
         nativeLayer.addView(tvWait, new FrameLayout.LayoutParams(MP, MP));
 
-        tvBanner=new FrameLayout(this);
-        LinearLayout bottom=new LinearLayout(this);bottom.setOrientation(LinearLayout.VERTICAL);bottom.setPadding(u(54),u(53),u(54),u(24));bottom.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0x000D1119,0xEE0D1119,0xFF0D1119}));
-        LinearLayout headline=new LinearLayout(this);headline.setGravity(Gravity.BOTTOM);LinearLayout programme=new LinearLayout(this);programme.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout channel=new LinearLayout(this);channel.setGravity(Gravity.CENTER_VERTICAL);TextView live=text("НА ЖИВО",14,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true);live.setPadding(u(9),u(5),u(9),u(5));live.setBackground(TvTheme.panel(u(5),T_LIVE,0,0));channel.addView(live,lp(WC,WC));tvBnNo=text("",17,TvTheme.MUTED,tfMedium,true);LinearLayout.LayoutParams no=lp(WC,WC);no.leftMargin=u(16);channel.addView(tvBnNo,no);tvBnName=text("",19,TvTheme.MUTED,tfMedium,true);LinearLayout.LayoutParams name=lp(WC,WC);name.leftMargin=u(10);channel.addView(tvBnName,name);programme.addView(channel);
-        tvBnProgramme=text("",34,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true);programme.addView(tvBnProgramme,lpTopW(MP,WC,u(12)));tvBnNext=text("",19,TvTheme.MUTED,tfMedium,true);programme.addView(tvBnNext,lpTopW(MP,WC,u(10)));headline.addView(programme,new LinearLayout.LayoutParams(0,WC,1));
-        tvBnSub=text("",19,TvTheme.BLUE_LIGHT,tfMedium,false);tvBnSub.setGravity(Gravity.END|Gravity.BOTTOM);tvBnSub.setMaxLines(2);tvBnSub.setEllipsize(TextUtils.TruncateAt.END);LinearLayout.LayoutParams status=lp(u(450),u(70));status.leftMargin=u(24);headline.addView(tvBnSub,status);bottom.addView(headline,lp(MP,WC));
-        LinearLayout actions=new LinearLayout(this);actions.setGravity(Gravity.CENTER_VERTICAL);tvControlsFirst=tvDashboardPill(IC_BARS,"Канали",()->tvShowList());actions.addView(tvControlsFirst,lp(WC,u(55)));
-        LinearLayout.LayoutParams programmeLp=lp(WC,u(55));programmeLp.leftMargin=u(14);actions.addView(tvDashboardPill(IC_CLOCK,"Програма",()->tvProgrammeDialog()),programmeLp);
-        tvStreamControl=text("Потоци",20,TvTheme.TEXT,tfMedium,true);tvStreamControl.setGravity(Gravity.CENTER);tvStreamControl.setPadding(u(24),0,u(24),0);tvStreamControl.setFocusable(true);tvStreamControl.setClickable(true);tvStreamControl.setBackground(TvTheme.control(U,false));tvStreamControl.setOnClickListener(v->tvStreamPicker());tvStreamControl.setOnLongClickListener(v->{if(tvCur!=null)tvChannelMenu(tvCur);return true;});LinearLayout.LayoutParams stream=lp(WC,u(55));stream.leftMargin=u(14);actions.addView(tvStreamControl,stream);
-        LinearLayout.LayoutParams quality=lp(WC,u(55));quality.leftMargin=u(14);actions.addView(tvDashboardPill(IC_SLIDERS,"Качество",()->tvQualityDialog()),quality);
-        tvPauseControl=playerControl("❚❚","Пауза / Пусни",()->tvTogglePause(),false);LinearLayout.LayoutParams pauseLp=lp(u(60),u(55));pauseLp.leftMargin=u(14);actions.addView(tvPauseControl,pauseLp);
-        tvFavouriteControl=playerControl("☆","Любим канал",()->{if(tvCur!=null){String key="tvfav:"+tvCur.id;prefs.edit().putBoolean(key,!prefs.getBoolean(key,false)).apply();tvShowBanner(0,null);}},false);LinearLayout.LayoutParams favouriteLp=lp(u(60),u(55));favouriteLp.leftMargin=u(14);actions.addView(tvFavouriteControl,favouriteLp);bottom.addView(actions,lpTopW(MP,u(55),u(25)));
-        for(int i=0;i<actions.getChildCount();i++){View control=actions.getChildAt(i);control.setId(View.generateViewId());control.setNextFocusUpId(control.getId());control.setNextFocusDownId(control.getId());if(i>0){control.setNextFocusLeftId(actions.getChildAt(i-1).getId());actions.getChildAt(i-1).setNextFocusRightId(control.getId());}}
-        tvKeys=new LinearLayout(this);tvKeys.setGravity(Gravity.CENTER_VERTICAL);tvChipZap=text("↑↓ Канал",16,TvTheme.MUTED,tfMedium,true);tvChipStream=text("← Поток",16,TvTheme.MUTED,tfMedium,true);tvChipSrc=text("→ Сайт",16,TvTheme.MUTED,tfMedium,true);tvKeyEnd=text("OK Управление · MENU Раздели",16,TvTheme.MUTED,tfMedium,true);
-        for(View hintView:new View[]{tvChipZap,tvChipStream,tvChipSrc,tvKeyEnd}){LinearLayout.LayoutParams hintLp=lp(WC,WC);hintLp.rightMargin=u(28);tvKeys.addView(hintView,hintLp);}bottom.addView(tvKeys,lpTopW(MP,WC,u(22)));tvBanner.addView(bottom,new FrameLayout.LayoutParams(MP,WC,Gravity.BOTTOM));
-        tvBnClock=text("",24,TvTheme.TEXT,tfMedium,true);FrameLayout.LayoutParams clockLp=new FrameLayout.LayoutParams(WC,WC,Gravity.TOP|Gravity.END);clockLp.topMargin=u(36);clockLp.rightMargin=u(48);tvBanner.addView(tvBnClock,clockLp);tvBanner.setVisibility(View.GONE);nativeLayer.addView(tvBanner,new FrameLayout.LayoutParams(MP,MP));
-        tvListBox=new FrameLayout(this);tvListBox.setBackgroundColor(0xE50D1119);tvListBox.setVisibility(View.GONE);
+        tvBuildBanner();
+        tvListBox=new FrameLayout(this);tvListBox.setBackgroundColor(0xE6070E1C);tvListBox.setVisibility(View.GONE);
         nativeLayer.addView(tvListBox,new FrameLayout.LayoutParams(MP,MP));
+    }
+
+
+    // Долният слой на плеъра (ОК): НА ЖИВО, предаване, прогрес и пет бутона.
+    private void tvBuildBanner(){
+        tvBanner=new FrameLayout(this);
+        // тъмен преход горе: името на канала се чете върху всяка картина
+        View topScrim=new View(this);topScrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xCC070E1C,0x00070E1C}));
+        tvBanner.addView(topScrim,new FrameLayout.LayoutParams(MP,u(190),Gravity.TOP));
+        LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);top.setPadding(u(54),u(38),u(54),0);
+        TextView live=text("●  НА ЖИВО",20,Color.WHITE,Typeface.DEFAULT_BOLD,true);live.setPadding(u(18),u(8),u(18),u(8));live.setBackground(TvTheme.panel(u(10),TvTheme.LIVE,0,0));top.addView(live,lp(WC,WC));
+        tvBnNo=text("",24,TvTheme.MUTED,tfMedium,true);LinearLayout.LayoutParams no=lp(WC,WC);no.leftMargin=u(22);top.addView(tvBnNo,no);
+        tvBnName=text("",46,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true);LinearLayout.LayoutParams name=lp(WC,WC);name.leftMargin=u(12);top.addView(tvBnName,name);
+        tvBanner.addView(top,new FrameLayout.LayoutParams(MP,WC,Gravity.TOP));
+        LinearLayout bottom=new LinearLayout(this);bottom.setOrientation(LinearLayout.VERTICAL);bottom.setPadding(u(54),u(90),u(54),u(24));
+        bottom.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0x00070E1C,0xE6070E1C,0xFF070E1C}));
+        LinearLayout headline=new LinearLayout(this);headline.setGravity(Gravity.BOTTOM);
+        LinearLayout programme=new LinearLayout(this);programme.setOrientation(LinearLayout.VERTICAL);
+        tvBnProgramme=text("",46,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true);tvBnProgramme.setSingleLine(true);tvBnProgramme.setEllipsize(TextUtils.TruncateAt.END);programme.addView(tvBnProgramme,lp(MP,WC));
+        tvBnNext=text("",22,TvTheme.MUTED,tfMedium,true);tvBnNext.setSingleLine(true);tvBnNext.setEllipsize(TextUtils.TruncateAt.END);programme.addView(tvBnNext,lpTopW(MP,WC,u(10)));
+        headline.addView(programme,new LinearLayout.LayoutParams(0,WC,1));
+        tvBnSub=text("",20,TvTheme.BLUE_LIGHT,tfMedium,false);tvBnSub.setGravity(Gravity.END|Gravity.BOTTOM);tvBnSub.setMaxLines(2);tvBnSub.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams status=lp(u(470),u(70));status.leftMargin=u(24);headline.addView(tvBnSub,status);
+        bottom.addView(headline,lp(MP,WC));
+        // прогрес на предаването
+        tvBnProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);tvBnProgress.setMax(1000);
+        GradientDrawable track=TvTheme.panel(u(4),TvTheme.SURFACE_ALT,0,0);GradientDrawable fill=TvTheme.panel(u(4),TvTheme.FOCUS,0,0);
+        android.graphics.drawable.LayerDrawable bar=new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{track,new android.graphics.drawable.ClipDrawable(fill,Gravity.START,android.graphics.drawable.ClipDrawable.HORIZONTAL)});
+        bar.setId(0,android.R.id.background);bar.setId(1,android.R.id.progress);
+        tvBnProgress.setProgressDrawable(bar);
+        bottom.addView(tvBnProgress,lpTopW(MP,u(8),u(16)));
+        LinearLayout actions=new LinearLayout(this);actions.setGravity(Gravity.CENTER_VERTICAL);
+        View channels=tvBarButton(IC_BARS,"Канали",()->tvShowList());
+        View streams=tvBarButton(IC_PULSE,"Потоци",()->tvStreamPicker());streams.setOnLongClickListener(v->{if(tvCur!=null)tvChannelMenu(tvCur);return true;});
+        View guide=tvBarButton(IC_CLOCK,"Програма",()->tvProgrammeDialog());
+        View favourite=tvBarButton(IC_STAR,"Любими",()->{if(tvCur!=null){String key="tvfav:"+tvCur.id;prefs.edit().putBoolean(key,!prefs.getBoolean(key,false)).apply();tvShowBanner(0,null);}});
+        View settings=tvBarButton(IC_SLIDERS,"Настройки",()->tvPlayerSettings());
+        tvStreamControl=(TextView)((LinearLayout)streams).getChildAt(1);tvFavouriteControl=(TextView)((LinearLayout)favourite).getChildAt(1);
+        View[] buttons={channels,streams,guide,favourite,settings};
+        for(int i=0;i<buttons.length;i++){
+            View b=buttons[i];b.setId(View.generateViewId());b.setNextFocusUpId(b.getId());b.setNextFocusDownId(b.getId());
+            LinearLayout.LayoutParams l=new LinearLayout.LayoutParams(0,u(62),1f);if(i>0)l.leftMargin=u(14);actions.addView(b,l);
+        }
+        for(int i=1;i<buttons.length;i++){buttons[i].setNextFocusLeftId(buttons[i-1].getId());buttons[i-1].setNextFocusRightId(buttons[i].getId());}
+        tvControlsFirst=streams;
+        bottom.addView(actions,lpTopW(MP,u(62),u(22)));
+        tvKeys=new LinearLayout(this);tvKeys.setGravity(Gravity.CENTER_VERTICAL);
+        tvChipZap=text("↑↓ Канал",17,TvTheme.MUTED,tfMedium,true);tvChipStream=text("← Поток",17,TvTheme.MUTED,tfMedium,true);tvChipSrc=text("→ Сайт",17,TvTheme.MUTED,tfMedium,true);tvKeyEnd=text("OK Управление · MENU Раздели",17,TvTheme.MUTED,tfMedium,true);
+        for(View hintView:new View[]{tvChipZap,tvChipStream,tvChipSrc,tvKeyEnd}){LinearLayout.LayoutParams hintLp=lp(WC,WC);hintLp.rightMargin=u(30);tvKeys.addView(hintView,hintLp);}
+        bottom.addView(tvKeys,lpTopW(MP,WC,u(20)));
+        tvBanner.addView(bottom,new FrameLayout.LayoutParams(MP,WC,Gravity.BOTTOM));
+        tvBnClock=text("",26,TvTheme.TEXT,tfMedium,true);FrameLayout.LayoutParams clockLp=new FrameLayout.LayoutParams(WC,WC,Gravity.TOP|Gravity.END);clockLp.topMargin=u(42);clockLp.rightMargin=u(54);tvBanner.addView(tvBnClock,clockLp);
+        tvBanner.setVisibility(View.GONE);nativeLayer.addView(tvBanner,new FrameLayout.LayoutParams(MP,MP));
+    }
+
+    // Голям бутон от долния ред: иконка и надпис в средата.
+    private View tvBarButton(int icon,String label,Runnable action){
+        LinearLayout b=new LinearLayout(this);b.setOrientation(LinearLayout.HORIZONTAL);b.setGravity(Gravity.CENTER);b.setPadding(u(10),0,u(10),0);
+        b.setFocusable(true);b.setClickable(true);b.setBackground(TvTheme.control(U,false));
+        LinearLayout.LayoutParams il=lp(u(26),u(26));il.rightMargin=u(12);b.addView(new IconView(this,icon,TvTheme.FOCUS),il);
+        TextView t=text(label,23,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true);t.setSingleLine(true);b.addView(t);
+        b.setContentDescription(label);
+        b.setOnClickListener(v->action.run());
+        return b;
+    }
+
+    // Настройки на плеъра: качество, пауза, управление на канала, всички раздели.
+    private void tvPlayerSettings(){
+        final TvChan c=tvCur;if(c==null)return;
+        LinearLayout card=tvCard("Настройки",c.name);
+        LinearLayout list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout first=tvChoice(null,"Качество на видеото",qualityName(videoQuality()),1,()->{tvDialogClose();tvQualityDialog();});
+        list.addView(first,lp(MP,u(62)));
+        list.addView(tvChoice(null,player!=null && player.getPlayWhenReady()?"Пауза":"Пусни",null,0,()->{tvDialogClose();tvTogglePause();}),lpTopW(MP,u(62),u(10)));
+        list.addView(tvChoice(null,"Управление на канала",null,0,()->{tvDialogClose();tvChannelMenu(c);}),lpTopW(MP,u(62),u(10)));
+        list.addView(tvChoice(null,"Всички раздели",null,0,()->{tvDialogClose();showSectionMenu();}),lpTopW(MP,u(62),u(10)));
+        list.addView(tvChoice(null,"Назад",null,0,()->tvDialogClose()),lpTopW(MP,u(62),u(10)));
+        card.addView(list,lpTopW(MP,WC,u(24)));
+        tvDialogShow(card,640,first);
     }
 
     private TextView tvPauseControl,tvFavouriteControl,tvStreamControl,tvKeyEnd;
@@ -9102,16 +9178,24 @@ public class MainActivity extends Activity {
 
     private void tvFillBanner(TvChan c, String line) {
         if(tvPauseControl!=null)tvPauseControl.setText(player!=null && player.getPlayWhenReady()?"❚❚":"▶");
-        if(tvFavouriteControl!=null){boolean fav=prefs.getBoolean("tvfav:"+c.id,false);tvFavouriteControl.setText(fav?"★":"☆");tvFavouriteControl.setTextColor(fav?TvTheme.ACCENT:TvTheme.TEXT);}
+        if(tvFavouriteControl!=null){boolean fav=prefs.getBoolean("tvfav:"+c.id,false);tvFavouriteControl.setText(fav?"В любими":"Любими");tvFavouriteControl.setTextColor(fav?TvTheme.WARNING:TvTheme.TEXT);}
         tvBnNo.setText(String.valueOf(tvChans.indexOf(c)+1));tvBnName.setText(c.name);if(tvBnPlate!=null)tvBnPlate.setChan(c.name);
         tvBnSub.setText(line==null?"":line);
+        {
+            String l=line==null?"":line;
+            int col=TvTheme.BLUE_LIGHT;
+            if(l.startsWith("Не намерих") || l.contains("не тръгна") || l.startsWith("Няма"))col=TvTheme.WARNING;
+            else if(l.startsWith("Търся") || l.startsWith("Проверявам") || l.startsWith("Зареждане") || l.startsWith("Още търся"))col=TvTheme.FOCUS;
+            else if(l.startsWith("Нов поток") || l.startsWith("Добавих"))col=TvTheme.PLAYING;
+            tvBnSub.setTextColor(col);
+        }
         long now=System.currentTimeMillis();
         EpgGuide.Event event=tvGuide==null?null:tvGuide.current(c.name,now);
         tvBnProgramme.setText(event==null?"На живо · "+c.name:event.title);
         if(tvBnProgress!=null)tvBnProgress.setProgress(event==null?0:tvEventProgress(event));
-        if(tvStreamControl!=null){int count=tvStreamCount();tvStreamControl.setText(count>0?"Потоци · "+(tvStreamNowIdx()+1)+"/"+count:"Потоци");}
+        if(tvStreamControl!=null){int count=tvStreamCount();tvStreamControl.setText(count>1?"Потоци "+(tvStreamNowIdx()+1)+"/"+count:"Потоци");}
         EpgGuide.Event next=null;if(tvGuide!=null)for(EpgGuide.Event e:tvGuide.forChannel(c.name,now))if(e.start>now){next=e;break;}
-        tvBnNext.setText((event==null?"Програмата временно не е достъпна":tvEventTime(event))+(next==null?"":" · Следва: "+next.title));
+        tvBnNext.setText((event==null?"Програмата временно не е достъпна":tvEventTime(event))+(next==null?"":"   •   Следва: "+next.title));
     }
 
     private void tvHideBanner() {
@@ -9176,24 +9260,175 @@ public class MainActivity extends Activity {
         tvShowBanner(2500, play ? "▶  Пуснато" : "❚❚  Пауза");
     }
 
+    // Меню „Потоци“: вляво сайтовете на канала, вдясно основният и резервните потоци на избрания.
     private void tvStreamPicker(){
-        final TvChan channel=tvCur;if(channel==null || channel.srcs.isEmpty())return;
+        final TvChan channel=tvCur;
+        if(channel==null || channel.srcs.isEmpty())return;
         if(streamDialog!=null && streamDialog.isShowing())streamDialog.dismiss();
-        LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);panel.setPadding(u(32),u(28),u(32),u(28));panel.setBackground(TvTheme.panel(u(16),TvTheme.BACKGROUND,TvTheme.OUTLINE,U));
-        panel.addView(text("Потоци на „"+channel.name+"“",32,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true));panel.addView(text("Първо резервните потоци · каналът остава същият",19,TvTheme.MUTED,tfMedium,true),lpTopW(MP,WC,u(12)));
-        LinearLayout body=new LinearLayout(this);LinearLayout sitesPanel=new LinearLayout(this);sitesPanel.setOrientation(LinearLayout.VERTICAL);LinearLayout streamsPanel=new LinearLayout(this);streamsPanel.setOrientation(LinearLayout.VERTICAL);body.addView(sitesPanel,lp(u(285),WC));LinearLayout.LayoutParams right=new LinearLayout.LayoutParams(0,WC,1);right.leftMargin=u(24);body.addView(streamsPanel,right);ScrollView scroll=new ScrollView(this);scroll.addView(body);panel.addView(scroll,lpTopW(MP,u(350),u(24)));
-        final int[] selected={Math.max(0,Math.min(tvSrcNowIdx(),channel.srcs.size()-1))};final Runnable[] refill={null};
-        refill[0]=()->{
-            sitesPanel.removeAllViews();streamsPanel.removeAllViews();
-            for(int i=0;i<channel.srcs.size();i++){final int source=i;TvSrc s=channel.srcs.get(i);TextView site=filterChip(s.site+"\n"+(s.stream.isEmpty()?"Търсене от сайта":(1+s.alts.size())+" потока"),i==selected[0],()->{selected[0]=source;refill[0].run();sitesPanel.getChildAt(source).requestFocusFromTouch();});site.setSingleLine(false);site.setMaxLines(2);site.setGravity(Gravity.CENTER_VERTICAL);sitesPanel.addView(site,lpTopW(MP,u(80),u(i==0?0:12)));}
-            TvSrc source=channel.srcs.get(selected[0]);int count=source.stream.isEmpty()?0:1+source.alts.size();
-            for(int i=0;i<count;i++){final int stream=i;boolean active=tvSrcNowIdx()==selected[0] && tvStreamNowIdx()==i;View choice=tvDashboardPill(active?IC_CHECK:IC_PLAY,"Поток "+(i+1)+(active?" · избран":" · резервен"),()->{int site=selected[0];streamDialog.dismiss();tvTuneStream(channel,site,stream-1);});choice.setBackground(TvTheme.control(U,active));streamsPanel.addView(choice,lpTopW(MP,u(68),u(i==0?0:12)));}
-            streamsPanel.addView(tvDashboardPill(IC_PLUS,"Добави поток",()->{int site=selected[0];streamDialog.dismiss();tvAddStreamDialog(channel,site,()->tvStreamPicker());}),lpTopW(MP,u(56),u(16)));
-            streamsPanel.addView(tvDashboardPill(IC_REFRESH,"Провери за още потоци",()->{int site=selected[0];streamDialog.dismiss();if(tvMode && tvCur==channel && tvSrcNowIdx()==site && tvPlaying)tvMoreStart(false);else{tvMoreChan=channel;tvTuneUser(channel,site);}}),lpTopW(MP,u(56),u(16)));
-        };refill[0].run();
-        panel.addView(text("При прекъсване: потоците тук → другите сайтове за същия канал",17,TvTheme.MUTED,tfMedium,true),lpTopW(MP,WC,u(20)));
-        LinearLayout footer=new LinearLayout(this);footer.addView(tvDashboardPill(IC_SLIDERS,"Управление на канала",()->{streamDialog.dismiss();tvChannelMenu(channel);}),lp(WC,u(52)));LinearLayout.LayoutParams back=lp(WC,u(52));back.leftMargin=u(16);footer.addView(tvDashboardPill(IC_CHECK,"Готово",()->streamDialog.dismiss()),back);panel.addView(footer,lpTopW(MP,u(52),u(22)));
-        streamDialog=new AlertDialog.Builder(this).setView(panel).create();streamDialog.show();if(streamDialog.getWindow()!=null){streamDialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);streamDialog.getWindow().setLayout(u(1080),WC);}if(streamsPanel.getChildCount()>0)streamsPanel.getChildAt(0).requestFocusFromTouch();
+        final int[] selected={Math.max(0,Math.min(tvSrcNowIdx(),channel.srcs.size()-1))};
+        final ArrayList<View> siteViews=new ArrayList<>();
+        final View[] preferred={null};
+        final View[] firstAction={null};
+        final LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(u(30),u(26),u(30),u(20));
+        panel.setBackground(TvTheme.panel(u(20),TvTheme.BACKGROUND,TvTheme.OUTLINE,U));
+        // път и състояние
+        LinearLayout crumbs=new LinearLayout(this);crumbs.setGravity(Gravity.CENTER_VERTICAL);crumbs.setPadding(u(24),u(14),u(24),u(14));
+        crumbs.setBackground(TvTheme.panel(u(14),TvTheme.SURFACE,0,0));
+        crumbs.addView(text("ТВ Сайтове",23,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true));
+        crumbs.addView(text("   /   ",23,TvTheme.MUTED,tfMedium,true));
+        crumbs.addView(text("Телевизия",23,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true));
+        crumbs.addView(text("   /   ",23,TvTheme.MUTED,tfMedium,true));
+        crumbs.addView(text(channel.name,23,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true));
+        crumbs.addView(new View(this),new LinearLayout.LayoutParams(0,1,1f));
+        boolean onAir=tvMode && tvPlaying && tvCur==channel;
+        crumbs.addView(text(onAir?"●  НА ЖИВО":"●  НЕ ВЪРВИ",21,onAir?TvTheme.PLAYING:TvTheme.WARNING,Typeface.DEFAULT_BOLD,true));
+        panel.addView(crumbs,lp(MP,WC));
+        panel.addView(text("Потоци · "+channel.name,42,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true),lpTopW(MP,WC,u(22)));
+        panel.addView(text("Избери сайт и поток. Задръж OK за управление.",21,TvTheme.MUTED,tfMedium,true),lpTopW(MP,WC,u(6)));
+        LinearLayout body=new LinearLayout(this);body.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout sitesPanel=new LinearLayout(this);sitesPanel.setOrientation(LinearLayout.VERTICAL);
+        ScrollView sitesScroll=new ScrollView(this);sitesScroll.setVerticalScrollBarEnabled(false);sitesScroll.addView(sitesPanel);
+        body.addView(sitesScroll,new LinearLayout.LayoutParams(u(310),MP));
+        View divider=new View(this);divider.setBackgroundColor(TvTheme.OUTLINE);
+        LinearLayout.LayoutParams dl=new LinearLayout.LayoutParams(Math.max(1,u(1)),MP);dl.leftMargin=u(22);dl.rightMargin=u(26);body.addView(divider,dl);
+        final LinearLayout right=new LinearLayout(this);right.setOrientation(LinearLayout.VERTICAL);
+        body.addView(right,new LinearLayout.LayoutParams(0,MP,1f));
+        panel.addView(body,lpTopW(MP,u(470),u(22)));
+        final Runnable[] fill={null};
+        final Runnable paintSites=()->{
+            for(int j=0;j<siteViews.size();j++)siteViews.get(j).setBackground(j==selected[0]?TvTheme.tinted(U,TvTheme.SURFACE_ALT,TvTheme.FOCUS):TvTheme.control(U,false));
+        };
+        fill[0]=()->{
+            right.removeAllViews();preferred[0]=null;firstAction[0]=null;
+            final int si=selected[0];
+            final TvSrc source=channel.srcs.get(si);
+            boolean here=tvMode && tvPlaying && tvCur==channel && tvSrcNowIdx()==si;
+            LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);
+            head.addView(text(source.site,34,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true),new LinearLayout.LayoutParams(0,WC,1f));
+            if(here){TextView badge=text("Активен сайт",18,TvTheme.PLAYING,Typeface.DEFAULT_BOLD,true);badge.setPadding(u(14),u(6),u(14),u(6));badge.setBackground(TvTheme.panel(u(8),0x3327D3A0,0,0));head.addView(badge,lp(WC,WC));}
+            right.addView(head,lp(MP,WC));
+            String last=source.ok>0?"Последно успешно гледане: "+android.text.format.DateFormat.format("dd.MM.yyyy HH:mm",source.ok):"Последно успешно гледане: няма данни";
+            right.addView(text(last,19,TvTheme.MUTED,tfMedium,true),lpTopW(MP,WC,u(8)));
+            LinearLayout rows=new LinearLayout(this);rows.setOrientation(LinearLayout.VERTICAL);
+            int count=0;
+            for(int k=-1;k<source.alts.size();k++){
+                final int streamIndex=k;
+                String url=k<0?source.stream:source.alts.get(k)[0];
+                if(url==null || url.trim().isEmpty())continue;
+                int failures=k<0?Math.max(0,source.fails):Math.max(0,tvAltFails(source.alts.get(k)));
+                boolean active=tvStreamActive(channel,si,k);
+                String status;int color;
+                if(active){status="Възпроизвежда се";color=TvTheme.PLAYING;}
+                else if(failures>0){status=failures==1?"1 неуспех":failures+" неуспеха";color=TvTheme.FAILURE;}
+                else if(tvSessBad.contains(url)){status="Прекъсна сега";color=TvTheme.WARNING;}
+                else{status="Непроверен";color=TvTheme.MUTED;}
+                LinearLayout row=tvStreamRow(k<0?"Основен поток":"Резервен поток "+(k+1),hostOf(url),status,color,active,
+                        ()->{if(streamDialog!=null)streamDialog.dismiss();tvTuneStream(channel,si,streamIndex);},
+                        ()->{if(streamDialog!=null)streamDialog.dismiss();tvStreamMenu(channel,si,streamIndex);});
+                row.setOnKeyListener((v,key,event)->{
+                    if(event.getAction()==KeyEvent.ACTION_DOWN && key==KeyEvent.KEYCODE_DPAD_LEFT)return siteViews.get(selected[0]).requestFocus();
+                    return false;
+                });
+                rows.addView(row,lpTopW(MP,WC,u(count==0?0:10)));
+                if(preferred[0]==null || active)preferred[0]=row;
+                count++;
+            }
+            if(count==0){
+                LinearLayout empty=new LinearLayout(this);empty.setOrientation(LinearLayout.VERTICAL);empty.setPadding(u(26),u(22),u(26),u(22));
+                empty.setBackground(TvTheme.panel(u(16),TvTheme.SURFACE,TvTheme.OUTLINE,U));
+                empty.addView(text("●  Без записан поток",27,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true));
+                empty.addView(text("Добави адрес или потърси от сайта.",20,TvTheme.MUTED,tfMedium,false),lpTopW(MP,WC,u(10)));
+                rows.addView(empty,lp(MP,WC));
+            }
+            ScrollView sv=new ScrollView(this);sv.setVerticalScrollBarEnabled(false);sv.addView(rows);
+            LinearLayout.LayoutParams svl=new LinearLayout.LayoutParams(MP,0,1f);svl.topMargin=u(18);right.addView(sv,svl);
+            LinearLayout actions=new LinearLayout(this);actions.setGravity(Gravity.CENTER_VERTICAL);
+            View add=tvBarButton(IC_PLUS,"Добави поток",()->{if(streamDialog!=null)streamDialog.dismiss();tvAddStreamDialog(channel,si,()->tvStreamPicker());});
+            View more=tvBarButton(IC_REFRESH,"Намери още",()->{
+                if(streamDialog!=null)streamDialog.dismiss();
+                if(tvMode && tvCur==channel && tvSrcNowIdx()==si && tvPlaying)tvMoreStart(false);
+                else{tvMoreChan=channel;tvTuneUser(channel,si);}
+            });
+            ArrayList<View> bar=new ArrayList<>();bar.add(add);bar.add(more);
+            if(source.page!=null && (source.page.startsWith("https://") || source.page.startsWith("http://"))){
+                bar.add(tvBarButton(IC_MONITOR,"Отвори сайт",()->{
+                    if(streamDialog!=null)streamDialog.dismiss();
+                    tvOpenSite(new String[]{source.site,source.page,source.mode,"Телевизия"});
+                }));
+            }
+            for(int j=0;j<bar.size();j++){
+                View b=bar.get(j);LinearLayout.LayoutParams bl=new LinearLayout.LayoutParams(0,u(58),1f);if(j>0)bl.leftMargin=u(12);actions.addView(b,bl);
+                if(j==0){
+                    firstAction[0]=b;
+                    b.setOnKeyListener((v,key,event)->{
+                        if(event.getAction()==KeyEvent.ACTION_DOWN && key==KeyEvent.KEYCODE_DPAD_LEFT)return siteViews.get(selected[0]).requestFocus();
+                        return false;
+                    });
+                }
+            }
+            right.addView(actions,lpTopW(MP,u(58),u(16)));
+        };
+        for(int i=0;i<channel.srcs.size();i++){
+            final int idx=i;
+            TvSrc s=channel.srcs.get(i);
+            int cnt=(s.stream!=null && !s.stream.isEmpty()?1:0)+s.alts.size();
+            LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setPadding(u(22),u(13),u(22),u(13));
+            card.setFocusable(true);card.setFocusableInTouchMode(true);card.setClickable(true);
+            card.addView(text(s.site,25,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true));
+            card.addView(text(cnt==0?"Без записан поток":cnt==1?"1 поток":cnt+" потока",19,cnt==0?TvTheme.WARNING:TvTheme.MUTED,tfMedium,true),lpTopW(MP,WC,u(4)));
+            card.setOnFocusChangeListener((v,has)->{
+                if(has && selected[0]!=idx){selected[0]=idx;paintSites.run();fill[0].run();}
+            });
+            card.setOnClickListener(v->{View t=preferred[0]!=null?preferred[0]:firstAction[0];if(t!=null)t.requestFocus();});
+            card.setOnKeyListener((v,key,event)->{
+                if(event.getAction()==KeyEvent.ACTION_DOWN && key==KeyEvent.KEYCODE_DPAD_RIGHT){
+                    View t=preferred[0]!=null?preferred[0]:firstAction[0];
+                    return t!=null && t.requestFocus();
+                }
+                return false;
+            });
+            siteViews.add(card);
+            sitesPanel.addView(card,lpTopW(MP,WC,u(i==0?0:10)));
+        }
+        paintSites.run();
+        fill[0].run();
+        panel.addView(text("OK  Избор      ◀ ▶  Смяна на панел      Задръж OK  Управление      Назад  Затвори",18,TvTheme.MUTED,tfMedium,true),lpTopW(MP,WC,u(18)));
+        final AlertDialog dialog=new AlertDialog.Builder(this).setView(panel).create();
+        streamDialog=dialog;
+        dialog.setOnDismissListener(d->{if(streamDialog==dialog)streamDialog=null;hideSystemBars();});
+        dialog.show();
+        if(dialog.getWindow()!=null){
+            dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+            int screenWidth=getResources().getDisplayMetrics().widthPixels;
+            dialog.getWindow().setLayout(Math.min(u(1180),screenWidth-u(40)),WC);
+        }
+        siteViews.get(selected[0]).requestFocus();
+    }
+
+    // Ред с поток: име, хост и състояние вдясно. OK пуска, задържане на OK показва подробности.
+    private LinearLayout tvStreamRow(String title,String host,String status,int statusColor,boolean active,Runnable onPlay,Runnable onDetails){
+        LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);row.setPadding(u(24),u(14),u(24),u(14));row.setMinimumHeight(u(88));
+        row.setFocusable(true);row.setFocusableInTouchMode(true);row.setClickable(true);row.setLongClickable(true);
+        row.setBackground(TvTheme.control(U,false));
+        LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);
+        line.addView(text((active?"▶   ":"○   ")+title,25,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true),new LinearLayout.LayoutParams(0,WC,1f));
+        line.addView(text(status,20,statusColor,tfMedium,true),lp(WC,WC));
+        row.addView(line,lp(MP,WC));
+        row.addView(text(host,20,TvTheme.MUTED,tfMedium,true),lpTopW(MP,WC,u(6)));
+        row.setContentDescription(title+". "+host+". "+status+". OK за гледане. Задръж OK за подробности.");
+        row.setOnClickListener(v->onPlay.run());
+        row.setOnLongClickListener(v->{onDetails.run();return true;});
+        return row;
+    }
+
+    // Обикновен бутон с текст за прозорчетата. style: 0 обикновен, 1 главен (син), 2 опасен.
+    private TextView tvTextButton(String label,int style,Runnable action){
+        TextView b=text(label,23,style==2?TvTheme.FAILURE:Color.WHITE,Typeface.DEFAULT_BOLD,true);
+        b.setGravity(Gravity.CENTER);b.setPadding(u(26),0,u(26),0);b.setFocusable(true);b.setFocusableInTouchMode(true);b.setClickable(true);
+        b.setBackground(style==1?TvTheme.control(U,true):style==2?TvTheme.tinted(U,0x26FF6576,0x66FF6576):TvTheme.control(U,false));
+        b.setOnClickListener(v->action.run());
+        return b;
     }
 
     // Списъкът на каналите върху видеото.
@@ -9204,7 +9439,7 @@ public class MainActivity extends Activity {
         LinearLayout content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(u(48),u(32),u(48),u(32));
         LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);
-        header.addView(text("Канали и програма",32,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true),new LinearLayout.LayoutParams(0,WC,1f));
+        header.addView(text("Списък с канали",38,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true),new LinearLayout.LayoutParams(0,WC,1f));
         header.addView(tvDashboardPill(IC_PLAY,"Пауза / Пусни",()->tvTogglePause()),lp(WC,u(48)));
         header.addView(tvDashboardPill(IC_SLIDERS,"Качество",()->tvQualityDialog()),lp(WC,u(48)));
         header.addView(tvDashboardPill(IC_TV,"Към видеото",()->tvHideListNow()),lp(WC,u(48)));
@@ -9867,6 +10102,67 @@ public class MainActivity extends Activity {
     private boolean tvSearching;
     private boolean tvSearchChecking;
     private boolean tvSearchPageReady;
+
+    // ---- прозорче „Търсене на още потоци“: показва на кой етап е търсенето ----
+    private LinearLayout tvSearchPanel;
+    private TextView[] tvSearchRows;
+    private TextView tvSearchPanelSub;
+    private int tvSearchPhaseNow=-1;
+    private static final String[] TV_SEARCH_PHASES={"Отваря се страницата","Търсят се възможни видео адреси","Проверяват се плейлистите","Запис на новите потоци"};
+    private final Runnable tvSearchPanelHideRun=new Runnable(){@Override public void run(){tvSearchPanelHide();}};
+
+    private void tvSearchPanelShow(String site,String channel){
+        if(nativeLayer==null)return;
+        ui.removeCallbacks(tvSearchPanelHideRun);
+        if(tvSearchPanel==null){
+            tvSearchPanel=new LinearLayout(this);tvSearchPanel.setOrientation(LinearLayout.VERTICAL);tvSearchPanel.setPadding(u(30),u(24),u(30),u(22));
+            tvSearchPanel.setBackground(TvTheme.panel(u(18),0xF20E1F35,TvTheme.OUTLINE,U));
+            tvSearchPanel.addView(text("Търсене на още потоци",30,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true));
+            tvSearchPanelSub=text("",20,TvTheme.MUTED,tfMedium,true);tvSearchPanel.addView(tvSearchPanelSub,lpTopW(MP,WC,u(6)));
+            ProgressBar bar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);bar.setIndeterminate(true);
+            bar.getIndeterminateDrawable().setColorFilter(TvTheme.BLUE,PorterDuff.Mode.SRC_IN);
+            tvSearchPanel.addView(bar,lpTopW(MP,u(10),u(16)));
+            tvSearchRows=new TextView[TV_SEARCH_PHASES.length];
+            for(int i=0;i<tvSearchRows.length;i++){tvSearchRows[i]=text("",22,TvTheme.MUTED,tfMedium,true);tvSearchPanel.addView(tvSearchRows[i],lpTopW(MP,WC,u(i==0?18:10)));}
+            tvSearchPanel.addView(text("Назад — отказ",18,TvTheme.MUTED,tfMedium,true),lpTopW(MP,WC,u(18)));
+            tvSearchPanel.setFocusable(false);
+            FrameLayout.LayoutParams l=new FrameLayout.LayoutParams(u(600),WC,Gravity.TOP|Gravity.END);l.topMargin=u(110);l.rightMargin=u(48);
+            nativeLayer.addView(tvSearchPanel,l);
+        }
+        tvSearchPanelSub.setText(site+"  •  "+channel);
+        tvSearchPanel.setVisibility(View.VISIBLE);
+        tvSearchPhase(0);
+    }
+
+    private void tvSearchPhase(int phase){
+        if(tvSearchPanel==null || tvSearchRows==null)return;
+        tvSearchPhaseNow=phase;
+        for(int i=0;i<tvSearchRows.length;i++){
+            String mark=i<phase?"✓":i==phase?"…":"○";
+            tvSearchRows[i].setText(mark+"   "+TV_SEARCH_PHASES[i]);
+            tvSearchRows[i].setTextColor(i<phase?TvTheme.PLAYING:i==phase?TvTheme.FOCUS:TvTheme.MUTED);
+        }
+    }
+
+    private void tvSearchPanelHide(){
+        ui.removeCallbacks(tvSearchPanelHideRun);
+        if(tvSearchPanel!=null)tvSearchPanel.setVisibility(View.GONE);
+        tvSearchPhaseNow=-1;
+    }
+
+    // Назад по време на търсене: спира го, а каналът си продължава.
+    private void tvSearchCancel(){
+        tvSearchGen++;
+        tvSearching=false;tvSearchChecking=false;tvSearchTune=false;tvCapturing=false;
+        ui.removeCallbacks(tvPokeRun);ui.removeCallbacks(tvPokeFallback);
+        ui.removeCallbacks(tvSearchEndRun);ui.removeCallbacks(tvSearchProbeTimeout);
+        if(web!=null && web==tvSearchWeb)tvDropWeb();
+        tvSearchWeb=null;
+        if(tvSearchTask!=null){tvSearchTask.cancel(true);tvSearchTask=null;}
+        TV_SEARCH_NET.purge();
+        tvSearchPanelHide();
+        tvShowBanner(2500,"Търсенето е спряно");
+    }
     private long tvSearchDeadline;
     private volatile WebView tvSearchWeb;
     private Future<?> tvSearchTask;
@@ -9967,6 +10263,7 @@ public class MainActivity extends Activity {
         tvPokeN = 0;
         logEvent("ТВ: търся още потоци в " + s.site, true);
         tvShowBanner(0, "Търся още потоци…");
+        tvSearchPanelShow(s.site, c.name);
         try {
             tvOpenHidden(s, true);
         } catch (Exception e) {
@@ -10026,6 +10323,7 @@ public class MainActivity extends Activity {
             return;
         }
         tvShowBanner(0, "Проверявам намерените потоци…");
+        tvSearchPhase(2);
         final int cand = urls.size();
         ui.postDelayed(tvSearchProbeTimeout,TV_SEARCH_PROBE_MS+500);
         tvSearchTask=TV_SEARCH_NET.submit(new Runnable() {
@@ -10200,6 +10498,8 @@ public class MainActivity extends Activity {
         thenTune=thenTune || tvSearchTune;
         tvSearching=false;tvSearchChecking=false;tvSearchTune=false;
         ui.removeCallbacks(tvSearchProbeTimeout);
+        tvSearchPhase(3);
+        ui.removeCallbacks(tvSearchPanelHideRun);ui.postDelayed(tvSearchPanelHideRun,1400);
         if(tvSearchTask!=null){tvSearchTask.cancel(true);tvSearchTask=null;}
         TvSrc s = c.srcs.get(si);
         int added = 0;
