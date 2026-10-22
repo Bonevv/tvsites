@@ -1958,6 +1958,7 @@ public class MainActivity extends Activity {
         if(tvTimelineLayer!=null && tvTimelineLayer.getParent() instanceof ViewGroup)((ViewGroup)tvTimelineLayer.getParent()).removeView(tvTimelineLayer);tvTimelineLayer=null;
     }
     private void tvShowTimeline(){
+        tvEpgLoad();
         tvCloseTimeline();tvHideListNow();tvHideBannerNow();
         tvTimelineLayer=new FrameLayout(this);tvTimelineLayer.setBackground(TvTheme.background());LinearLayout content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);content.setPadding(u(54),u(tvMode?70:128),u(54),u(54));
         LinearLayout title=new LinearLayout(this);title.setGravity(Gravity.CENTER_VERTICAL);title.addView(text("ТВ програма",36,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true),new LinearLayout.LayoutParams(0,WC,1));title.addView(tvDashboardPill(IC_DOWN,"Назад",()->tvCloseTimeline()),lp(WC,u(50)));content.addView(title,lp(MP,u(66)));
@@ -6816,7 +6817,22 @@ public class MainActivity extends Activity {
     private TvArtwork tvHeroArtwork;
     private LinearLayout tvHeroFavourite;
 
+    // Докато стартира канал, програмата не се чете: плеърът и кутията имат друга работа.
+    // Зарежда се 12 секунди след последното пускане; ако се отвори програмата или списъкът, веднага.
+    private final Runnable tvEpgLoadRun = new Runnable() {
+        @Override
+        public void run() {
+            tvEpgLoad();
+        }
+    };
+
+    private void tvEpgLoadSoon() {
+        ui.removeCallbacks(tvEpgLoadRun);
+        ui.postDelayed(tvEpgLoadRun, 12000);
+    }
+
     private void tvEpgLoad() {
+        ui.removeCallbacks(tvEpgLoadRun);
         if((!tvPanelShown() && !tvMode) || tvChans.isEmpty() || tvEpgLoader!=null)return;
         if(tvGuide!=null && SystemClock.elapsedRealtime()-tvGuideLoadedAt<60L*60*1000)return;
         final int generation=++tvEpgGeneration;
@@ -6833,6 +6849,7 @@ public class MainActivity extends Activity {
     }
 
     private void tvEpgStop() {
+        ui.removeCallbacks(tvEpgLoadRun);
         tvEpgGeneration++;
         if (tvEpgLoader != null) tvEpgLoader.cancel();
         tvEpgLoader = null;
@@ -8145,7 +8162,7 @@ public class MainActivity extends Activity {
         tvStep = -1;
         // Докато се гледа, екранът със списъка не държи памет (изгледи и лога).
         tvPanelRelease();
-        tvEpgLoad();
+        tvEpgLoadSoon(); // програмата се зарежда чак когато картината вече върви
         menuHolder.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
         nativeLayer.setVisibility(View.VISIBLE);
         tvHideListNow();
