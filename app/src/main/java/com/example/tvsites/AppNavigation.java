@@ -19,11 +19,22 @@ final class AppNavigation extends FrameLayout {
         LinearLayout header=new LinearLayout(context);header.setGravity(Gravity.CENTER_VERTICAL);header.setPadding(px(54),0,px(48),0);header.setBackgroundColor(TvTheme.BACKGROUND);
         LayoutParams hp=new LayoutParams(LayoutParams.MATCH_PARENT,px(96),Gravity.TOP);addView(header,hp);
         LinearLayout brand=new LinearLayout(context);brand.setGravity(Gravity.CENTER_VERTICAL);
-        ImageView brandIcon=new ImageView(context);int logo=context.getResources().getIdentifier("app_icon","drawable",context.getPackageName());if(logo!=0)brandIcon.setImageResource(logo);brandIcon.setScaleType(ImageView.ScaleType.FIT_CENTER);brand.addView(brandIcon,new LinearLayout.LayoutParams(px(46),px(46)));
-        TextView name=label("ТВ Сайтове",24,true);LinearLayout.LayoutParams nl=new LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT,LayoutParams.WRAP_CONTENT);nl.leftMargin=px(13);brand.addView(name,nl);header.addView(brand,new LinearLayout.LayoutParams(px(240),LayoutParams.MATCH_PARENT));
+        ImageView brandIcon=new ImageView(context);int logo=context.getResources().getIdentifier("app_icon","drawable",context.getPackageName());if(logo!=0)brandIcon.setImageResource(logo);brandIcon.setScaleType(ImageView.ScaleType.FIT_CENTER);brand.addView(brandIcon,new LinearLayout.LayoutParams(px(52),px(52)));
+        LinearLayout brandWords = new LinearLayout(context);
+        brandWords.setOrientation(LinearLayout.VERTICAL);
+        brandWords.setGravity(Gravity.CENTER_VERTICAL);
+        TextView name = label("TVsites", 27, true);
+        brandWords.addView(name);
+        TextView tagline = label("ТВ  •  САЙТОВЕ  •  РАДИО", 11, false);
+        tagline.setTextColor(TvTheme.BLUE_LIGHT);
+        brandWords.addView(tagline);
+        LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT);
+        nl.leftMargin = px(10);
+        brand.addView(brandWords, nl);
+        header.addView(brand, new LinearLayout.LayoutParams(px(265),LayoutParams.MATCH_PARENT));
         int[] sections={5,0,2,3,4};String[] names={"Начало","Телевизия","Радио","Сайтове","Настройки"};
         for(int j=0;j<sections.length;j++){
-            final int index=sections[j];LinearLayout tab=new LinearLayout(context);tab.setGravity(Gravity.CENTER_VERTICAL);tab.setPadding(px(15),0,px(15),0);
+            final int index=sections[j];LinearLayout tab=new LinearLayout(context);tab.setGravity(Gravity.CENTER_VERTICAL);tab.setPadding(px(14),0,px(14),0);
             tab.setId(View.generateViewId());tab.setFocusable(true);tab.setFocusableInTouchMode(true);tab.setClickable(true);tab.setTag("nav:"+index);tab.setContentDescription(names[j]);
             tab.addView(new NavigationIcon(context,index),new LinearLayout.LayoutParams(px(23),px(23)));
             TextView caption=label(names[j],20,false);LinearLayout.LayoutParams textLp=new LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT,LayoutParams.WRAP_CONTENT);textLp.leftMargin=px(9);tab.addView(caption,textLp);

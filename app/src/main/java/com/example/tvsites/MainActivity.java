@@ -1918,7 +1918,7 @@ public class MainActivity extends Activity {
         return autoCacheOn() ? "Включено, над 200 МБ" : "Изключено";
     }
 
-    private static final int SECTION_TV = 0, SECTION_LIBRARY = 1, SECTION_RADIO = 2,
+    private static final int SECTION_TV = 0, SECTION_RADIO = 2,
             SECTION_SITES = 3, SECTION_SETTINGS = 4, SECTION_HOME = 5;
     private int appSection = SECTION_HOME;
     private AppNavigation appBar;
@@ -1997,10 +1997,11 @@ public class MainActivity extends Activity {
         try {
             teardownSite();
             sectionFocus=null;
-            appSection = section;
-            if (section == SECTION_TV) tvShowPanel();
+            appSection = section == SECTION_TV || section == SECTION_HOME || section == SECTION_RADIO
+                    || section == SECTION_SITES || section == SECTION_SETTINGS ? section : SECTION_HOME;
+            if (appSection == SECTION_TV) tvShowPanel();
             else fillMenu();
-            if (appBar != null) { appBar.setSection(section); appBar.setVisibility(View.VISIBLE); appBar.bringToFront(); }
+            if (appBar != null) { appBar.setSection(appSection); appBar.setVisibility(View.VISIBLE); appBar.bringToFront(); }
         } finally { switchingSection = false; }
     }
 
@@ -2029,26 +2030,136 @@ public class MainActivity extends Activity {
     }
 
     private void fillHomePage() {
-        int hour=java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
-        pageTitle(hour<12?"Добро утро":hour<18?"Добър ден":"Добър вечер","");
-        tvLoad();TvChan last=tvById(prefs.getString("tvlast",""));
-        if(last==null && !tvChans.isEmpty())last=tvChans.get(0);final TvChan channel=last;
-        FrameLayout hero=new FrameLayout(this);hero.setClipToOutline(true);hero.setBackground(TvTheme.panel(u(16),TvTheme.SURFACE,TvTheme.OUTLINE,U));
-        View gradient=new View(this);gradient.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{TvTheme.SURFACE,0xFF163354}));hero.addView(gradient,new FrameLayout.LayoutParams(MP,MP));
-        AppNavigation.NavigationIcon illustration=new AppNavigation.NavigationIcon(this,0);illustration.tint=0x607BA9E3;FrameLayout.LayoutParams symbol=new FrameLayout.LayoutParams(u(235),u(235),Gravity.END|Gravity.CENTER_VERTICAL);symbol.rightMargin=u(90);hero.addView(illustration,symbol);
-        LinearLayout copy=new LinearLayout(this);copy.setOrientation(LinearLayout.VERTICAL);copy.setGravity(Gravity.CENTER_VERTICAL);copy.setPadding(u(44),u(28),u(44),u(28));
-        copy.addView(text(channel==null?"ТВ САЙТОВЕ":"ПОСЛЕДНО ГЛЕДАН КАНАЛ",17,TvTheme.BLUE_LIGHT,Typeface.DEFAULT_BOLD,true));
-        copy.addView(text(channel==null?"Всичко на едно място":channel.name,48,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true),lpTopW(MP,WC,u(16)));
-        copy.addView(text(channel==null?"Телевизия, филми, радио и твоите сайтове.":"Продължи гледането или избери друг раздел.",22,TvTheme.MUTED,tfMedium,true),lpTopW(MP,WC,u(14)));
-        View resume=tvDashboardPill(IC_PLAY,channel==null?"Отвори телевизията":"Продължи гледането",()->{if(channel==null)showSection(SECTION_TV);else tvTuneUser(channel,-1);});resume.setBackground(TvTheme.control(U,true));copy.addView(resume,lpTopW(WC,u(58),u(27)));
-        hero.addView(copy,new FrameLayout.LayoutParams(u(1100),MP));menu.addView(hero,lpTopW(MP,u(385),u(28)));
-        LinearLayout cards=new LinearLayout(this);String[] names={"Телевизия","Видеотека","Радио","Сайтове"};String[] descriptions={"Канали и програма","Филми и сериали","Слушай на живо","Всички запазени адреси"};
-        for(int i=0;i<4;i++){
-            final int section=i;LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setGravity(Gravity.CENTER_VERTICAL);card.setPadding(u(25),u(20),u(25),u(20));card.setFocusable(true);card.setFocusableInTouchMode(true);card.setClickable(true);card.setBackground(TvTheme.control(U,false));card.setTag("home:"+i);
-            AppNavigation.NavigationIcon icon=new AppNavigation.NavigationIcon(this,i);icon.tint=TvTheme.BLUE;card.addView(icon,lp(u(34),u(34)));card.addView(text(names[i],27,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true),lpTopW(MP,WC,u(12)));card.addView(text(descriptions[i],18,TvTheme.MUTED,tfMedium,true),lpTopW(MP,WC,u(9)));card.setOnClickListener(v->showSection(section));
-            LinearLayout.LayoutParams cl=new LinearLayout.LayoutParams(0,u(175),1);if(i>0)cl.leftMargin=u(20);cards.addView(card,cl);if(firstTile==null)firstTile=card;
+        int hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
+        pageTitle(hour < 12 ? "Добро утро!" : hour < 18 ? "Добър ден!" : "Добър вечер!",
+                "Телевизия, любими сайтове и радио — без излишни менюта.");
+
+        tvLoad();
+        TvChan last = tvById(prefs.getString("tvlast", ""));
+        if (last == null && !tvChans.isEmpty()) last = tvChans.get(0);
+        final TvChan channel = last;
+
+        LinearLayout heroRow = new LinearLayout(this);
+        heroRow.setOrientation(LinearLayout.HORIZONTAL);
+        FrameLayout hero = new FrameLayout(this);
+        hero.setClipToOutline(true);
+        hero.setBackground(TvTheme.hero(u(22)));
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setGravity(Gravity.CENTER_VERTICAL);
+        content.setPadding(u(38), u(25), u(38), u(25));
+        content.addView(text("●  НА ЖИВО  /  TVsites", 17, TvTheme.BLUE_LIGHT,
+                Typeface.DEFAULT_BOLD, true));
+        content.addView(text(channel == null ? "Твоята телевизия" : channel.name,
+                47, TvTheme.TEXT, Typeface.DEFAULT_BOLD, true), lpTopW(MP, WC, u(12)));
+        EpgGuide.Event event = channel == null || tvGuide == null ? null
+                : tvGuide.current(channel.name, System.currentTimeMillis());
+        content.addView(text(event != null ? event.title :
+                channel == null ? "Създай свой списък с канали" : "Продължи от последния канал",
+                22, TvTheme.MUTED, tfMedium, false), lpTopW(MP, WC, u(11)));
+        View watch = tvDashboardPill(IC_PLAY,
+                channel == null ? "Отвори телевизията" : "▶  Гледай сега",
+                () -> { if (channel == null) showSection(SECTION_TV); else tvTuneUser(channel, -1); });
+        watch.setBackground(TvTheme.control(U, true));
+        watch.setContentDescription(channel == null ? "Отвори телевизията" : "Гледай " + channel.name);
+        content.addView(watch, lpTopW(u(270), u(60), u(28)));
+        hero.addView(content, new FrameLayout.LayoutParams(MP, MP));
+        LinearLayout.LayoutParams heroLp = new LinearLayout.LayoutParams(0, u(280), 2.25f);
+        heroRow.addView(hero, heroLp);
+
+        LinearLayout side = new LinearLayout(this);
+        side.setOrientation(LinearLayout.VERTICAL);
+        side.setPadding(u(26), u(23), u(26), u(20));
+        side.setBackground(TvTheme.panel(u(20), TvTheme.SURFACE, TvTheme.OUTLINE, U));
+        side.addView(text("ТВОЯТ ЕФИР", 17, TvTheme.BLUE_LIGHT,
+                Typeface.DEFAULT_BOLD, true));
+        side.addView(text(channel == null ? "Няма добавени канали" : channel.name,
+                31, TvTheme.TEXT, Typeface.DEFAULT_BOLD, false), lpTopW(MP, WC, u(15)));
+        side.addView(text(event == null ? "Програма: няма налични данни"
+                        : event.title + "  ·  " + tvEventTime(event),
+                19, TvTheme.MUTED, tfMedium, false), lpTopW(MP, WC, u(9)));
+        View openGuide = tvDashboardPill(IC_CLOCK, "ТВ програма", () -> {
+            showSection(SECTION_TV); tvShowTimeline();
+        });
+        side.addView(openGuide, lpTopW(MP, u(52), u(23)));
+        LinearLayout.LayoutParams sideLp = new LinearLayout.LayoutParams(0, u(280), 1f);
+        sideLp.leftMargin = u(20);
+        heroRow.addView(side, sideLp);
+        menu.addView(heroRow, lpTopW(MP, WC, u(27)));
+
+        LinearLayout heading = new LinearLayout(this);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        heading.addView(text("Избери какво да гледаш", 29, TvTheme.TEXT,
+                Typeface.DEFAULT_BOLD, true), new LinearLayout.LayoutParams(0, WC, 1f));
+        heading.addView(text("OK за отваряне", 17, TvTheme.MUTED,
+                tfMedium, true));
+        menu.addView(heading, lpTopW(MP, WC, u(29)));
+
+        LinearLayout cards = new LinearLayout(this);
+        cards.setOrientation(LinearLayout.HORIZONTAL);
+        final int[] sections = {SECTION_TV, SECTION_SITES, SECTION_RADIO};
+        final int[] icons = {0, 3, 2};
+        final String[] names = {"Телевизия", "Сайтове", "Радио"};
+        final String[] descriptions = {
+            "Канали, програма и резервни потоци",
+            "Всички запазени уеб сайтове",
+            "Слушай любимите станции"
+        };
+        final String[] counts = {
+            tvChans.size() == 1 ? "1 канал" : tvChans.size() + " канала",
+            sites.size() == 1 ? "1 сайт" : sites.size() + " сайта",
+            RadioStation.DEFAULTS.length + " радиостанции"
+        };
+        for (int i = 0; i < sections.length; i++) {
+            final int section = sections[i];
+            LinearLayout card = new LinearLayout(this);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setGravity(Gravity.CENTER_VERTICAL);
+            card.setPadding(u(24), u(19), u(24), u(19));
+            card.setFocusable(true);
+            card.setFocusableInTouchMode(true);
+            card.setClickable(true);
+            card.setBackground(TvTheme.control(U, false));
+            card.setTag("home:" + section);
+            AppNavigation.NavigationIcon icon = new AppNavigation.NavigationIcon(this, icons[i]);
+            icon.tint = TvTheme.BLUE_LIGHT;
+            card.addView(icon, lp(u(37), u(37)));
+            card.addView(text(names[i], 29, TvTheme.TEXT, Typeface.DEFAULT_BOLD, true),
+                    lpTopW(MP, WC, u(14)));
+            card.addView(text(descriptions[i], 17, TvTheme.MUTED, tfMedium, false),
+                    lpTopW(MP, WC, u(8)));
+            card.addView(text(counts[i], 17, TvTheme.BLUE_LIGHT, tfMedium, true),
+                    lpTopW(MP, WC, u(13)));
+            card.setOnClickListener(v -> showSection(section));
+            card.setOnFocusChangeListener((v, hasFocus) -> {
+                v.animate().scaleX(hasFocus ? 1.025f : 1f)
+                        .scaleY(hasFocus ? 1.025f : 1f).setDuration(140).start();
+            });
+            LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(0, u(213), 1f);
+            if (i > 0) cardLp.leftMargin = u(17);
+            cards.addView(card, cardLp);
+            if (firstTile == null) firstTile = card;
         }
-        menu.addView(cards,lpTopW(MP,u(175),u(26)));menu.addView(text("OK Отвори    MENU Всички раздели    Назад Връщане",16,TvTheme.MUTED,tfMedium,true),lpTopW(WC,WC,u(23)));
+        menu.addView(cards, lpTopW(MP, WC, u(16)));
+
+        if (!tvChans.isEmpty()) {
+            menu.addView(text("Бърз достъп до канали", 26, TvTheme.TEXT,
+                    Typeface.DEFAULT_BOLD, true), lpTopW(MP, WC, u(28)));
+            LinearLayout recent = new LinearLayout(this);
+            recent.setOrientation(LinearLayout.HORIZONTAL);
+            int shown = Math.min(4, tvChans.size());
+            for (int i = 0; i < shown; i++) {
+                TvChan c = tvChans.get(i);
+                TextView tile = filterChip("▶   " + c.name, false, () -> tvTuneUser(c, -1));
+                tile.setGravity(Gravity.CENTER_VERTICAL);
+                LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(0, u(60), 1f);
+                if (i > 0) cl.leftMargin = u(14);
+                recent.addView(tile, cl);
+            }
+            menu.addView(recent, lpTopW(MP, WC, u(13)));
+        }
+        menu.addView(text("OK  Отвори   ·   MENU  Всички раздели   ·   Назад  Връщане",
+                16, TvTheme.MUTED, tfMedium, true), lpTopW(MP, WC, u(24)));
     }
 
     private TextView pageTitle(String title, String subtitle) {
@@ -2070,17 +2181,42 @@ public class MainActivity extends Activity {
     }
     private void showManualSites(int family){siteFilter=family;showSection(SECTION_SITES);}
     private void fillSitesPage() {
-        View manualAddress=tvDashboardPill(IC_PLUS,"Отвори адрес",()->askAddress());sectionHeader("Сайтове",manualAddress);
-        LinearLayout tabs=new LinearLayout(this);String[] labels={"Всички","ТВ","Филми","Радио"};
-        for(int i=0;i<labels.length;i++){final int family=i-1;View tab=filterChip(labels[i],siteFilter==family,()->{siteFilter=family;fillMenu();});LinearLayout.LayoutParams tl=lp(WC,u(44));tl.rightMargin=u(12);tabs.addView(tab,tl);}
-        menu.addView(tabs,lpTopW(MP,u(44),u(22)));
-        ArrayList<ModuleBrowser.Entry> entries=new ArrayList<>();
-        for(String[] site:sites){if(siteFilter>=0 && family(groupOf(site))!=siteFilter)continue;entries.add(new ModuleBrowser.Entry(site[0],hostOf(site[1]),groupOf(site),3,"Отвори сайта",()->openSite(site),"",null));}
-        ModuleBrowser browser=new ModuleBrowser(this,U,entries);menu.addView(browser,lpTopW(MP,WC,u(26)));firstTile=browser.first()!=null?browser.first():manualAddress;
-        ArrayList<String[]> recent=loadRecent();
-        if(siteFilter<0 && !recent.isEmpty()){
-            menu.addView(text("Последно отваряни",25,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true),lpTopW(MP,WC,u(28)));
-            for(String[] entry:recent)menu.addView(tvDashboardPill(IC_CLOCK,entry[0]+" · "+entry[2],()->openRecent(entry)),lpTopW(MP,u(52),u(10)));
+        View manualAddress = tvDashboardPill(IC_PLUS, "Отвори адрес", () -> askAddress());
+        sectionHeader("Моите сайтове", manualAddress);
+        menu.addView(text(sites.size() + " запазени сайта · OK за отваряне",
+                19, TvTheme.MUTED, tfMedium, true), lpTopW(MP, WC, u(7)));
+
+        LinearLayout tabs = new LinearLayout(this);
+        String[] labels = {"Всички", "Телевизия", "Филмови сайтове", "Радио"};
+        for (int i = 0; i < labels.length; i++) {
+            final int family = i - 1;
+            View tab = filterChip(labels[i], siteFilter == family, () -> {
+                siteFilter = family;
+                fillMenu();
+            });
+            LinearLayout.LayoutParams tl = lp(WC, u(49));
+            if (i > 0) tl.leftMargin = u(12);
+            tabs.addView(tab, tl);
+        }
+        menu.addView(tabs, lpTopW(MP, u(49), u(23)));
+        ArrayList<ModuleBrowser.Entry> entries = new ArrayList<>();
+        for (String[] site : sites) {
+            if (siteFilter >= 0 && family(groupOf(site)) != siteFilter) continue;
+            entries.add(new ModuleBrowser.Entry(site[0], hostOf(site[1]), groupOf(site),
+                    3, "Отвори сайта", () -> openSite(site), "", null));
+        }
+        ModuleBrowser browser = new ModuleBrowser(this, U, entries);
+        menu.addView(browser, lpTopW(MP, WC, u(23)));
+        firstTile = browser.first() != null ? browser.first() : manualAddress;
+        ArrayList<String[]> recent = loadRecent();
+        if (siteFilter < 0 && !recent.isEmpty()) {
+            menu.addView(text("Последно отваряни", 26, TvTheme.TEXT,
+                    Typeface.DEFAULT_BOLD, true), lpTopW(MP, WC, u(27)));
+            for (int i = 0; i < Math.min(4, recent.size()); i++) {
+                String[] entry = recent.get(i);
+                menu.addView(tvDashboardPill(IC_CLOCK, entry[0] + " · " + entry[2],
+                        () -> openRecent(entry)), lpTopW(MP, u(53), u(9)));
+            }
         }
     }
 
@@ -2123,14 +2259,69 @@ public class MainActivity extends Activity {
     private TextView radioStatus, radioPlay;
     private Player.Listener radioListener;
 
+    private int radioFilter;
+
     private void fillRadioPage() {
-        sectionHeader("Радио",tvDashboardPill(IC_MONITOR,"Сайтове за радио",()->showManualSites(2)));
-        ArrayList<ModuleBrowser.Entry> entries=new ArrayList<>();
-        for(RadioStation station:RadioStation.DEFAULTS)entries.add(new ModuleBrowser.Entry(station.name,"На живо","",2,"Слушай",()->playRadio(station),"Отвори сайта",()->openRadioWebsite(station)));
-        ModuleBrowser browser=new ModuleBrowser(this,U,entries);menu.addView(browser,lpTopW(MP,WC,u(28)));firstTile=browser.first();
-        menu.addView(text("OK Слушай · Задръж OK за сайта на станцията · MENU Всички раздели",16,TvTheme.MUTED,tfMedium,true),lpTopW(MP,WC,u(14)));
-        ArrayList<String[]> manual=new ArrayList<>();for(String[] site:sites)if(site.length>3 && "Радио".equals(site[3]))manual.add(site);
-        if(!manual.isEmpty()){menu.addView(text("Сайтове за ръчно слушане",25,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true),lpTopW(MP,WC,u(26)));addWebsiteGrid(menu,manual);}
+        sectionHeader("Радио на живо", tvDashboardPill(IC_MONITOR,
+                "Сайтове за радио", () -> showManualSites(2)));
+        menu.addView(text("Избери станция. Задръж OK за оригиналния сайт.",
+                19, TvTheme.MUTED, tfMedium, false), lpTopW(MP, WC, u(8)));
+
+        final RadioStation featured = radioStation == null
+                ? RadioStation.DEFAULTS[0] : radioStation;
+        LinearLayout feature = new LinearLayout(this);
+        feature.setOrientation(LinearLayout.HORIZONTAL);
+        feature.setGravity(Gravity.CENTER_VERTICAL);
+        feature.setPadding(u(31), u(17), u(26), u(17));
+        feature.setBackground(TvTheme.hero(u(18)));
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        labels.addView(text("♪  СЛУШАЙ НА ЖИВО", 17,
+                TvTheme.PLAYING, Typeface.DEFAULT_BOLD, true));
+        labels.addView(text(featured.name, 34, TvTheme.TEXT,
+                Typeface.DEFAULT_BOLD, true), lpTopW(MP, WC, u(10)));
+        labels.addView(text("Директен поток · управление с дистанционното",
+                18, TvTheme.MUTED, tfMedium, false), lpTopW(MP, WC, u(8)));
+        feature.addView(labels, new LinearLayout.LayoutParams(0, WC, 1f));
+        feature.addView(tvDashboardPill(IC_PLAY, "Слушай", () -> playRadio(featured)),
+                lp(u(202), u(57)));
+        menu.addView(feature, lpTopW(MP, u(165), u(22)));
+
+        LinearLayout tabs = new LinearLayout(this);
+        String[] names = {"Всички станции", "Музика", "Новини и говор"};
+        for (int i = 0; i < names.length; i++) {
+            final int f = i;
+            View chip = filterChip(names[i], radioFilter == f, () -> {
+                radioFilter = f;
+                fillMenu();
+            });
+            LinearLayout.LayoutParams cp = lp(WC, u(48));
+            if (i > 0) cp.leftMargin = u(13);
+            tabs.addView(chip, cp);
+        }
+        menu.addView(tabs, lpTopW(MP, u(48), u(22)));
+
+        ArrayList<ModuleBrowser.Entry> entries = new ArrayList<>();
+        for (RadioStation station : RadioStation.DEFAULTS) {
+            boolean news = "novanews".equals(station.id) || "sofia".equals(station.id);
+            if (radioFilter == 1 && news || radioFilter == 2 && !news) continue;
+            entries.add(new ModuleBrowser.Entry(station.name, "Натисни OK за слушане",
+                    "На живо", 2, "Слушай", () -> playRadio(station),
+                    "Отвори сайта", () -> openRadioWebsite(station)));
+        }
+        ModuleBrowser browser = new ModuleBrowser(this, U, entries);
+        menu.addView(browser, lpTopW(MP, WC, u(18)));
+        firstTile = browser.first();
+
+        ArrayList<String[]> manual = new ArrayList<>();
+        for (String[] site : sites) {
+            if (site.length > 3 && "Радио".equals(site[3])) manual.add(site);
+        }
+        if (!manual.isEmpty()) {
+            menu.addView(text("Радио сайтове", 27, TvTheme.TEXT,
+                    Typeface.DEFAULT_BOLD, true), lpTopW(MP, WC, u(30)));
+            addWebsiteGrid(menu, manual);
+        }
     }
 
     private void openRadioWebsite(RadioStation station) {

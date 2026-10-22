@@ -5,16 +5,16 @@ import android.graphics.drawable.StateListDrawable;
 
 /** Shared native palette of the approved TVsites visual specification. */
 final class TvTheme {
-    static final int BACKGROUND = 0xFF070E1C;
-    static final int SURFACE = 0xFF0E1F35;       // panel
-    static final int SURFACE_ALT = 0xFF1A3453;   // surface (focused control)
-    static final int BUTTON = 0xFF132B47;        // idle control
+    static final int BACKGROUND = 0xFF060E1B;
+    static final int SURFACE = 0xFF101F37;       // panel
+    static final int SURFACE_ALT = 0xFF1E3D62;   // surface (focused control)
+    static final int BUTTON = 0xFF142840;        // idle control
     static final int TEXT = 0xFFF2F7FF;
     static final int MUTED = 0xFF9DB2CF;
-    static final int OUTLINE = 0xFF27466A;
-    static final int FOCUS = 0xFF57C9FF;
-    static final int BLUE = 0xFF167CFF;          // accent
-    static final int BLUE_LIGHT = 0xFF57C9FF;
+    static final int OUTLINE = 0xFF305172;
+    static final int FOCUS = 0xFF56D6FF;
+    static final int BLUE = 0xFF118DFF;          // accent
+    static final int BLUE_LIGHT = 0xFF7FDFFF;
     static final int PRESSED = 0xFF0F5FCC;
     static final int PLAYING = 0xFF27D3A0;
     static final int WARNING = 0xFFFFC166;
@@ -28,7 +28,14 @@ final class TvTheme {
         return d;
     }
     static GradientDrawable background() {
-        return new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{BACKGROUND_TOP, BACKGROUND});
+        return new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{0xFF0C1B31, BACKGROUND, 0xFF050B15});
+    }
+    static GradientDrawable hero(float radius) {
+        GradientDrawable d = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{0xFF1A4778, 0xFF0F2C4F, 0xFF091525});
+        d.setCornerRadius(radius);
+        d.setStroke(1, OUTLINE);
+        return d;
     }
     static StateListDrawable control(float unit, boolean selected) {
         StateListDrawable d = new StateListDrawable();

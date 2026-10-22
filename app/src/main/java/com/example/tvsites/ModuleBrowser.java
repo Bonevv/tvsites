@@ -1,49 +1,159 @@
 package com.example.tvsites;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.Typeface;
-import android.view.*;
-import android.widget.*;
+import android.graphics.drawable.GradientDrawable;
+import android.text.TextUtils;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 import java.util.List;
+import java.util.Locale;
 
-/** Simple native station/site cards. Websites and streams only start on click. */
-@android.annotation.SuppressLint("ViewConstructor")
+/** TV-focusable cards shared by saved websites and live radio. */
+@SuppressLint("ViewConstructor")
 final class ModuleBrowser extends LinearLayout {
     static final class Entry {
-        final String name,subtitle,description,primary,secondary;
-        final Runnable open,alternate;
+        final String name, subtitle, description, primary, secondary;
+        final Runnable open, alternate;
         final int icon;
-        Entry(String name,String subtitle,String description,int icon,String primary,Runnable open,String secondary,Runnable alternate){
-            this.name=name==null || name.trim().isEmpty()?"Сайт":name;this.subtitle=subtitle;this.description=description;this.icon=icon;this.primary=primary;this.open=open;this.secondary=secondary;this.alternate=alternate;
+
+        Entry(String name, String subtitle, String description, int icon,
+              String primary, Runnable open, String secondary, Runnable alternate) {
+            this.name = name == null || name.trim().isEmpty() ? "Сайт" : name;
+            this.subtitle = subtitle;
+            this.description = description;
+            this.icon = icon;
+            this.primary = primary;
+            this.open = open;
+            this.secondary = secondary;
+            this.alternate = alternate;
         }
     }
+
+    private static final int[] TONES = {
+            0xFF153F72, 0xFF225E69, 0xFF503873, 0xFF6A3D52, 0xFF665332
+    };
     private final float unit;
     private View first;
-    ModuleBrowser(Context c,float unit,List<Entry> entries){
-        super(c);this.unit=unit;setOrientation(VERTICAL);setPadding(px(3),px(3),px(3),px(3));
-        boolean radio=!entries.isEmpty() && entries.get(0).icon==2;int columns=radio?4:3;LinearLayout row=null;
-        int[] colors={0xFF2867AA,0xFF257C73,0xFF7751A0,0xFF93436B,0xFF795E3C};
-        for(int i=0;i<entries.size();i++){
-            Entry e=entries.get(i);
-            if(i%columns==0){row=new LinearLayout(c);LayoutParams rp=new LayoutParams(LayoutParams.MATCH_PARENT,px(radio?205:142));rp.bottomMargin=px(20);addView(row,rp);}
-            LinearLayout tile=new LinearLayout(c);tile.setOrientation(radio?VERTICAL:HORIZONTAL);tile.setGravity(Gravity.CENTER_VERTICAL);tile.setPadding(px(25),px(20),px(25),px(20));tile.setFocusable(true);tile.setFocusableInTouchMode(true);tile.setClickable(true);tile.setBackground(TvTheme.control(unit,false));tile.setTag((radio?"radio:":"site:")+e.name);
-            TextView mark=label(mark(e.name,radio),radio?21:30,true);mark.setGravity(Gravity.CENTER);mark.setBackground(TvTheme.panel(px(36),colors[(e.name.hashCode()&0x7fffffff)%colors.length],0,0));
-            LayoutParams ml=new LayoutParams(px(60),px(60));if(radio)ml.bottomMargin=px(12);else ml.rightMargin=px(18);tile.addView(mark,ml);
-            LinearLayout labels=new LinearLayout(c);labels.setOrientation(VERTICAL);
-            TextView name=label(e.name,22,true);name.setSingleLine(true);name.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(name);
-            TextView sub=label(e.subtitle,17,false);sub.setSingleLine(true);sub.setEllipsize(android.text.TextUtils.TruncateAt.END);LayoutParams sl=new LayoutParams(LayoutParams.MATCH_PARENT,LayoutParams.WRAP_CONTENT);sl.topMargin=px(6);labels.addView(sub,sl);
-            tile.addView(labels,radio?new LayoutParams(LayoutParams.MATCH_PARENT,LayoutParams.WRAP_CONTENT):new LayoutParams(0,LayoutParams.WRAP_CONTENT,1));
-            tile.setOnClickListener(v->e.open.run());
-            if(e.alternate!=null){tile.setLongClickable(true);tile.setOnLongClickListener(v->{e.alternate.run();return true;});tile.setContentDescription(e.name+". OK: "+e.primary+". Задръж OK: "+e.secondary);}
-            LayoutParams tp=new LayoutParams(0,LayoutParams.MATCH_PARENT,1);if(i%columns>0)tp.leftMargin=px(18);row.addView(tile,tp);if(first==null)first=tile;
+
+    ModuleBrowser(Context context, float unit, List<Entry> entries) {
+        super(context);
+        this.unit = unit;
+        setOrientation(VERTICAL);
+        setClipChildren(false);
+        setClipToPadding(false);
+        setPadding(px(4), px(5), px(4), px(5));
+        if (entries.isEmpty()) {
+            TextView empty = label("Няма добавени елементи.", 22, false, TvTheme.MUTED);
+            addView(empty, new LayoutParams(LayoutParams.MATCH_PARENT, px(80)));
+            return;
         }
-        if(row!=null)while(row.getChildCount()<columns)row.addView(new View(c),new LayoutParams(0,1,1));
+
+        boolean radio = entries.get(0).icon == 2;
+        int columns = radio ? 4 : 3;
+        LinearLayout row = null;
+        for (int i = 0; i < entries.size(); i++) {
+            if (i % columns == 0) {
+                row = new LinearLayout(context);
+                row.setOrientation(HORIZONTAL);
+                row.setClipChildren(false);
+                row.setClipToPadding(false);
+                LayoutParams rp = new LayoutParams(LayoutParams.MATCH_PARENT, px(radio ? 150 : 145));
+                if (i > 0) rp.topMargin = px(17);
+                addView(row, rp);
+            }
+            Entry e = entries.get(i);
+            LinearLayout tile = createCard(context, e, radio);
+            LayoutParams lp = new LayoutParams(0, LayoutParams.MATCH_PARENT, 1f);
+            if (i % columns > 0) lp.leftMargin = px(15);
+            row.addView(tile, lp);
+            if (first == null) first = tile;
+        }
+        if (row != null) {
+            while (row.getChildCount() < columns) {
+                row.addView(new View(context), new LayoutParams(0, 1, 1f));
+            }
+        }
     }
-    View first(){return first;}
-    private String mark(String name,boolean radio){
-        if(!radio)return name.substring(0,1).toUpperCase(java.util.Locale.ROOT);
-        if(name.contains("NOVA"))return "NOVA";if(name.contains("City"))return "City";if(name.contains("БНР"))return "БНР";if(name.contains("Радио 1"))return "1";if(name.contains("Вероника"))return "V";return "БГ";
+
+    private LinearLayout createCard(Context context, Entry entry, boolean radio) {
+        LinearLayout card = new LinearLayout(context);
+        card.setOrientation(VERTICAL);
+        card.setPadding(px(20), px(17), px(18), px(16));
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setFocusable(true);
+        card.setFocusableInTouchMode(true);
+        card.setClickable(true);
+        card.setTag((radio ? "radio:" : "site:") + entry.name);
+        card.setBackground(TvTheme.control(unit, false));
+        card.setClipChildren(false);
+
+        LinearLayout top = new LinearLayout(context);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        TextView mark = label(radio ? "♫" : mark(entry.name), 26, true, TvTheme.TEXT);
+        mark.setGravity(Gravity.CENTER);
+        GradientDrawable tone = TvTheme.panel(px(11),
+                TONES[(entry.name.hashCode() & Integer.MAX_VALUE) % TONES.length], 0, 0);
+        mark.setBackground(tone);
+        top.addView(mark, new LayoutParams(px(54), px(54)));
+
+        TextView meta = label(radio ? "●  НА ЖИВО" : "↗  САЙТ", 14, true,
+                radio ? TvTheme.PLAYING : TvTheme.BLUE_LIGHT);
+        LayoutParams ml = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        ml.leftMargin = px(13);
+        top.addView(meta, ml);
+        card.addView(top, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
+
+        TextView name = label(entry.name, 23, true, TvTheme.TEXT);
+        name.setSingleLine(true);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        LayoutParams nl = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
+        nl.topMargin = px(13);
+        card.addView(name, nl);
+
+        String subtitle = entry.subtitle == null ? "" : entry.subtitle;
+        TextView sub = label(subtitle, 16, false, TvTheme.MUTED);
+        sub.setSingleLine(true);
+        sub.setEllipsize(TextUtils.TruncateAt.END);
+        LayoutParams sl = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
+        sl.topMargin = px(5);
+        card.addView(sub, sl);
+
+        card.setContentDescription(entry.name + ". OK: " + entry.primary +
+                (entry.alternate == null ? "" : ". Задръж OK: " + entry.secondary));
+        if (entry.open != null) card.setOnClickListener(v -> entry.open.run());
+        if (entry.alternate != null) {
+            card.setLongClickable(true);
+            card.setOnLongClickListener(v -> { entry.alternate.run(); return true; });
+        }
+        card.setOnFocusChangeListener((v, focused) -> {
+            v.animate().scaleX(focused ? 1.025f : 1f)
+                    .scaleY(focused ? 1.025f : 1f).setDuration(140).start();
+            v.setElevation(focused ? px(16) : px(2));
+        });
+        return card;
     }
-    private TextView label(String s,int size,boolean bold){TextView t=new TextView(getContext());t.setText(s);t.setTextColor(bold?TvTheme.TEXT:TvTheme.MUTED);t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,px(size));t.setTypeface(Typeface.create("sans-serif",bold?Typeface.BOLD:Typeface.NORMAL));return t;}
-    private int px(float value){return Math.round(value*unit);}
+
+    View first() { return first; }
+
+    private String mark(String text) {
+        String cleaned = text == null ? "" : text.trim();
+        return cleaned.isEmpty() ? "●" : cleaned.substring(0, 1).toUpperCase(Locale.ROOT);
+    }
+
+    private TextView label(String value, int size, boolean bold, int color) {
+        TextView text = new TextView(getContext());
+        text.setText(value);
+        text.setTextColor(color);
+        text.setTextSize(TypedValue.COMPLEX_UNIT_PX, px(size));
+        text.setTypeface(Typeface.create("sans-serif", bold ? Typeface.BOLD : Typeface.NORMAL));
+        return text;
+    }
+
+    private int px(float value) { return Math.round(value * unit); }
 }
