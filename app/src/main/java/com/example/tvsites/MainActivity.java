@@ -5669,11 +5669,19 @@ public class MainActivity extends Activity {
     private final ArrayList<TvChan> tvChans = new ArrayList<>();
     private boolean tvLoaded;
 
+    // Каналите, преместени в „Неработещи“: не се показват, не се пускат и не пречат. Пазят се отделно.
+    private final ArrayList<TvChan> tvParked = new ArrayList<>();
+
     private void tvLoad() {
         if (tvLoaded) return;
         tvLoaded = true;
         tvChans.clear();
-        String raw = prefs.getString("tvchans", "");
+        tvParked.clear();
+        tvParse(prefs.getString("tvchans", ""), tvChans);
+        tvParse(prefs.getString("tvparked", ""), tvParked);
+    }
+
+    private void tvParse(String raw, ArrayList<TvChan> out) {
         if (raw == null || raw.isEmpty()) return;
         try {
             JSONArray a = new JSONArray(raw);
@@ -5713,17 +5721,17 @@ public class MainActivity extends Activity {
                         c.srcs.add(x);
                     }
                 }
-                if (!c.id.isEmpty() && !c.name.isEmpty() && !c.srcs.isEmpty()) tvChans.add(c);
+                if (!c.id.isEmpty() && !c.name.isEmpty() && !c.srcs.isEmpty()) out.add(c);
             }
         } catch (Exception ignored) {
             // повреден запис: започва се с празен списък
         }
     }
 
-    private void tvSave() {
+    private JSONArray tvJson(ArrayList<TvChan> list) {
         JSONArray a = new JSONArray();
         try {
-            for (TvChan c : tvChans) {
+            for (TvChan c : list) {
                 JSONObject o = new JSONObject();
                 o.put("i", c.id);
                 o.put("n", c.name);
@@ -5762,9 +5770,52 @@ public class MainActivity extends Activity {
                 a.put(o);
             }
         } catch (Exception ignored) {
-            return;
+            return null;
         }
-        prefs.edit().putString("tvchans", a.toString()).apply();
+        return a;
+    }
+
+    private void tvSave() {
+        JSONArray a = tvJson(tvChans);
+        JSONArray b = tvJson(tvParked);
+        if (a == null || b == null) return;
+        prefs.edit().putString("tvchans", a.toString()).putString("tvparked", b.toString()).apply();
+    }
+
+    private TvChan tvFindParked(String name) {
+        String k = tvKeyName(name);
+        for (TvChan c : tvParked) {
+            if (c.name.equalsIgnoreCase(name.trim()) || tvKeyName(c.name).equals(k)) return c;
+        }
+        return null;
+    }
+
+    // Преместването е на ръка. Каналът пази източниците и любимия си знак; от списъка се маха.
+    private void tvParkAll(ArrayList<TvChan> list) {
+        int n = 0;
+        for (TvChan c : new ArrayList<>(list)) {
+            if (!tvChans.contains(c)) continue;
+            if (tvMode && tvCur == c) tvLeave(true);
+            tvChans.remove(c);
+            tvParked.add(c);
+            n++;
+        }
+        if (n == 0) return;
+        tvSave();
+        String msg = plural(n, "канал е", "канала са") + " в неработещи. Връщат се сами, щом се намери работещ поток.";
+        Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
+        logEvent("ТВ: " + plural(n, "канал", "канала") + " в неработещи", true);
+        if (tvPanelShown()) tvFill(null);
+    }
+
+    private void tvUnpark(TvChan c) {
+        if (!tvParked.remove(c)) return;
+        for (TvSrc x : c.srcs) {
+            x.bad = 0;
+            x.chk = 0;
+        }
+        tvChans.add(c);
+        tvSave();
     }
 
     private static int tvColor(TvChan c) {
@@ -7601,6 +7652,14 @@ public class MainActivity extends Activity {
 
     private void tvStoreSource(TvChan c, String name, TvSrc src) {
         if (c == null) c = tvFindByName(name);
+        if (c == null) {
+            // Каналът е в неработещи, а ти го добавяш пак: връща се в списъка и получава новия източник.
+            TvChan pk = tvFindParked(name);
+            if (pk != null) {
+                tvUnpark(pk);
+                c = pk;
+            }
+        }
         boolean created = false;
         if (c == null) {
             c = new TvChan();
@@ -7650,6 +7709,7 @@ public class MainActivity extends Activity {
                     @Override
                     public void done(String name) {
                         TvChan other = tvFindByName(name);
+                        if (other == null) other = tvFindParked(name);
                         if (other != null && other != c) {
                             Toast.makeText(MainActivity.this, "Вече има канал с това име",
                                     Toast.LENGTH_LONG).show();
@@ -7700,6 +7760,15 @@ public class MainActivity extends Activity {
                 tvSourcesDialog(c);
             }
         }), lpTopW(MP, u(62), u(10)));
+        list.addView(tvChoice(null, "Премести в неработещи", "връща се сам, ако се оправи", 0, new Runnable() {
+            @Override
+            public void run() {
+                tvDialogClose();
+                ArrayList<TvChan> one = new ArrayList<>();
+                one.add(c);
+                tvParkAll(one);
+            }
+        }), lpTopW(MP, u(62), u(10)));
         list.addView(tvChoice(null, "Изтрий канала", null, 2, new Runnable() {
             @Override
             public void run() {
@@ -7727,9 +7796,13 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 tvDialogClose();
+                boolean wasParked = tvParked.contains(c);
                 tvChans.remove(c);
+                tvParked.remove(c);
+                prefs.edit().remove("tvfav:" + c.id).apply();
                 tvSave();
                 if (tvPanelShown()) tvFill(null);
+                if (wasParked) tvParkedDialog();
             }
         }), lpTopW(MP, u(62), u(10)));
         tvDialogShow(card, 760, no);
@@ -8062,7 +8135,7 @@ public class MainActivity extends Activity {
     }
 
     // ◀: следващият работещ поток на същия сайт. Ако друг работещ няма, сайтът се търси за нови потоци
-    // (само сега, при нужда), които заменят нерабтещите.
+    // (само сега, при нужда), които заменят неработещите.
     private void tvSwitchStream(int dir) {
         TvChan c = tvCur;
         if (c == null) return;
@@ -8250,6 +8323,19 @@ public class MainActivity extends Activity {
         tvStep++;
         tvPokeN = 0;
         if (tvCur == null || tvStep >= tvPlan.size()) {
+            // Нищо не тръгна: източниците се отбелязват (най-много веднъж на 6 часа), за да излезе в „Без работещ поток“.
+            if (tvCur != null && !tvCur.srcs.isEmpty()) {
+                long nowF = System.currentTimeMillis();
+                boolean mark = false;
+                for (TvSrc x : tvCur.srcs) {
+                    if (x.chk == 0 || nowF - x.chk > TV_CHK_GAP) {
+                        x.bad++;
+                        x.chk = nowF;
+                        mark = true;
+                    }
+                }
+                if (mark) tvSave();
+            }
             tvGiveUp();
             return;
         }
@@ -10010,6 +10096,7 @@ public class MainActivity extends Activity {
             if (eq <= 0) continue;
             String name = line.substring(0, eq).trim();
             TvChan c = tvFindLoose(name);
+            if (c == null && tvFindParked(name) != null) continue; // в неработещи е: не се създава втори
             boolean created = false;
             if (c == null) {
                 c = new TvChan();
@@ -10238,11 +10325,11 @@ public class MainActivity extends Activity {
                 + (failing == 0 ? "Всички канали имат поне един работещ източник."
                 : failing + " канала нямат работещ източник"
                 + (dead > 0 ? " (" + dead + " са се провалили 3 пъти)." : ".")
-                + "\nКаналът се маха от списъка само когато ти го решиш.");
+                + "\nМожеш да ги преместиш в „Неработещи“: там не пречат и се връщат сами, щом се намери работещ поток.");
         LinearLayout card = tvCard("Проверката свърши", sub);
         View first;
         if (failing > 0) {
-            first = tvChoice(null, "Неработещи", String.valueOf(failing), 1, new Runnable() {
+            first = tvChoice(null, "Без работещ поток", String.valueOf(failing), 1, new Runnable() {
                 @Override
                 public void run() {
                     tvDeadDialog();
@@ -10269,9 +10356,10 @@ public class MainActivity extends Activity {
         for (TvChan c : tvChans) {
             if (tvFailing(c)) bad.add(c);
         }
-        LinearLayout card = tvCard("Неработещи канали",
-                bad.isEmpty() ? "Няма неработещи канали."
-                        : "Няма работещ източник при последната проверка. 3 неуспеха = „не работи“.");
+        LinearLayout card = tvCard("Канали без работещ поток",
+                bad.isEmpty() ? "Няма такива канали."
+                        : "Няма работещ източник при последната проверка. 3 неуспеха = „не работи“.\n"
+                        + "Нищо не се мести само: решаваш ти.");
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         View first = null;
@@ -10291,22 +10379,32 @@ public class MainActivity extends Activity {
             if (tvDead(c)) dead++;
         }
         if (dead > 0) {
-            LinearLayout del = tvChoice(null, "Изтрий " + dead + " с 3 неуспеха", null, 2,
+            LinearLayout mv = tvChoice(null, "Премести " + dead + " с 3 неуспеха в неработещи", null, 1,
                     new Runnable() {
                         @Override
                         public void run() {
-                            ArrayList<TvChan> rm = new ArrayList<>();
+                            ArrayList<TvChan> mvl = new ArrayList<>();
                             for (TvChan c : tvChans) {
-                                if (tvDead(c)) rm.add(c);
+                                if (tvDead(c)) mvl.add(c);
                             }
-                            tvChans.removeAll(rm);
-                            tvSave();
                             tvDialogClose();
-                            if (tvPanelShown()) tvFill(null);
+                            tvParkAll(mvl);
                         }
                     });
-            list.addView(del, lpTopW(MP, u(62), first == null ? 0 : u(18)));
-            if (first == null) first = del;
+            list.addView(mv, lpTopW(MP, u(62), first == null ? 0 : u(18)));
+            if (first == null) first = mv;
+        }
+        if (bad.size() > dead) {
+            LinearLayout mv2 = tvChoice(null, "Премести всички " + bad.size() + " в неработещи", null, 0,
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            tvDialogClose();
+                            tvParkAll(bad);
+                        }
+                    });
+            list.addView(mv2, lpTopW(MP, u(62), first == null ? 0 : u(10)));
+            if (first == null) first = mv2;
         }
         LinearLayout reset = tvChoice(null, "Занули проверките", "всички пак са „работят“", 0,
                 new Runnable() {
@@ -10367,20 +10465,128 @@ public class MainActivity extends Activity {
             if (tvFailing(c)) f++;
         }
         if (f > 0) {
-            list.addView(tvChoice(null, "Неработещи", String.valueOf(f), 0, new Runnable() {
+            list.addView(tvChoice(null, "Без работещ поток", String.valueOf(f), 0, new Runnable() {
                 @Override
                 public void run() {
                     tvDeadDialog();
                 }
             }), lpTopW(MP, u(62), u(10)));
         }
+        if (!tvParked.isEmpty()) {
+            list.addView(tvChoice(null, "Неработещи", String.valueOf(tvParked.size()), 0, new Runnable() {
+                @Override
+                public void run() {
+                    tvParkedDialog();
+                }
+            }), lpTopW(MP, u(62), u(10)));
+        }
         return a;
+    }
+
+    // ---- „Неработещи“: канали, които не пречат в списъка и се връщат сами ----
+
+    private void tvParkedDialog() {
+        LinearLayout card = tvCard("Неработещи",
+                tvParked.isEmpty() ? "Няма канали тук."
+                        : plural(tvParked.size(), "канал", "канала")
+                        + " не се показват и не се пускат. При „Обнови потоците“ се проверяват"
+                        + " и ако се намери работещ поток, се връщат в списъка сами.");
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        View first = null;
+        for (final TvChan c : tvParked) {
+            LinearLayout r = tvChoice(null, c.name, plural(c.srcs.size(), "сайт", "сайта"), 0, new Runnable() {
+                @Override
+                public void run() {
+                    tvParkedMenu(c);
+                }
+            });
+            list.addView(r, lpTopW(MP, u(62), first == null ? 0 : u(10)));
+            if (first == null) first = r;
+        }
+        if (!tvParked.isEmpty()) {
+            hvChoice(list, "Провери сега", hvBuild(3), 1, true);
+            list.addView(tvChoice(null, "Върни всички в списъка", null, 0, new Runnable() {
+                @Override
+                public void run() {
+                    ArrayList<TvChan> all = new ArrayList<>(tvParked);
+                    for (TvChan c : all) tvUnpark(c);
+                    tvDialogClose();
+                    Toast.makeText(MainActivity.this, "Върнати в списъка: " + all.size(),
+                            Toast.LENGTH_LONG).show();
+                    if (tvPanelShown()) tvFill(null);
+                }
+            }), lpTopW(MP, u(62), u(10)));
+        }
+        LinearLayout back = tvChoice(null, "Затвори", null, 0, new Runnable() {
+            @Override
+            public void run() {
+                tvDialogClose();
+            }
+        });
+        list.addView(back, lpTopW(MP, u(62), u(10)));
+        if (first == null) first = back;
+        ScrollView sv = new ScrollView(this);
+        sv.setVerticalScrollBarEnabled(false);
+        sv.addView(list, new ViewGroup.LayoutParams(MP, WC));
+        card.addView(sv, lpTopW(MP, Math.min(u(420), u(72) * (tvParked.size() + 3)), u(24)));
+        tvDialogShow(card, 760, first);
+    }
+
+    private void tvParkedMenu(final TvChan c) {
+        LinearLayout card = tvCard(c.name, "Неработещ канал · " + tvSrcNames(c));
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout first = tvChoice(null, "Върни в списъка", null, 1, new Runnable() {
+            @Override
+            public void run() {
+                tvUnpark(c);
+                Toast.makeText(MainActivity.this, "„" + c.name + "“ е пак в списъка.",
+                        Toast.LENGTH_LONG).show();
+                if (tvPanelShown()) tvFill(null);
+                tvParkedDialog();
+            }
+        });
+        list.addView(first, lp(MP, u(62)));
+        list.addView(tvChoice(null, "Провери сега", "търси работещ поток", 0, new Runnable() {
+            @Override
+            public void run() {
+                ArrayList<HvJob> jobs = new ArrayList<>();
+                for (int i = 0; i < c.srcs.size(); i++) {
+                    if (!tvCapturable(c.srcs.get(i))) continue;
+                    HvJob j = new HvJob();
+                    j.c = c;
+                    j.si = i;
+                    jobs.add(j);
+                }
+                if (jobs.isEmpty()) {
+                    Toast.makeText(MainActivity.this, "Няма страница, която да се провери.",
+                            Toast.LENGTH_LONG).show();
+                    return;
+                }
+                hvStart(jobs, "Неработещ канал");
+            }
+        }), lpTopW(MP, u(62), u(10)));
+        list.addView(tvChoice(null, "Изтрий канала", null, 2, new Runnable() {
+            @Override
+            public void run() {
+                tvConfirmDelete(c);
+            }
+        }), lpTopW(MP, u(62), u(10)));
+        list.addView(tvChoice(null, "Назад", null, 0, new Runnable() {
+            @Override
+            public void run() {
+                tvParkedDialog();
+            }
+        }), lpTopW(MP, u(62), u(10)));
+        card.addView(list, lpTopW(MP, WC, u(24)));
+        tvDialogShow(card, 760, first);
     }
 
     // ====================== МАСОВО ОБНОВЯВАНЕ НА ПОТОЦИТЕ ======================
     // Само когато го поискаш и само докато този екран е отворен. Една по една, всяка запазена страница
     // на канал (канал + сайт) се отваря в скрита страница, събират се видео адресите, които тя иска,
-    // и се проверяват. Нерабтещите потоци на сайта се заменят с намерените. Нови канали не се
+    // и се проверяват. Неработещите потоци на сайта се заменят с намерените. Нови канали не се
     // добавят. „Спри“, Назад или излизане от приложението спират всичко.
 
     private static final class HvJob {
@@ -10392,10 +10598,11 @@ public class MainActivity extends Activity {
     private final HashSet<String> hvTouched = new HashSet<>();
     private final LinkedHashMap<String, HashMap<String, String>> hvPlaylists = new LinkedHashMap<>();
     private final HashSet<String> hvSelectors = new HashSet<>();
-    private int hvPos, hvGen, hvAdded, hvEmpty, hvPages, hvPoke;
+    private int hvPos, hvGen, hvAdded, hvEmpty, hvPages, hvPoke, hvReturned;
     private boolean hvRunning, hvPageReady, hvEnding, hvSelecting;
     private long hvReadyAt, hvNextAt;
     private volatile long hvNewAt;
+    private volatile boolean hvGone; // главната страница е изчезнала (404/410)
     private volatile String hvPageUrl = "";
     private WebView hvWeb;
     private FrameLayout hvLayer, hvHost;
@@ -10411,16 +10618,20 @@ public class MainActivity extends Activity {
 
     private ArrayList<HvJob> hvBuild(int scope) {
         ArrayList<HvJob> out = new ArrayList<>();
-        for (TvChan c : tvChans) {
-            if (scope == 0 && !prefs.getBoolean("tvfav:" + c.id, false)) continue;
-            for (int i = 0; i < c.srcs.size(); i++) {
-                TvSrc s = c.srcs.get(i);
-                if (!tvCapturable(s)) continue;
-                if (scope == 1 && !hvNeeds(s)) continue;
-                HvJob j = new HvJob();
-                j.c = c;
-                j.si = i;
-                out.add(j);
+        for (int pass = 0; pass < 2; pass++) {
+            if (pass == 0 && scope == 3) continue; // само неработещите
+            if (pass == 1 && scope == 1) continue; // „без поток“ не рови в неработещите
+            for (TvChan c : pass == 0 ? tvChans : tvParked) {
+                if (scope == 0 && !prefs.getBoolean("tvfav:" + c.id, false)) continue;
+                for (int i = 0; i < c.srcs.size(); i++) {
+                    TvSrc s = c.srcs.get(i);
+                    if (!tvCapturable(s)) continue;
+                    if (scope == 1 && !hvNeeds(s)) continue;
+                    HvJob j = new HvJob();
+                    j.c = c;
+                    j.si = i;
+                    out.add(j);
+                }
             }
         }
         return out;
@@ -10450,10 +10661,12 @@ public class MainActivity extends Activity {
             return;
         }
         LinearLayout card = tvCard("Обнови потоците",
-                "Всяка страница на канал се отваря скрито за около половин минута и нерабтещите потоци се заменят с нови. "
-                        + "Нови канали не се добавят. Върви само докато си на този екран.");
+                "Всяка страница на канал се отваря скрито за около половин минута и неработещите потоци се заменят с нови. "
+                        + "Нови канали не се добавят. Канал от „Неработещи“ се връща в списъка, ако му се намери работещ поток. "
+                        + "Върви само докато си на този екран.");
         LinearLayout first = hvChoice(card, "Любими", hvBuild(0), 1, true);
-        hvChoice(card, "Без поток или нерабтещи", hvBuild(1), 0, false);
+        hvChoice(card, "Без поток или неработещи", hvBuild(1), 0, false);
+        if (!tvParked.isEmpty()) hvChoice(card, "Само неработещите", hvBuild(3), 0, false);
         hvChoice(card, "Всички канали", hvBuild(2), 0, false);
         card.addView(tvChoice(null, "Назад", null, 0, new Runnable() {
             @Override
@@ -10471,6 +10684,7 @@ public class MainActivity extends Activity {
         hvJobs.addAll(jobs);
         hvPos = 0;
         hvAdded = 0;
+        hvReturned = 0;
         hvEmpty = 0;
         hvPages = 0;
         hvTouched.clear();
@@ -10536,7 +10750,8 @@ public class MainActivity extends Activity {
         if (job != null) hvLine.setText(job.c.name + "  •  " + job.c.srcs.get(job.si).site);
         hvCount.setText(Math.min(hvPos + (job != null ? 1 : 0), total) + " от " + total);
         hvBar.setProgress(hvPos);
-        hvSub.setText("Нови потоци: " + hvAdded + "   ·   канали с промени: " + hvTouched.size());
+        hvSub.setText("Нови потоци: " + hvAdded + "   ·   канали с промени: " + hvTouched.size()
+                + (hvReturned > 0 ? "   ·   върнати: " + hvReturned : ""));
     }
 
     private final Runnable hvNextRun = new Runnable() {
@@ -10562,6 +10777,7 @@ public class MainActivity extends Activity {
         hvSelecting = false;
         hvPoke = 0;
         hvNextAt = 0;
+        hvGone = false;
         hvSelectors.clear();
         synchronized (hvPlaylists) {
             hvPlaylists.clear();
@@ -10653,6 +10869,7 @@ public class MainActivity extends Activity {
             @Override
             public void onReceivedHttpError(WebView v, WebResourceRequest r, WebResourceResponse resp) {
                 if (v != hvWeb || r == null || resp == null || !r.isForMainFrame()) return;
+                if (resp.getStatusCode() == 404 || resp.getStatusCode() == 410) hvGone = true;
                 if (resp.getStatusCode() >= 400) hvEndSoon();
             }
 
@@ -10928,6 +11145,36 @@ public class MainActivity extends Activity {
             hvTouched.add(job.c.id);
             changed = true;
         }
+        // Работи ли източникът: намерен е нов проверен поток или запазеният още отговаря.
+        // Неработещ канал се връща само с нов проверен поток, за да не се върти напразно.
+        boolean parked = tvParked.contains(job.c);
+        boolean live = false;
+        if (checked) {
+            for (boolean b : alive) {
+                if (b) live = true;
+            }
+        }
+        boolean good = !found.isEmpty() || (live && !parked);
+        long nowT = System.currentTimeMillis();
+        if (good) {
+            if (s.bad != 0) {
+                s.bad = 0;
+                s.chk = nowT;
+                changed = true;
+            }
+        } else if ((checked || hvGone) && (s.chk == 0 || nowT - s.chk > TV_CHK_GAP)) {
+            s.bad++;
+            s.chk = nowT;
+            changed = true;
+        }
+        if (parked && !found.isEmpty()) {
+            tvParked.remove(job.c);
+            tvChans.add(job.c);
+            hvReturned++;
+            hvTouched.add(job.c.id);
+            changed = true;
+            logEvent("ТВ: „" + job.c.name + "“ се върна от неработещи", true);
+        }
         if (candidates == 0) hvEmpty++;
         if (changed) tvSave();
         hvPages++;
@@ -10991,13 +11238,14 @@ public class MainActivity extends Activity {
         hvSub = null;
         hvBar = null;
         logEvent("ТВ: обновяването на потоците " + (stopped ? "е спряно" : "приключи") + ": страници " + hvPages
-                + " от " + hvJobs.size() + ", нови потоци " + hvAdded, true);
+                + " от " + hvJobs.size() + ", нови потоци " + hvAdded + ", върнати " + hvReturned, true);
         if (tvPanelShown()) tvFill(null);
         if (silent || isFinishing()) return;
         LinearLayout card = tvCard(stopped ? "Спряно" : "Готово",
                 "Проверени страници: " + hvPages + " от " + hvJobs.size()
                         + "\nНови потоци: " + hvAdded
                         + "\nКанали с промени: " + hvTouched.size()
+                        + (hvReturned > 0 ? "\nВърнати от неработещи: " + hvReturned : "")
                         + "\nСтраници без видео адреси: " + hvEmpty);
         LinearLayout ok = tvChoice(null, "Добре", null, 1, new Runnable() {
             @Override
