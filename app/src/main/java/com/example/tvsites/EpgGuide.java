@@ -74,6 +74,42 @@ final class EpgGuide {
         } catch (Exception ignored) { return 0; }
     }
 
+    /** Compact copy of what is kept in memory (at most 12 events per channel), for a fast reload. */
+    String toJson() throws org.json.JSONException {
+        org.json.JSONObject root = new org.json.JSONObject();
+        for (Map.Entry<String, List<Event>> en : events.entrySet()) {
+            org.json.JSONArray list = new org.json.JSONArray();
+            for (Event e : en.getValue()) {
+                org.json.JSONArray a = new org.json.JSONArray();
+                a.put(e.start);
+                a.put(e.end);
+                a.put(e.title);
+                a.put(e.description);
+                a.put(e.image);
+                list.put(a);
+            }
+            root.put(en.getKey(), list);
+        }
+        return root.toString();
+    }
+
+    static EpgGuide fromJson(String json) throws org.json.JSONException {
+        org.json.JSONObject root = new org.json.JSONObject(json);
+        Map<String, List<Event>> result = new HashMap<>();
+        Iterator<String> keys = root.keys();
+        while (keys.hasNext()) {
+            String k = keys.next();
+            org.json.JSONArray list = root.getJSONArray(k);
+            List<Event> out = new ArrayList<>();
+            for (int i = 0; i < list.length(); i++) {
+                org.json.JSONArray a = list.getJSONArray(i);
+                out.add(new Event(a.getLong(0), a.getLong(1), a.optString(2, ""), a.optString(3, ""), a.optString(4, "")));
+            }
+            result.put(k, out);
+        }
+        return new EpgGuide(result);
+    }
+
     static EpgGuide parse(InputStream input, Collection<String> names, final long now) throws Exception {
         final Set<String> wanted = new HashSet<>();
         for (String name : names) wanted.add(key(name));

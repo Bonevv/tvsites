@@ -768,6 +768,337 @@ public class MainActivity extends Activity {
         }
     }
 
+    // ---------- Дневник на потоците (защо спира картината) ----------
+    // Един ред на събитие във файл: време, вид, милисекунди, канал, сайт, текст.
+    // B - спиране, което се оправи само; D - картината заседна или се скъса (смяна на поток);
+    // F - опит, който не тръгна; N - хванат е нов поток; T - бавен старт; P - четене на програмата;
+    // V - бавен запис на каналите. Пише се на заден план и не пречи на видеото.
+
+    private static final Object JOURNAL_LOCK = new Object();
+    private static final long JOURNAL_MAX_BYTES = 120L * 1024;       // над това най-старото се изтрива
+    private static final int JOURNAL_KEEP = 450;                     // толкова най-нови реда остават
+    private static final long JOURNAL_MAX_AGE = 30L * 24 * 3600 * 1000; // по-старо от 30 дни се изтрива
+    private static boolean journalPruned;
+
+    private String journalSite() {
+        TvChan c = tvCur;
+        if (c == null || c.srcs.isEmpty()) return "";
+        int i = tvSrcNowIdx();
+        if (i < 0 || i >= c.srcs.size()) i = 0;
+        return c.srcs.get(i).site;
+    }
+
+    private void journal(String type, long ms, String text, boolean ram) {
+        TvChan c = tvCur;
+        boolean watching = tvMode && c != null;
+        journalLine(type, ms, watching ? c.name : "", watching ? journalSite() : "", text, ram);
+    }
+
+    private void journalAt(String type, long ms, String chan, String site, String text) {
+        journalLine(type, ms, chan, site, text, false);
+    }
+
+    private static String journalClean(String s) {
+        return s == null ? "" : s.replace('\t', ' ').replace('\n', ' ');
+    }
+
+    private void journalLine(final String type, final long ms, String chan, String site, String text,
+                             final boolean ram) {
+        final long when = System.currentTimeMillis();
+        final String c = journalClean(chan), s = journalClean(site), t = journalClean(text);
+        bg(new Runnable() {
+            @Override
+            public void run() {
+                String full = t;
+                if (ram) {
+                    try {
+                        ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
+                        ((ActivityManager) getSystemService(Context.ACTIVITY_SERVICE)).getMemoryInfo(mi);
+                        full = t + " · RAM своб. " + (mi.availMem / 1048576L) + " МБ" + (mi.lowMemory ? " (МАЛКО)" : "");
+                    } catch (Throwable ignored) {
+                        // без памет в реда
+                    }
+                }
+                writeJournal(when + "\t" + type + "\t" + ms + "\t" + c + "\t" + s + "\t" + full);
+            }
+        });
+    }
+
+    // Само докато се държи JOURNAL_LOCK.
+    private ArrayList<String> journalLinesLocked() {
+        ArrayList<String> out = new ArrayList<>();
+        try {
+            File f = new File(getFilesDir(), "stream-journal.txt");
+            if (f.exists()) {
+                for (String l : readAll(new java.io.FileInputStream(f)).split("\n")) {
+                    if (!l.isEmpty()) out.add(l);
+                }
+            }
+        } catch (Throwable ignored) {
+            // повреден запис: започва се отначало
+        }
+        return out;
+    }
+
+    private void writeJournal(String line) {
+        try {
+            synchronized (JOURNAL_LOCK) {
+                File f = new File(getFilesDir(), "stream-journal.txt");
+                // Първият запис след пускане на приложението чисти и по възраст; иначе - само по размер.
+                boolean age = !journalPruned && f.length() > 0;
+                journalPruned = true;
+                if (age || f.length() > JOURNAL_MAX_BYTES) {
+                    ArrayList<String> all = journalLinesLocked();
+                    long oldest = System.currentTimeMillis() - JOURNAL_MAX_AGE;
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = Math.max(0, all.size() - JOURNAL_KEEP); i < all.size(); i++) {
+                        String l = all.get(i);
+                        int tab = l.indexOf('\t');
+                        try {
+                            if (tab > 0 && Long.parseLong(l.substring(0, tab)) < oldest) continue;
+                        } catch (NumberFormatException ignored) {
+                            continue; // повреден ред
+                        }
+                        sb.append(l).append('\n');
+                    }
+                    FileOutputStream fo = new FileOutputStream(f);
+                    fo.write(sb.toString().getBytes("UTF-8"));
+                    fo.close();
+                }
+                FileOutputStream fo = new FileOutputStream(f, true);
+                fo.write((line + "\n").getBytes("UTF-8"));
+                fo.close();
+            }
+        } catch (Throwable ignored) {
+            // дневникът не бива да пречи на нищо
+        }
+    }
+
+    private String journalBuf() {
+        try {
+            if (player != null) {
+                return "в буфера " + Math.max(0, player.getBufferedPosition() - player.getCurrentPosition()) / 1000 + " сек";
+            }
+        } catch (Throwable ignored) {
+            // без буфер в реда
+        }
+        return "";
+    }
+
+    @androidx.annotation.OptIn(markerClass=androidx.media3.common.util.UnstableApi.class)
+    private String journalBps() {
+        try {
+            long bps = androidx.media3.exoplayer.upstream.DefaultBandwidthMeter.getSingletonInstance(this).getBitrateEstimate();
+            if (bps > 0) return "скорост " + String.format(Locale.US, "%.1f", bps / 1e6) + " Мбит/с";
+        } catch (Throwable ignored) {
+            // без скорост в реда
+        }
+        return "";
+    }
+
+    private String journalPlayer() {
+        String a = journalBuf(), b = journalBps();
+        return a.isEmpty() ? b : b.isEmpty() ? a : a + " · " + b;
+    }
+
+    private long tvBufAt;       // от кога буферира плеърът (0 = не буферира)
+    private String tvBufInfo = "";
+    private long tvStartAt;     // кога потребителят е пуснал канала (за времето до първата картина)
+
+    private static String journalDur(long ms) {
+        if (ms < 1000) return "0," + (ms / 100) + " сек";
+        long s = Math.round(ms / 1000.0);
+        if (s < 60) return s + " сек";
+        return (s / 60) + " мин " + (s % 60) + " сек";
+    }
+
+    private static String journalCut(String s, int n) {
+        return s.length() <= n ? s : s.substring(0, n - 1) + "…";
+    }
+
+    private void showJournal() {
+        bg(new Runnable() {
+            @Override
+            public void run() {
+                final ArrayList<String[]> rows = new ArrayList<>();
+                synchronized (JOURNAL_LOCK) {
+                    for (String l : journalLinesLocked()) {
+                        String[] p = l.split("\t", 6);
+                        if (p.length == 6) rows.add(p);
+                    }
+                }
+                final String sum = journalSummary(rows);
+                final String last = journalLast(rows, 10);
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!isFinishing()) journalDialog(sum, last);
+                    }
+                });
+            }
+        });
+    }
+
+    private String journalSummary(ArrayList<String[]> rows) {
+        long from = System.currentTimeMillis() - 7L * 24 * 3600 * 1000;
+        int b = 0, d = 0, f = 0, n = 0, t = 0, p = 0, pv = 0, v = 0, used = 0;
+        long bSum = 0, bMax = 0, tMax = 0, pMax = 0, pvMax = 0, vMax = 0;
+        HashMap<String, Integer> sites = new HashMap<>();
+        int[] hours = new int[24];
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        for (String[] r : rows) {
+            long when, ms;
+            try {
+                when = Long.parseLong(r[0]);
+                ms = Long.parseLong(r[2]);
+            } catch (NumberFormatException e) {
+                continue;
+            }
+            if (when < from) continue;
+            used++;
+            String type = r[1];
+            if (type.equals("B") || type.equals("D")) {
+                if (type.equals("B")) {
+                    b++;
+                    bSum += ms;
+                    bMax = Math.max(bMax, ms);
+                } else {
+                    d++;
+                }
+                String site = r[4].isEmpty() ? "?" : r[4];
+                Integer old = sites.get(site);
+                sites.put(site, old == null ? 1 : old + 1);
+                cal.setTimeInMillis(when);
+                hours[cal.get(java.util.Calendar.HOUR_OF_DAY)]++;
+            } else if (type.equals("F")) {
+                f++;
+            } else if (type.equals("N")) {
+                n++;
+            } else if (type.equals("T")) {
+                t++;
+                tMax = Math.max(tMax, ms);
+            } else if (type.equals("P")) {
+                p++;
+                pMax = Math.max(pMax, ms);
+                if (r[5].contains("при гледане")) {
+                    pv++;
+                    pvMax = Math.max(pvMax, ms);
+                }
+            } else if (type.equals("V")) {
+                v++;
+                vMax = Math.max(vMax, ms);
+            }
+        }
+        if (used == 0) return "Още няма записани събития. Дневникът се пълни, докато гледаш.";
+        StringBuilder s = new StringBuilder();
+        s.append("Последните 7 дни\n");
+        s.append("Спирания, които се оправиха сами: ").append(b);
+        if (b > 0) s.append(" (общо ").append(journalDur(bSum)).append(", най-дългото ").append(journalDur(bMax)).append(')');
+        s.append("\nКартината заседна и се смени потокът: ").append(d);
+        s.append("\nОпити, които не тръгнаха: ").append(f);
+        s.append("\nХванати нови потоци: ").append(n);
+        s.append("\nБавни стартове (над 5 сек): ").append(t);
+        if (t > 0) s.append(", най-бавният ").append(journalDur(tMax));
+        ArrayList<Map.Entry<String, Integer>> top = new ArrayList<>(sites.entrySet());
+        Collections.sort(top, new java.util.Comparator<Map.Entry<String, Integer>>() {
+            @Override
+            public int compare(Map.Entry<String, Integer> x, Map.Entry<String, Integer> y) {
+                return y.getValue() - x.getValue();
+            }
+        });
+        if (!top.isEmpty()) {
+            s.append("\n\nПо сайт: ");
+            for (int i = 0; i < top.size() && i < 4; i++) {
+                if (i > 0) s.append("  ·  ");
+                s.append(top.get(i).getKey()).append(' ').append(top.get(i).getValue());
+            }
+            s.append("\nПо час: ");
+            boolean firstH = true;
+            boolean[] taken = new boolean[24];
+            for (int k = 0; k < 4; k++) {
+                int best = -1;
+                for (int h = 0; h < 24; h++) {
+                    if (!taken[h] && hours[h] > 0 && (best < 0 || hours[h] > hours[best])) best = h;
+                }
+                if (best < 0) break;
+                taken[best] = true;
+                if (!firstH) s.append("  ·  ");
+                firstH = false;
+                s.append(String.format(Locale.US, "%02d:00", best)).append(" – ").append(hours[best]);
+            }
+        }
+        s.append("\n\nПрограма: ").append(p).append(" четения");
+        if (p > 0) s.append(", най-дългото ").append(journalDur(pMax));
+        s.append("\nОт тях при гледане: ").append(pv);
+        if (pv > 0) s.append(", най-дългото ").append(journalDur(pvMax));
+        s.append("\nЗапис на каналите над 50 мс: ").append(v);
+        if (v > 0) s.append(", най-дългият ").append(journalDur(vMax));
+        return s.toString();
+    }
+
+    private String journalLast(ArrayList<String[]> rows, int count) {
+        StringBuilder s = new StringBuilder();
+        java.text.SimpleDateFormat fmt = new java.text.SimpleDateFormat("dd.MM HH:mm:ss", Locale.US);
+        for (int i = Math.max(0, rows.size() - count); i < rows.size(); i++) {
+            String[] r = rows.get(i);
+            long when;
+            try {
+                when = Long.parseLong(r[0]);
+            } catch (NumberFormatException e) {
+                continue;
+            }
+            String type = r[1];
+            String label = type.equals("B") ? "спря" : type.equals("D") ? "смяна" : type.equals("F") ? "не тръгна"
+                    : type.equals("N") ? "нов поток" : type.equals("T") ? "бавен старт" : type.equals("P") ? "програма"
+                    : type.equals("V") ? "запис" : type;
+            s.append(fmt.format(new java.util.Date(when))).append("  ").append(label);
+            if (!r[2].equals("0")) {
+                try {
+                    s.append(' ').append(journalDur(Long.parseLong(r[2])));
+                } catch (NumberFormatException ignored) {
+                    // без време
+                }
+            }
+            if (!r[3].isEmpty()) s.append("  ").append(r[3]);
+            if (!r[4].isEmpty()) s.append(" (").append(r[4]).append(')');
+            if (!r[5].isEmpty()) s.append("  ").append(journalCut(r[5], 100));
+            s.append('\n');
+        }
+        return s.length() == 0 ? "Няма." : s.toString();
+    }
+
+    private void journalDialog(String summary, String last) {
+        LinearLayout card = tvCard("Дневник на потоците",
+                "↑ ↓ превърта. Снимай екрана, ако искаш да го видя.");
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(text(summary, 20, T_TEXT, tfMedium, false), lp(MP, WC));
+        box.addView(text("Последни събития", 22, T_SKY2, Typeface.DEFAULT_BOLD, true), lpTopW(MP, WC, u(18)));
+        box.addView(text(last, 16, T_TEXT2, tfMedium, false), lpTopW(MP, WC, u(8)));
+        ScrollView sv = new ScrollView(this);
+        sv.setVerticalScrollBarEnabled(false);
+        sv.setFocusable(true);
+        sv.addView(box, new ViewGroup.LayoutParams(MP, WC));
+        card.addView(sv, lpTopW(MP, u(400), u(18)));
+        card.addView(tvChoice(null, "Затвори", null, 1, new Runnable() {
+            @Override
+            public void run() {
+                tvDialogClose();
+            }
+        }), lpTopW(MP, u(62), u(14)));
+        card.addView(tvChoice(null, "Изчисти дневника", null, 2, new Runnable() {
+            @Override
+            public void run() {
+                synchronized (JOURNAL_LOCK) {
+                    new File(getFilesDir(), "stream-journal.txt").delete();
+                }
+                tvDialogClose();
+                Toast.makeText(MainActivity.this, "Дневникът е изчистен.", Toast.LENGTH_SHORT).show();
+            }
+        }), lpTopW(MP, u(62), u(10)));
+        tvDialogShow(card, 900, sv);
+    }
+
     // ---------- Запис на неочаквано затваряне ----------
 
     // При неочаквано затваряне записва причината, за да я покажем следващия път.
@@ -2201,7 +2532,9 @@ public class MainActivity extends Activity {
         homeGuideTryAt = t;
         ArrayList<String> names = new ArrayList<>();
         names.add(name);
-        new EpgLoader().loadCached(getCacheDir(), names, (guide, error) -> ui.post(() -> {
+        EpgLoader homeLoader = new EpgLoader();
+        homeLoader.setTiming((what, ms) -> journalAt("P", ms, "", "", what + " (начален екран)"));
+        homeLoader.loadCached(getCacheDir(), names, (guide, error) -> ui.post(() -> {
             homeGuideBusy = false;
             if (guide == null || isFinishing()) return;
             homeGuide = guide;
@@ -2491,10 +2824,10 @@ public class MainActivity extends Activity {
 
     private void fillSettingsPage() {
         pageTitle("Настройки", "Версия "+installedName());
-        String[] labels={"Качество на видеото","Таймер за заспиване","Провери за версия","Изчисти кеша","Автоматично чистене","Диагностика","Изход"};
-        String[] details={"Автоматично или предпочитано качество","Спиране след избраното време","Обновяване на приложението","Ръчно освобождаване на памет",autoSubText(),"RAM, журнал и състояние","Затваряне на приложението"};
-        int[] icons={IC_TV,IC_CLOCK,IC_REFRESH,IC_TRASH,IC_CHIP,IC_BARS,IC_POWER};
-        Runnable[] actions={()->tvQualityDialog(),()->chooseSleep(),()->checkUpdate(),()->clearCacheNow(),()->{toggleAutoCache();fillMenu();},()->showDiagnostics(),()->exitApp()};
+        String[] labels={"Качество на видеото","Таймер за заспиване","Провери за версия","Изчисти кеша","Автоматично чистене","Диагностика","Дневник на потоците","Изход"};
+        String[] details={"Автоматично или предпочитано качество","Спиране след избраното време","Обновяване на приложението","Ръчно освобождаване на памет",autoSubText(),"RAM, журнал и състояние","Спирания, сайтове и часове","Затваряне на приложението"};
+        int[] icons={IC_TV,IC_CLOCK,IC_REFRESH,IC_TRASH,IC_CHIP,IC_BARS,IC_PULSE,IC_POWER};
+        Runnable[] actions={()->tvQualityDialog(),()->chooseSleep(),()->checkUpdate(),()->clearCacheNow(),()->{toggleAutoCache();fillMenu();},()->showDiagnostics(),()->showJournal(),()->exitApp()};
         LinearLayout row=null;
         for(int i=0;i<labels.length;i++){
             if(i%2==0){row=new LinearLayout(this);menu.addView(row,lpTopW(MP,u(108),u(18)));}
@@ -5799,10 +6132,13 @@ public class MainActivity extends Activity {
     }
 
     private void tvSave() {
+        long t0 = SystemClock.uptimeMillis();
         JSONArray a = tvJson(tvChans);
         JSONArray b = tvJson(tvParked);
         if (a == null || b == null) return;
         prefs.edit().putString("tvchans", a.toString()).putString("tvparked", b.toString()).apply();
+        long took = SystemClock.uptimeMillis() - t0;
+        if (took >= 50) journalAt("V", took, "", "", "запис на каналите");
     }
 
     private TvChan tvFindParked(String name) {
@@ -6892,7 +7228,7 @@ public class MainActivity extends Activity {
     private LinearLayout tvHeroFavourite;
 
     // Докато стартира канал, програмата не се чете: плеърът и кутията имат друга работа.
-    // Зарежда се 12 секунди след последното пускане; ако се отвори програмата или списъкът, веднага.
+    // При гледане се взема от малкия готов файл 6 секунди след пускането; големият файл се чете само в списъка.
     private final Runnable tvEpgLoadRun = new Runnable() {
         @Override
         public void run() {
@@ -6902,24 +7238,29 @@ public class MainActivity extends Activity {
 
     private void tvEpgLoadSoon() {
         ui.removeCallbacks(tvEpgLoadRun);
-        ui.postDelayed(tvEpgLoadRun, 12000);
+        ui.postDelayed(tvEpgLoadRun, 6000);
     }
 
     private void tvEpgLoad() {
         ui.removeCallbacks(tvEpgLoadRun);
         if((!tvPanelShown() && !tvMode) || tvChans.isEmpty() || tvEpgLoader!=null)return;
+        // Докато върви видео, програмата не се обновява: само се взема от малкия готов файл, и то веднъж.
+        if(tvMode && tvGuide!=null)return;
         if(tvGuide!=null && SystemClock.elapsedRealtime()-tvGuideLoadedAt<60L*60*1000)return;
+        final boolean video=tvMode;
         final int generation=++tvEpgGeneration;
         ArrayList<String> names=new ArrayList<>();for(TvChan c:tvChans)names.add(c.name);
         tvEpgError=null;tvEpgLoader=new EpgLoader();
-        tvEpgLoader.load(getCacheDir(),names,(guide,error)->ui.post(()->{
+        tvEpgLoader.setTiming((what,ms)->journalAt("P",ms,"","",what+(video?" (при гледане)":" (в списъка)")));
+        final EpgLoader.Callback done=(guide,error)->ui.post(()->{
             if(generation!=tvEpgGeneration || isFinishing() || (!tvPanelShown() && !tvMode))return;
             tvEpgLoader=null;tvGuide=guide;tvGuideLoadedAt=SystemClock.elapsedRealtime();tvEpgError=error;
             if(tvOverviewGuide!=null)tvOverviewGuide.setGuide(guide,error);
             if(tvPlayerGuide!=null)tvPlayerGuide.setGuide(guide,error);
             if(tvTimeline!=null)tvTimeline.setGuide(guide);
             if(tvMode && tvCur!=null && tvBanner!=null && tvBanner.getVisibility()==View.VISIBLE)tvBannerRefresh();
-        }));
+        });
+        if(video)tvEpgLoader.loadMini(getCacheDir(),done);else tvEpgLoader.load(getCacheDir(),names,done);
     }
 
     private void tvEpgStop() {
@@ -8350,6 +8691,7 @@ public class MainActivity extends Activity {
 
     // Избор на канал от потребителя (клик, смяна на източник): започва отначало.
     private void tvTuneUser(TvChan c, int firstSrc) {
+        tvStartAt = SystemClock.uptimeMillis();
         tvRestarts = 0;
         tvSwitches = 0;
         tvSessBad.clear();
@@ -8647,6 +8989,7 @@ public class MainActivity extends Activity {
         tvLis = null;
         ui.removeCallbacks(tvTryTimeout);
         final int my = ++tvTryGen;
+        tvBufAt = 0;
         tvTrying = true;
         tvTryUrl = url;
         final HashMap<String, String> fprops = props;
@@ -8748,6 +9091,7 @@ public class MainActivity extends Activity {
     private void tvTryFailed(String why) {
         if (!tvMode) return;
         logEvent("ТВ: опитът не успя (" + why + ")");
+        if (!tvPlaying) journal("F", 0, why, false);
         if (tvPlaying) {
             tvDropped(why);
             return;
@@ -8805,6 +9149,12 @@ public class MainActivity extends Activity {
         if (tvPlaying) {
             // Върнало се е от буфериране.
             ui.removeCallbacks(tvStallRun);
+            if (tvBufAt != 0) {
+                long dur = SystemClock.uptimeMillis() - tvBufAt;
+                String before = tvBufInfo;
+                tvBufAt = 0;
+                if (dur >= 800) journal("B", dur, "започна: " + before + " → сега: " + journalPlayer(), true);
+            }
             if(tvSearchWeb!=null)return;
             tvShowBanner(1800, null);
             return;
@@ -8895,6 +9245,12 @@ public class MainActivity extends Activity {
         tvSave();
         prefs.edit().putString("tvlast", tvCur.id).apply();
         logEvent("ТВ: тръгна " + tvCur.name + " от " + s.site + (viaCapture ? " (нов поток)" : ""), true);
+        if (viaCapture) journal("N", 0, fresh ? "старият поток не тръгна, записан е нов" : "поток от страницата на сайта", false);
+        if (tvStartAt != 0) {
+            long took = SystemClock.uptimeMillis() - tvStartAt;
+            tvStartAt = 0;
+            if (took >= 5000) journal("T", took, "до първата картина", false);
+        }
         tvWaitHide();
         tvShowBanner(5000, fresh ? "Запазеният поток не тръгна. Намерих нов и го записах." : null);
         updateState();
@@ -8955,6 +9311,10 @@ public class MainActivity extends Activity {
     };
 
     private void tvBuffering() {
+        if (tvBufAt == 0) {
+            tvBufAt = SystemClock.uptimeMillis();
+            tvBufInfo = journalPlayer() + (tvSearchWeb != null ? " · върви търсене" : "");
+        }
         if(tvSearchWeb!=null)return;
         tvShowBanner(0, "Зареждане…");
         ui.removeCallbacks(tvStallRun);
@@ -9011,6 +9371,9 @@ public class MainActivity extends Activity {
         if (c == null) return;
         int cur = tvSrcNowIdx();
         logEvent("ТВ: връзката се скъса (" + why + "), опит " + tvRestarts + ", вървя " + (ran / 1000) + " сек.");
+        long bufMs = tvBufAt != 0 ? now - tvBufAt : 0;
+        tvBufAt = 0;
+        journal("D", bufMs, why + " · вървя " + (ran / 1000) + " сек · опит " + tvRestarts + " · " + journalBps(), true);
         // Докато върви търсенето на още потоци, скритата страница може да натовари кутията и картината
         // да заседне заради нея: тогава потокът не се обвинява.
         boolean searchBusy = now < tvSearchBusyUntil;
@@ -9064,6 +9427,7 @@ public class MainActivity extends Activity {
         if(streamDialog!=null)streamDialog.dismiss();
         boolean was = tvMode;
         tvMode = false;
+        tvBufAt = 0;
         tvEpgStop();
         ui.removeCallbacks(tvZapGo);
         ui.removeCallbacks(tvBannerHideRun);
