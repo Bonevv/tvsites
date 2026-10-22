@@ -47,6 +47,23 @@ final class EpgLoader {
         });
     }
 
+    /** Reads only an already downloaded guide. It never makes a network request. */
+    void loadCached(File directory, Collection<String> names, Callback callback) {
+        worker.execute(() -> {
+            try {
+                Thread.currentThread().setPriority(Thread.MIN_PRIORITY);
+                File cache = new File(directory, "epg-bg.xml.gz");
+                if (!cache.isFile()) { if (!cancelled) callback.loaded(null, null); return; }
+                try (InputStream in = new LimitedInputStream(new GZIPInputStream(new FileInputStream(cache)), 96L * 1024 * 1024)) {
+                    EpgGuide guide = EpgGuide.parse(in, names, System.currentTimeMillis());
+                    if (!cancelled) callback.loaded(guide, null);
+                }
+            } catch (Exception e) {
+                if (!cancelled) callback.loaded(null, null);
+            } finally { worker.shutdown(); }
+        });
+    }
+
     private void download(File target) throws IOException {
         File temp = new File(target.getParentFile(), "epg-bg.tmp");
         HttpURLConnection c = (HttpURLConnection) new URL(source).openConnection();
