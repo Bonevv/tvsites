@@ -108,6 +108,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Set;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -278,6 +279,9 @@ public class MainActivity extends Activity {
     private static final long CACHE_ASK_EVERY_MS = 6L * 60 * 60 * 1000;
     private static final long CACHE_AUTO_BYTES = 200L * 1024 * 1024;
     private static final long CACHE_WATCH_MS = 10L * 60 * 1000;
+    // При смяна на канал/страница кешът на браузъра се чисти само ако е станал много голям.
+    private static final long CACHE_BIG_BYTES = 500L * 1024 * 1024;
+    private static final long CACHE_ZAP_EVERY_MS = 5L * 60 * 1000; // проверката е най-много веднъж на 5 мин.
 
     // Две нишки с нисък приоритет: IO за дневника и измерването на паметта, DISK за обхождане
     // на кеша. Главната нишка никога не чака диска, а гледането не се забавя от тези задачи.
@@ -347,6 +351,31 @@ public class MainActivity extends Activity {
             root.postDelayed(this, CACHE_WATCH_MS);
         }
     };
+
+    // Вика се при смяна на канал или нова страница: картината и без това се зарежда наново,
+    // така че чистенето не прекъсва нищо. Пипа само кеша на браузъра (не програмата и обновленията).
+    private long cacheZapAt;
+
+    private void cacheCheckOnZap() {
+        if (!autoCacheOn()) return;
+        long now = SystemClock.uptimeMillis();
+        if (cacheZapAt != 0 && now - cacheZapAt < CACHE_ZAP_EVERY_MS) return;
+        cacheZapAt = now;
+        disk(new Runnable() {
+            @Override
+            public void run() {
+                final long cs = dirSize(getCacheDir());
+                if (cs < CACHE_BIG_BYTES) return;
+                logEvent("Смяна на канал: кешът е " + mb(cs) + ", чистя кеша на браузъра", true);
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!isFinishing()) clearWebCache();
+                    }
+                });
+            }
+        });
+    }
 
     private void startWatch() {
         root.removeCallbacks(cacheWatch);
@@ -3327,6 +3356,7 @@ public class MainActivity extends Activity {
             public void onPageStarted(WebView v, String u, Bitmap favicon) {
                 if(v!=web)return;
                 if (u != null && u.startsWith("http")) {
+                    if (!tvCapturing) cacheCheckOnZap();
                     pageUrl = u;
                     // Нова страница: старите видео адреси вече не важат.
                     synchronized (mediaPlaylists) {
@@ -8758,6 +8788,7 @@ public class MainActivity extends Activity {
     private void tvTune(TvChan c, int firstSrc) {
         tvCloseTimeline();
         if (c == null || c.srcs.isEmpty() || isFinishing()) return;
+        cacheCheckOnZap();
         ensureLayers();
         tvBuildOsd();
         if (!tvMode && player != null) closeNative(false); // чужд плеър (не е на телевизията)
@@ -10850,7 +10881,8 @@ public class MainActivity extends Activity {
     }
 
     // Добавя само липсващото: нови канали и нови сайтове към вече съществуващи канали.
-    private void tvImportList() {
+    // cats: кои пакети (категории) да се добавят; останалите канали от списъка се прескачат.
+    private void tvImportList(Set<Integer> cats) {
         int newCh = 0, newLinks = 0;
         for (String line : TV_LIST.split("\n")) {
             line = line.trim();
@@ -10858,6 +10890,7 @@ public class MainActivity extends Activity {
             int eq = line.indexOf(" = ");
             if (eq <= 0) continue;
             String name = line.substring(0, eq).trim();
+            if (!cats.contains(tvCatOfName(name))) continue;
             TvChan c = tvFindLoose(name);
             if (c == null && tvFindParked(name) != null) continue; // в неработещи е: не се създава втори
             boolean created = false;
@@ -10902,25 +10935,98 @@ public class MainActivity extends Activity {
         if (tvPanelShown()) tvFill(null);
     }
 
+    // Колко канала от готовия списък има във всеки пакет (категория).
+    private int[] tvListCatCounts() {
+        int[] cnt = new int[TV_CAT_NAMES.length];
+        for (String line : TV_LIST.split("\n")) {
+            int eq = line.indexOf(" = ");
+            if (eq > 0) cnt[tvCatOfName(line.substring(0, eq).trim())]++;
+        }
+        return cnt;
+    }
+
+    // Избраните пакети се помнят; първия път е избран само „Български“.
+    private HashSet<Integer> tvImportCatsLoad() {
+        HashSet<Integer> out = new HashSet<>();
+        for (String v : prefs.getStringSet("tvImportCats", Collections.singleton("0"))) {
+            try {
+                int i = Integer.parseInt(v);
+                if (i >= 0 && i < TV_CAT_NAMES.length) out.add(i);
+            } catch (NumberFormatException ignored) {
+                // стар или повреден запис
+            }
+        }
+        return out;
+    }
+
+    private void tvImportCatsSave(Set<Integer> cats) {
+        HashSet<String> v = new HashSet<>();
+        for (int i : cats) v.add(String.valueOf(i));
+        prefs.edit().putStringSet("tvImportCats", v).apply();
+    }
+
+    // Избор на пакети (Български, Спорт, Филми...) с отметки. На слаба кутия по-малко канали = по-леко.
     private void tvImportAsk() {
         LinearLayout card = tvCard("Добави готов списък канали",
-                "Добавят се само липсващите канали и линкове. Твоите канали и потоци не се пипат.");
+                "Избери пакетите с OK. Добавят се само липсващите канали и линкове от тях. "
+                        + "Твоите канали и потоци не се пипат.");
+        final HashSet<Integer> cats = tvImportCatsLoad();
+        final int[] cnt = tvListCatCounts();
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        View first = null;
+        int rows = 0;
+        for (int i = 0; i < TV_CAT_NAMES.length; i++) {
+            if (cnt[i] == 0) continue;
+            final int cat = i;
+            final LinearLayout[] row = new LinearLayout[1];
+            row[0] = tvChoice(null, TV_CAT_NAMES[i], "", 0, new Runnable() {
+                @Override
+                public void run() {
+                    if (!cats.remove(cat)) cats.add(cat);
+                    tvImportMark(row[0], cats.contains(cat), cnt[cat]);
+                }
+            });
+            tvImportMark(row[0], cats.contains(cat), cnt[i]);
+            list.addView(row[0], rows == 0 ? lp(MP, u(62)) : lpTopW(MP, u(62), u(10)));
+            if (first == null) first = row[0];
+            rows++;
+        }
+        ScrollView sv = new ScrollView(this);
+        sv.setVerticalScrollBarEnabled(false);
+        sv.addView(list, new ViewGroup.LayoutParams(MP, WC));
+        card.addView(sv, lpTopW(MP, Math.min(u(430), u(72) * rows), u(20)));
+        LinearLayout yes = tvChoice(null, "Добави избраните", null, 1, new Runnable() {
+            @Override
+            public void run() {
+                if (cats.isEmpty()) {
+                    Toast.makeText(MainActivity.this, "Избери поне един пакет", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                tvImportCatsSave(cats);
+                tvDialogClose();
+                tvImportList(cats);
+            }
+        });
         LinearLayout no = tvChoice(null, "Назад", null, 0, new Runnable() {
             @Override
             public void run() {
                 tvDialogClose();
             }
         });
-        LinearLayout yes = tvChoice(null, "Добави", null, 1, new Runnable() {
-            @Override
-            public void run() {
-                tvDialogClose();
-                tvImportList();
-            }
-        });
-        card.addView(yes, lpTopW(MP, u(62), u(24)));
+        card.addView(yes, lpTopW(MP, u(62), u(20)));
         card.addView(no, lpTopW(MP, u(62), u(10)));
-        tvDialogShow(card, 760, yes);
+        tvDialogShow(card, 760, first != null ? first : yes);
+    }
+
+    // Отметка и брой канали вдясно на реда на пакета.
+    private void tvImportMark(LinearLayout row, boolean on, int count) {
+        View v = row.getChildAt(row.getChildCount() - 1);
+        if (v instanceof TextView) {
+            ((TextView) v).setText((on ? "✓  " : "") + count + " канала");
+            ((TextView) v).setTextColor(on ? TvTheme.BLUE_LIGHT : T_TEXT3);
+        }
+        row.setBackground(on ? TvTheme.tinted(U, 0x264C8DFF, 0x994C8DFF) : TvTheme.control(U, false));
     }
 
     // ---- "не работи" ----
