@@ -277,7 +277,7 @@ public class MainActivity extends Activity {
     private static final long CACHE_ASK_BYTES = 150L * 1024 * 1024;
     private static final long CACHE_ASK_EVERY_MS = 6L * 60 * 60 * 1000;
     private static final long CACHE_AUTO_BYTES = 200L * 1024 * 1024;
-    private static final long CACHE_WATCH_MS = 120L * 1000;
+    private static final long CACHE_WATCH_MS = 10L * 60 * 1000;
 
     // Две нишки с нисък приоритет: IO за дневника и измерването на паметта, DISK за обхождане
     // на кеша. Главната нишка никога не чака диска, а гледането не се забавя от тези задачи.
@@ -329,8 +329,9 @@ public class MainActivity extends Activity {
         submit(DISK, r);
     }
 
-    // Докато гледаш сайт, на всеки 2 минути проверява кеша и го чисти над прага
-    // (ако авто чистенето е включено). Не показва съобщения, за да не пречи на картината.
+    // Докато гледаш сайт, на всеки 10 минути само записва размера на кеша в дневника.
+    // Кешът НЕ се чисти по време на гледане: това трие парчетата на потока и картината засича.
+    // Автоматичното чистене става при връщане към менюто (backToMenu -> scanCache).
     private final Runnable cacheWatch = new Runnable() {
         @Override
         public void run() {
@@ -339,17 +340,7 @@ public class MainActivity extends Activity {
                 disk(new Runnable() {
                     @Override
                     public void run() {
-                        long cs = dirSize(getCacheDir());
-                        logEvent("Проверка: кеш " + mb(cs), true);
-                        if (!autoCacheOn() || cs < CACHE_AUTO_BYTES) return;
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                if (web != null && web.getVisibility() == View.VISIBLE) {
-                                    web.clearCache(true);
-                                }
-                            }
-                        });
+                        logEvent("Проверка: кеш " + mb(dirSize(getCacheDir())), true);
                     }
                 });
             }
@@ -5016,7 +5007,7 @@ public class MainActivity extends Activity {
 
         // По-малък буфер от стандартния (50 сек.): по-малко памет, а за телевизия 40 сек. стигат.
         DefaultLoadControl load = new DefaultLoadControl.Builder()
-                .setBufferDurationsMs(20000, 40000, 2000, 4000)
+                .setBufferDurationsMs(20000, 40000, 2000, 6000)
                 .build();
         vTrackSel = new androidx.media3.exoplayer.trackselection.DefaultTrackSelector(this);
         applyQuality();
@@ -5028,7 +5019,7 @@ public class MainActivity extends Activity {
         player.setVideoSurfaceView(nativeSurface);
         player.addListener(nativeListener);
 
-        MediaItem.Builder mib = new MediaItem.Builder().setUri(url);
+        MediaItem.Builder mib = new MediaItem.Builder().setUri(url).setLiveConfiguration(liveCfg());
         String low = url.toLowerCase(Locale.ROOT);
         if (low.contains(".m3u8")) mib.setMimeType(MimeTypes.APPLICATION_M3U8);
         else if (low.contains(".mpd")) mib.setMimeType(MimeTypes.APPLICATION_MPD);
@@ -8615,8 +8606,11 @@ public class MainActivity extends Activity {
     private static final int TV_MAX_RESTARTS = 8;          // най-много рестарти за едно гледане
     private static final long TV_STABLE_MS = 45000;        // толкова добра картина = потокът е здрав
     private static final long TV_SAVED_START_MS = 8000;    // колко се чака запазен поток да тръгне
-    private static final long TV_STALL_MS = 10000;         // колко се търпи заседнала картина (на живо)
+    private static final long TV_STALL_MS = 15000;         // колко се търпи заседнала картина (на живо)
     private static final long TV_SEEK_MS = 5000;           // колко заседнала картина, преди да се опита скок към живия край
+    private static final int TV_HTTP_TIMEOUT_MS = 8000;    // връзка/четене: по-малко от TV_STALL_MS, за да има време за повторен опит
+    // Колко зад живия край стои плеърът: запас срещу кратки забавяния на мрежата (ограничава се до прозореца на потока).
+    private static final long LIVE_OFFSET_MS = 18000;
     private static final long TV_FAIL_MEMORY = 6 * 3600 * 1000L; // толкова време сайтът с неуспех се пробва последен
     private String tvStableUrl = "";
     private int tvStableSi = -1;
@@ -9067,8 +9061,8 @@ public class MainActivity extends Activity {
             tvCookiesInstall();
             DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
                     .setAllowCrossProtocolRedirects(true)
-                    .setConnectTimeoutMs(12000)
-                    .setReadTimeoutMs(12000)
+                    .setConnectTimeoutMs(TV_HTTP_TIMEOUT_MS)
+                    .setReadTimeoutMs(TV_HTTP_TIMEOUT_MS)
                     .setUserAgent(ua);
             http.setDefaultRequestProperties(props);
             if (player == null) {
@@ -9125,7 +9119,7 @@ public class MainActivity extends Activity {
                 }
             };
             player.addListener(tvLis);
-            MediaItem.Builder mib = new MediaItem.Builder().setUri(url);
+            MediaItem.Builder mib = new MediaItem.Builder().setUri(url).setLiveConfiguration(liveCfg());
             String low = url.toLowerCase(Locale.ROOT);
             if (low.contains(".m3u8")) mib.setMimeType(MimeTypes.APPLICATION_M3U8);
             else if (low.contains(".mpd")) mib.setMimeType(MimeTypes.APPLICATION_MPD);
@@ -9142,9 +9136,14 @@ public class MainActivity extends Activity {
         }
     }
 
+    // Отстояние от живия край за предаванията на живо (за записи/филми не се ползва).
+    private static MediaItem.LiveConfiguration liveCfg() {
+        return new MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(LIVE_OFFSET_MS).build();
+    }
+
     @androidx.annotation.OptIn(markerClass=androidx.media3.common.util.UnstableApi.class)
     private DefaultLoadControl tvLoadControl(){
-        return (new DefaultLoadControl.Builder().setBufferDurationsMs(15000,30000,1500,3000).setTargetBufferBytes(32*1024*1024).setPrioritizeTimeOverSizeThresholds(true)).build();
+        return (new DefaultLoadControl.Builder().setBufferDurationsMs(15000,30000,1500,6000).setTargetBufferBytes(32*1024*1024).setPrioritizeTimeOverSizeThresholds(true)).build();
     }
 
     private int tvTryTimeoutGen;
@@ -9378,7 +9377,7 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {
                 // без подробност в записа
             }
-            tvTraceJournal("10 сек. буфериране" + (tvSeekAt != 0 ? " (след скока)" : ""), false);
+            tvTraceJournal((TV_STALL_MS / 1000) + " сек. буфериране" + (tvSeekAt != 0 ? " (след скока)" : ""), false);
             tvDropped("потокът заседна" + info);
         }
     };
@@ -9421,7 +9420,7 @@ public class MainActivity extends Activity {
         }
         if(tvSearchWeb!=null)return;
         tvShowBanner(0, "Зареждане…");
-        // На живо картина, която не помръдва 10 секунди, е заседнала; филмът има повече търпение.
+        // На живо картина, която не помръдва TV_STALL_MS (15 сек.), е заседнала.
         // Срокът се брои от първото влизане в буфериране и не се удължава от по-късни повиквания.
         ui.removeCallbacks(tvStallRun);
         ui.postDelayed(tvStallRun, Math.max(0, TV_STALL_MS - (SystemClock.uptimeMillis() - tvBufAt)));
@@ -9467,7 +9466,7 @@ public class MainActivity extends Activity {
     }
 
     // 5 секунди буфериране: първо снимка, после (само на живо, веднъж за опит) скок към живия край.
-    // Срокът от 10 секунди за смяна на потока не се пипа.
+    // Срокът TV_STALL_MS за смяна на потока не се пипа.
     private final Runnable tvSeekRun = new Runnable() {
         @Override
         public void run() {
