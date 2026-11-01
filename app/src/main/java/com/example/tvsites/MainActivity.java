@@ -1134,14 +1134,27 @@ public class MainActivity extends Activity {
     }
 
     private void journalDialog(String summary, String last, String snaps) {
+        journalDialog(summary, last, snaps, false);
+    }
+
+    private void journalDialog(String summary, String last, String snaps, boolean detailed) {
         LinearLayout card = tvCard("Дневник на потоците",
-                "↑ ↓ превърта. Снимай екрана, ако искаш да го видя.");
+                detailed ? "Технически подробности · ↑ ↓ за превъртане" : "Прекъсвания и възстановяване през последните 7 дни");
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.addView(text(summary, 20, T_TEXT, tfMedium, false), lp(MP, WC));
-        box.addView(text("Последни събития", 22, T_SKY2, Typeface.DEFAULT_BOLD, true), lpTopW(MP, WC, u(18)));
-        box.addView(text(last, 16, T_TEXT2, tfMedium, false), lpTopW(MP, WC, u(8)));
-        if (!snaps.isEmpty()) {
+        String overview = summary;
+        if (!detailed) {
+            String[] lines = summary.split("\n");
+            StringBuilder compact = new StringBuilder();
+            for (int i = 0; i < Math.min(3, lines.length); i++) compact.append(lines[i]).append("\n\n");
+            overview = compact.toString().trim();
+        }
+        box.addView(text(overview, detailed ? 20 : 23, TvTheme.TEXT, tfMedium, false), lp(MP, WC));
+        if (detailed) {
+            box.addView(text("Последни събития", 22, TvTheme.BLUE_LIGHT, Typeface.DEFAULT_BOLD, true), lpTopW(MP, WC, u(18)));
+            box.addView(text(last, 16, TvTheme.MUTED, tfMedium, false), lpTopW(MP, WC, u(8)));
+        }
+        if (detailed && !snaps.isEmpty()) {
             box.addView(text("Снимки при заседване (най-новата първа)", 22, T_SKY2, Typeface.DEFAULT_BOLD, true), lpTopW(MP, WC, u(18)));
             box.addView(text(snaps, 15, T_TEXT2, tfMedium, false), lpTopW(MP, WC, u(8)));
         }
@@ -1149,7 +1162,10 @@ public class MainActivity extends Activity {
         sv.setVerticalScrollBarEnabled(false);
         sv.setFocusable(true);
         sv.addView(box, new ViewGroup.LayoutParams(MP, WC));
-        card.addView(sv, lpTopW(MP, u(400), u(18)));
+        card.addView(sv, lpTopW(MP, u(detailed ? 400 : 220), u(18)));
+        card.addView(tvChoice(null, detailed ? "Назад към обобщението" : "Последни събития и подробности", null, 0, () -> {
+            tvDialogClose(); journalDialog(summary, last, snaps, !detailed);
+        }), lpTopW(MP, u(56), u(14)));
         card.addView(tvChoice(null, "Затвори", null, 1, new Runnable() {
             @Override
             public void run() {
@@ -2390,6 +2406,7 @@ public class MainActivity extends Activity {
     }
 
     private void showSection(int section) {
+        tvCancelNumberEntry();
         tvCloseTimeline();
         if (isFinishing() || switchingSection) return;
         if(section==appSection && tvPanelShown()){
@@ -2440,146 +2457,123 @@ public class MainActivity extends Activity {
     }
 
     private void fillHomePage() {
-        int hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
-        pageTitle(hour < 12 ? "Добро утро!" : hour < 18 ? "Добър ден!" : "Добър вечер!",
-                "Телевизия, любими сайтове и радио — без излишни менюта.");
-
+        pageTitle("Какво ще гледаме?", "Любимите канали и последното гледане — на едно място.");
         tvLoad();
         TvChan last = tvById(prefs.getString("tvlast", ""));
         if (last == null && !tvChans.isEmpty()) last = tvChans.get(0);
         final TvChan channel = last;
+        EpgGuide.Event event = channel == null ? null : homeEvent(channel);
 
-        LinearLayout heroRow = new LinearLayout(this);
-        heroRow.setOrientation(LinearLayout.HORIZONTAL);
         FrameLayout hero = new FrameLayout(this);
-        hero.setClipToOutline(true);
         hero.setBackground(TvTheme.hero(u(22)));
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setGravity(Gravity.CENTER_VERTICAL);
-        content.setPadding(u(38), u(25), u(38), u(25));
-        content.addView(text("●  НА ЖИВО  /  TVsites", 17, TvTheme.BLUE_LIGHT,
-                Typeface.DEFAULT_BOLD, true));
-        content.addView(text(channel == null ? "Твоята телевизия" : channel.name,
-                47, TvTheme.TEXT, Typeface.DEFAULT_BOLD, true), lpTopW(MP, WC, u(12)));
-        EpgGuide.Event event = channel == null ? null : homeEvent(channel);
-        TextView heroLine = text(event != null ? event.title :
-                channel == null ? "Създай свой списък с канали" : "Продължи от последния канал",
-                22, TvTheme.MUTED, tfMedium, false);
-        content.addView(heroLine, lpTopW(MP, WC, u(11)));
-        View watch = tvDashboardPill(IC_PLAY,
-                channel == null ? "Отвори телевизията" : "▶  Гледай сега",
-                () -> { if (channel == null) showSection(SECTION_TV); else tvTuneUser(channel, -1); });
-        watch.setBackground(TvTheme.control(U, true));
-        watch.setContentDescription(channel == null ? "Отвори телевизията" : "Гледай " + channel.name);
-        content.addView(watch, lpTopW(u(270), u(60), u(28)));
+        content.setPadding(u(34), u(26), u(350), u(26));
+        content.addView(text(channel == null ? "ТВОЯТА ТЕЛЕВИЗИЯ" : "ПРОДЪЛЖИ ГЛЕДАНЕТО",
+                16, TvTheme.BLUE_LIGHT, Typeface.DEFAULT_BOLD, true));
+        content.addView(text(channel == null ? "Избери първите си канали" : channel.name,
+                44, TvTheme.TEXT, Typeface.DEFAULT_BOLD, true), lpTopW(MP, WC, u(10)));
+        TextView heroLine = text(event == null ? "Телевизия на живо, когато поискаш" : event.title,
+                23, TvTheme.TEXT, tfMedium, false);
+        heroLine.setMaxLines(2); heroLine.setEllipsize(TextUtils.TruncateAt.END);
+        content.addView(heroLine, lpTopW(MP, WC, u(10)));
+        TextView time = text(event == null ? "" : tvEventTime(event), 17, TvTheme.MUTED, tfMedium, true);
+        content.addView(time, lpTopW(MP, WC, u(5)));
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setClipChildren(false); buttons.setClipToPadding(false);
+        View watch = tvDashboardPill(IC_PLAY, channel == null ? "Добави канали" : "Гледай сега",
+                () -> { if (channel == null) { showSection(SECTION_TV); tvAddFromSite(); }
+                        else tvTuneUser(channel, -1); });
+        watch.setTag("home:continue"); watch.setBackground(TvTheme.control(U, true));
+        watch.setOnFocusChangeListener(TvTheme::focus);
+        watch.setContentDescription(channel == null ? "Добави канали" : "Продължи гледането на " + channel.name);
+        buttons.addView(watch, lp(u(250), u(56)));
+        View guide = tvDashboardPill(IC_CLOCK, "ТВ програма", () -> { showSection(SECTION_TV); tvShowTimeline(); });
+        LinearLayout.LayoutParams gl = lp(u(230), u(56)); gl.leftMargin = u(16);
+        buttons.addView(guide, gl);
+        content.addView(buttons, lpTopW(MP, WC, u(20)));
         hero.addView(content, new FrameLayout.LayoutParams(MP, MP));
-        LinearLayout.LayoutParams heroLp = new LinearLayout.LayoutParams(0, u(280), 2.25f);
-        heroRow.addView(hero, heroLp);
+        if (channel != null) {
+            TvPlate logo = new TvPlate(this, 30, 22, true);
+            logo.showNameWhileLoading = true; logo.setChan(channel.name);
+            FrameLayout.LayoutParams logoLp = new FrameLayout.LayoutParams(u(260), u(150), Gravity.END | Gravity.CENTER_VERTICAL);
+            logoLp.rightMargin = u(40); hero.addView(logo, logoLp);
+        }
+        menu.addView(hero, lpTopW(MP, u(300), u(24)));
+        homeChannel = channel; homeProgrammeTitle = heroLine; homeProgrammeTime = time;
+        firstTile = watch;
+        if (event == null && channel != null) homeEpgFromCache(channel, heroLine, time);
 
-        LinearLayout side = new LinearLayout(this);
-        side.setOrientation(LinearLayout.VERTICAL);
-        side.setPadding(u(26), u(23), u(26), u(20));
-        side.setBackground(TvTheme.panel(u(20), TvTheme.SURFACE, TvTheme.OUTLINE, U));
-        side.addView(text("ТВОЯТ ЕФИР", 17, TvTheme.BLUE_LIGHT,
-                Typeface.DEFAULT_BOLD, true));
-        side.addView(text(channel == null ? "Няма добавени канали" : channel.name,
-                31, TvTheme.TEXT, Typeface.DEFAULT_BOLD, false), lpTopW(MP, WC, u(15)));
-        TextView sideLine = text(event == null ? "Програма: няма налични данни"
-                        : event.title + "  ·  " + tvEventTime(event),
-                19, TvTheme.MUTED, tfMedium, false);
-        side.addView(sideLine, lpTopW(MP, WC, u(9)));
-        if (event == null && channel != null) homeEpgFromCache(channel, heroLine, sideLine);
-        View openGuide = tvDashboardPill(IC_CLOCK, "ТВ програма", () -> {
-            showSection(SECTION_TV); tvShowTimeline();
-        });
-        side.addView(openGuide, lpTopW(MP, u(52), u(23)));
-        LinearLayout.LayoutParams sideLp = new LinearLayout.LayoutParams(0, u(280), 1f);
-        sideLp.leftMargin = u(20);
-        heroRow.addView(side, sideLp);
-        menu.addView(heroRow, lpTopW(MP, WC, u(27)));
+        ArrayList<TvChan> favourites = new ArrayList<>(), recent = new ArrayList<>();
+        for (TvChan c : tvChans) {
+            if (prefs.getBoolean("tvfav:" + c.id, false)) favourites.add(c);
+            if (c.last > 0 && c != channel) recent.add(c);
+        }
+        Collections.sort(recent, (a, b) -> Long.compare(b.last, a.last));
+        if (!favourites.isEmpty()) homeChannelRow("Любими канали", favourites);
+        if (!recent.isEmpty()) homeChannelRow("Последно гледани", recent);
+        if (favourites.isEmpty() && recent.isEmpty() && !tvChans.isEmpty()) homeChannelRow("Избери канал", tvChans);
 
-        LinearLayout heading = new LinearLayout(this);
-        heading.setGravity(Gravity.CENTER_VERTICAL);
-        heading.addView(text("Избери какво да гледаш", 29, TvTheme.TEXT,
-                Typeface.DEFAULT_BOLD, true), new LinearLayout.LayoutParams(0, WC, 1f));
-        heading.addView(text("OK за отваряне", 17, TvTheme.MUTED,
-                tfMedium, true));
-        menu.addView(heading, lpTopW(MP, WC, u(29)));
-
-        LinearLayout cards = new LinearLayout(this);
-        cards.setOrientation(LinearLayout.HORIZONTAL);
-        final int[] sections = {SECTION_TV, SECTION_SITES, SECTION_RADIO};
-        final int[] icons = {0, 3, 2};
-        final String[] names = {"Телевизия", "Сайтове", "Радио"};
-        final String[] descriptions = {
-            "Канали, програма и резервни потоци",
-            "Всички запазени уеб сайтове",
-            "Слушай любимите станции"
-        };
-        final String[] counts = {
-            tvChans.size() == 1 ? "1 канал" : tvChans.size() + " канала",
-            sites.size() == 1 ? "1 сайт" : sites.size() + " сайта",
-            RadioStation.DEFAULTS.length + " радиостанции"
-        };
-        for (int i = 0; i < sections.length; i++) {
+        LinearLayout shortcuts = new LinearLayout(this);
+        shortcuts.setClipChildren(false); shortcuts.setClipToPadding(false);
+        int[] icons = {IC_TV, IC_MONITOR, IC_RADIO};
+        int[] sections = {SECTION_TV, SECTION_SITES, SECTION_RADIO};
+        String[] names = {"Всички канали", "Сайтове и филми", "Радио"};
+        for (int i = 0; i < names.length; i++) {
             final int section = sections[i];
-            LinearLayout card = new LinearLayout(this);
-            card.setOrientation(LinearLayout.VERTICAL);
-            card.setGravity(Gravity.CENTER_VERTICAL);
-            card.setPadding(u(24), u(19), u(24), u(19));
-            card.setFocusable(true);
-            card.setFocusableInTouchMode(true);
-            card.setClickable(true);
-            card.setBackground(TvTheme.control(U, false));
-            card.setTag("home:" + section);
-            AppNavigation.NavigationIcon icon = new AppNavigation.NavigationIcon(this, icons[i]);
-            icon.tint = TvTheme.BLUE_LIGHT;
-            card.addView(icon, lp(u(37), u(37)));
-            card.addView(text(names[i], 29, TvTheme.TEXT, Typeface.DEFAULT_BOLD, true),
-                    lpTopW(MP, WC, u(14)));
-            card.addView(text(descriptions[i], 17, TvTheme.MUTED, tfMedium, false),
-                    lpTopW(MP, WC, u(8)));
-            card.addView(text(counts[i], 17, TvTheme.BLUE_LIGHT, tfMedium, true),
-                    lpTopW(MP, WC, u(13)));
-            card.setOnClickListener(v -> showSection(section));
-            card.setOnFocusChangeListener((v, hasFocus) -> {
-                v.animate().scaleX(hasFocus ? 1.025f : 1f)
-                        .scaleY(hasFocus ? 1.025f : 1f).setDuration(140).start();
-            });
-            LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(0, u(213), 1f);
-            if (i > 0) cardLp.leftMargin = u(17);
-            cards.addView(card, cardLp);
-            if (firstTile == null) firstTile = card;
+            View shortcut = tvDashboardPill(icons[i], names[i], () -> showSection(section));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, u(56), 1f);
+            if (i > 0) lp.leftMargin = u(16);
+            shortcuts.addView(shortcut, lp);
         }
-        menu.addView(cards, lpTopW(MP, WC, u(16)));
+        menu.addView(shortcuts, lpTopW(MP, WC, u(25)));
+        menu.addView(text("0–9  Канал по номер     OK  Отвори     MENU  Всички раздели",
+                16, TvTheme.MUTED, tfMedium, true), lpTopW(MP, WC, u(22)));
+    }
 
-        final ArrayList<TvChan> favouriteChans = new ArrayList<>();
-        for (TvChan fc : tvChans) {
-            if (prefs.getBoolean("tvfav:" + fc.id, false)) favouriteChans.add(fc);
+    private void homeChannelRow(String title, List<TvChan> channels) {
+        menu.addView(text(title, 25, TvTheme.TEXT, Typeface.DEFAULT_BOLD, true), lpTopW(MP, WC, u(24)));
+        HorizontalScrollView scroll = new HorizontalScrollView(this);
+        scroll.setHorizontalScrollBarEnabled(false); scroll.setClipToPadding(false);
+        LinearLayout row = new LinearLayout(this);
+        row.setClipChildren(false); row.setClipToPadding(false); row.setPadding(u(5), u(6), u(5), u(6));
+        for (int i = 0; i < Math.min(channels.size(), 12); i++) {
+            final TvChan channel = channels.get(i);
+            LinearLayout tile = new LinearLayout(this);
+            tile.setOrientation(LinearLayout.VERTICAL); tile.setPadding(u(18), u(14), u(18), u(14));
+            tile.setFocusable(true); tile.setClickable(true); tile.setBackground(TvTheme.control(U, false));
+            tile.setOnFocusChangeListener(TvTheme::focus);
+            tile.setOnClickListener(v -> tvTuneUser(channel, -1));
+            int number = tvChans.indexOf(channel) + 1;
+            tile.setContentDescription("Канал " + number + ", " + channel.name);
+            tile.addView(text(String.format(Locale.ROOT, "%03d", number), 15, TvTheme.BLUE_LIGHT, tfMedium, true));
+            tile.addView(text(channel.name, 25, TvTheme.TEXT, Typeface.DEFAULT_BOLD, true), lpTopW(MP, WC, u(8)));
+            EpgGuide.Event event = homeEvent(channel);
+            TextView programme = text(event == null ? "Телевизия на живо" : event.title, 17, TvTheme.MUTED, tfMedium, true);
+            programme.setEllipsize(TextUtils.TruncateAt.END);
+            tile.addView(programme, lpTopW(MP, WC, u(6)));
+            LinearLayout.LayoutParams lp = lp(u(235), u(128)); lp.rightMargin = u(14);
+            row.addView(tile, lp);
         }
-        if (!favouriteChans.isEmpty()) {
-            menu.addView(text("Любими канали", 26, TvTheme.TEXT,
-                    Typeface.DEFAULT_BOLD, true), lpTopW(MP, WC, u(28)));
-            LinearLayout recent = new LinearLayout(this);
-            recent.setOrientation(LinearLayout.HORIZONTAL);
-            int shown = Math.min(4, favouriteChans.size());
-            for (int i = 0; i < shown; i++) {
-                final TvChan c = favouriteChans.get(i);
-                TextView tile = filterChip("▶   " + c.name, false, () -> tvTuneUser(c, -1));
-                tile.setGravity(Gravity.CENTER_VERTICAL);
-                LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(0, u(60), 1f);
-                if (i > 0) cl.leftMargin = u(14);
-                recent.addView(tile, cl);
-            }
-            menu.addView(recent, lpTopW(MP, WC, u(13)));
-        }
-        menu.addView(text("OK  Отвори   ·   MENU  Всички раздели   ·   Назад  Връщане",
-                16, TvTheme.MUTED, tfMedium, true), lpTopW(MP, WC, u(24)));
+        scroll.addView(row); menu.addView(scroll, lpTopW(MP, WC, u(8)));
     }
 
     // Програмата на началния екран: от вече свалената (без мрежа) и само за последния канал.
     private EpgGuide homeGuide;
+    private TvChan homeChannel;
+    private TextView homeProgrammeTitle, homeProgrammeTime;
+    private final Runnable homeProgrammeTick = new Runnable() {
+        @Override public void run() {
+            ui.removeCallbacks(this);
+            if (appSection != SECTION_HOME || tvMode || nativeActive() || web != null
+                    || menuHolder == null || !menuHolder.isShown() || homeChannel == null) return;
+            EpgGuide.Event event = homeEvent(homeChannel);
+            homeProgrammeTitle.setText(event == null ? "Телевизия на живо, когато поискаш" : event.title);
+            homeProgrammeTime.setText(event == null ? "" : tvEventTime(event));
+            ui.postDelayed(this, 60000 - System.currentTimeMillis() % 60000 + 200);
+        }
+    };
     private String homeGuideFor = "";
     private long homeGuideTryAt;
     private boolean homeGuideBusy;
@@ -2612,7 +2606,7 @@ public class MainActivity extends Activity {
             EpgGuide.Event e = guide.current(name, System.currentTimeMillis());
             if (e == null) return;
             heroLine.setText(e.title);
-            sideLine.setText(e.title + "  ·  " + tvEventTime(e));
+            sideLine.setText(tvEventTime(e));
         }));
     }
 
@@ -2939,11 +2933,12 @@ public class MainActivity extends Activity {
 
     private ArrayList<TvGuidePanel.Channel> guideChannels(boolean filtered) {
         ArrayList<TvGuidePanel.Channel> out = new ArrayList<>();
-        for (TvChan c : tvChans) {
+        for (int i = 0; i < tvChans.size(); i++) {
+            TvChan c = tvChans.get(i);
             boolean favourite = prefs.getBoolean("tvfav:" + c.id, false);
             if (filtered && tvFavouritesOnly && !favourite) continue;
             if (filtered && tvSel >= 0 && tvCatOfName(c.name) != tvSel) continue;
-            out.add(new TvGuidePanel.Channel(c.id, c.name, favourite));
+            out.add(new TvGuidePanel.Channel(c.id, c.name, favourite, i + 1));
         }
         return out;
     }
@@ -3602,6 +3597,10 @@ public class MainActivity extends Activity {
     }
 
     private void updateState() {
+        ui.removeCallbacks(homeProgrammeTick);
+        if (appSection == SECTION_HOME && !tvMode && web == null && !nativeActive()) {
+            ui.postDelayed(homeProgrammeTick, 60000 - System.currentTimeMillis() % 60000 + 200);
+        }
         if (appBar != null) {
             boolean viewing = tvMode || nativeActive() || (web != null && web.getVisibility() == View.VISIBLE) || customView != null;
             appBar.setVisibility(viewing ? View.GONE : View.VISIBLE);
@@ -4935,7 +4934,7 @@ public class MainActivity extends Activity {
     private final Runnable appMemoryTick=()->updateAppMemory();
     private void updateAppMemory(){
         ui.removeCallbacks(appMemoryTick);
-        if(!memoryForeground || isFinishing() || appBar==null || appBar.getVisibility()!=View.VISIBLE)return;
+        if(!memoryForeground || isFinishing() || appSection!=SECTION_SETTINGS || appBar==null || appBar.getVisibility()!=View.VISIBLE)return;
         ActivityManager.MemoryInfo info=new ActivityManager.MemoryInfo();
         ((ActivityManager)getSystemService(Context.ACTIVITY_SERVICE)).getMemoryInfo(info);
         appBar.setMemory(statsPssMb,info.availMem/1048576L,info.totalMem/1048576L);
@@ -4943,7 +4942,7 @@ public class MainActivity extends Activity {
         if(!statsPssBusy && (statsPssMb<0 || now-statsPssAt>=10000)){
             statsPssBusy=true;statsPssAt=now;
             bg(()->{try{statsPssMb=pssMb();}finally{statsPssBusy=false;}
-                ui.post(()->{if(memoryForeground && appBar!=null && appBar.getVisibility()==View.VISIBLE){
+                ui.post(()->{if(memoryForeground && appSection==SECTION_SETTINGS && appBar!=null && appBar.getVisibility()==View.VISIBLE){
                     ActivityManager.MemoryInfo fresh=new ActivityManager.MemoryInfo();
                     ((ActivityManager)getSystemService(Context.ACTIVITY_SERVICE)).getMemoryInfo(fresh);
                     appBar.setMemory(statsPssMb,fresh.availMem/1048576L,fresh.totalMem/1048576L);
@@ -5621,6 +5620,7 @@ public class MainActivity extends Activity {
             if (!down) tvMoveSwallow = -1;
             return true;
         }
+        if (tvMoveChan == null && tvNumberKey(e)) return true;
         if(code==KeyEvent.KEYCODE_MENU){if(down && e.getRepeatCount()==0)showSectionMenu();return true;}
         if(tvTimelineLayer!=null)return super.dispatchKeyEvent(e);
 
@@ -5873,6 +5873,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
+        tvCancelNumberEntry();
         endSwipe(true);
         if (web != null) web.onPause();
     }
@@ -8204,7 +8205,7 @@ public class MainActivity extends Activity {
             }
         }
     };
-    private static final String TV_HINT_NORMAL = "↑ ↓ Канали    OK Гледай    MENU Всички раздели    → Програма";
+    private static final String TV_HINT_NORMAL = "↑ ↓ Канали    OK Гледай    0–9 Номер на канал    → Програма    MENU Раздели";
 
     private ArrayList<TvGuidePanel.Channel> tvShownList() {
         return guideChannels(tvPanelShown() && tvOverviewGuide != null && !tvMode);
@@ -8773,6 +8774,7 @@ public class MainActivity extends Activity {
 
     // Избор на канал от потребителя (клик, смяна на източник): започва отначало.
     private void tvTuneUser(TvChan c, int firstSrc) {
+        tvCancelNumberEntry();
         tvStartAt = SystemClock.uptimeMillis();
         tvRestarts = 0;
         tvSwitches = 0;
@@ -9666,6 +9668,7 @@ public class MainActivity extends Activity {
 
     // Излиза от гледането: спира всичко. showPanel връща към списъка с канали.
     private void tvLeave(boolean showPanel) {
+        tvCancelNumberEntry();
         tvCloseTimeline();
         if(streamDialog!=null)streamDialog.dismiss();
         boolean was = tvMode;
@@ -10058,55 +10061,75 @@ public class MainActivity extends Activity {
 
 
     // Долният слой на плеъра (ОК): НА ЖИВО, предаване, прогрес и пет бутона.
-    private void tvBuildBanner(){
-        tvBanner=new FrameLayout(this);
-        // тъмен преход горе: името на канала се чете върху всяка картина
-        View topScrim=new View(this);topScrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xCC070E1C,0x00070E1C}));
-        tvBanner.addView(topScrim,new FrameLayout.LayoutParams(MP,u(190),Gravity.TOP));
-        LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);top.setPadding(u(54),u(38),u(54),0);
-        TextView live=text("●  НА ЖИВО",20,Color.WHITE,Typeface.DEFAULT_BOLD,true);live.setPadding(u(18),u(8),u(18),u(8));live.setBackground(TvTheme.panel(u(10),TvTheme.LIVE,0,0));top.addView(live,lp(WC,WC));
-        tvBnNo=text("",24,TvTheme.MUTED,tfMedium,true);LinearLayout.LayoutParams no=lp(WC,WC);no.leftMargin=u(22);top.addView(tvBnNo,no);
-        tvBnName=text("",46,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true);LinearLayout.LayoutParams name=lp(WC,WC);name.leftMargin=u(12);top.addView(tvBnName,name);
-        tvBanner.addView(top,new FrameLayout.LayoutParams(MP,WC,Gravity.TOP));
-        LinearLayout bottom=new LinearLayout(this);bottom.setOrientation(LinearLayout.VERTICAL);bottom.setPadding(u(54),u(90),u(54),u(24));
-        bottom.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0x00070E1C,0xE6070E1C,0xFF070E1C}));
-        LinearLayout headline=new LinearLayout(this);headline.setGravity(Gravity.BOTTOM);
-        LinearLayout programme=new LinearLayout(this);programme.setOrientation(LinearLayout.VERTICAL);
-        tvBnProgramme=text("",46,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true);tvBnProgramme.setSingleLine(true);tvBnProgramme.setEllipsize(TextUtils.TruncateAt.END);programme.addView(tvBnProgramme,lp(MP,WC));
-        tvBnNext=text("",22,TvTheme.MUTED,tfMedium,true);tvBnNext.setSingleLine(true);tvBnNext.setEllipsize(TextUtils.TruncateAt.END);programme.addView(tvBnNext,lpTopW(MP,WC,u(10)));
-        headline.addView(programme,new LinearLayout.LayoutParams(0,WC,1));
-        tvBnSub=text("",20,TvTheme.BLUE_LIGHT,tfMedium,false);tvBnSub.setGravity(Gravity.END|Gravity.BOTTOM);tvBnSub.setMaxLines(2);tvBnSub.setEllipsize(TextUtils.TruncateAt.END);
-        LinearLayout.LayoutParams status=lp(u(470),u(70));status.leftMargin=u(24);headline.addView(tvBnSub,status);
-        bottom.addView(headline,lp(MP,WC));
-        // прогрес на предаването
-        tvBnProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);tvBnProgress.setMax(1000);
-        GradientDrawable track=TvTheme.panel(u(4),TvTheme.SURFACE_ALT,0,0);GradientDrawable fill=TvTheme.panel(u(4),TvTheme.FOCUS,0,0);
-        android.graphics.drawable.LayerDrawable bar=new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{track,new android.graphics.drawable.ClipDrawable(fill,Gravity.START,android.graphics.drawable.ClipDrawable.HORIZONTAL)});
-        bar.setId(0,android.R.id.background);bar.setId(1,android.R.id.progress);
-        tvBnProgress.setProgressDrawable(bar);
-        bottom.addView(tvBnProgress,lpTopW(MP,u(8),u(16)));
-        LinearLayout actions=new LinearLayout(this);actions.setGravity(Gravity.CENTER_VERTICAL);
-        View channels=tvBarButton(IC_BARS,"Канали",()->tvShowList());
-        View streams=tvBarButton(IC_PULSE,"Потоци",()->tvStreamPicker());streams.setOnLongClickListener(v->{if(tvCur!=null)tvChannelMenu(tvCur);return true;});
-        View guide=tvBarButton(IC_CLOCK,"Програма",()->tvProgrammeDialog());
-        View favourite=tvBarButton(IC_STAR,"Любими",()->{if(tvCur!=null){String key="tvfav:"+tvCur.id;prefs.edit().putBoolean(key,!prefs.getBoolean(key,false)).apply();tvShowBanner(0,null);}});
-        View settings=tvBarButton(IC_SLIDERS,"Настройки",()->tvPlayerSettings());
-        tvStreamControl=(TextView)((LinearLayout)streams).getChildAt(1);tvFavouriteControl=(TextView)((LinearLayout)favourite).getChildAt(1);
-        View[] buttons={channels,streams,guide,favourite,settings};
-        for(int i=0;i<buttons.length;i++){
-            View b=buttons[i];b.setId(View.generateViewId());b.setNextFocusUpId(b.getId());b.setNextFocusDownId(b.getId());
-            LinearLayout.LayoutParams l=new LinearLayout.LayoutParams(0,u(62),1f);if(i>0)l.leftMargin=u(14);actions.addView(b,l);
+    private LinearLayout tvBannerActions;
+
+    private void tvBuildBanner() {
+        tvBanner = new FrameLayout(this);
+        LinearLayout bottom = new LinearLayout(this);
+        bottom.setOrientation(LinearLayout.VERTICAL);
+        bottom.setPadding(u(54), u(52), u(54), u(28));
+        bottom.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0x00101218, 0xEC101218, 0xFF101218}));
+        LinearLayout header = new LinearLayout(this); header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView live = text("● НА ЖИВО", 14, TvTheme.PLAYING, Typeface.DEFAULT_BOLD, true);
+        header.addView(live, lp(WC, WC));
+        tvBnNo = text("", 20, TvTheme.MUTED, tfMedium, true);
+        LinearLayout.LayoutParams number = lp(WC, WC); number.leftMargin = u(22); header.addView(tvBnNo, number);
+        tvBnName = text("", 31, TvTheme.TEXT, Typeface.DEFAULT_BOLD, true);
+        tvBnName.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams name = new LinearLayout.LayoutParams(0, WC, 1f); name.leftMargin = u(12);
+        header.addView(tvBnName, name);
+        tvBnClock = text("", 22, TvTheme.MUTED, tfMedium, true); header.addView(tvBnClock, lp(WC, WC));
+        bottom.addView(header, lp(MP, WC));
+        tvBnProgramme = text("", 30, TvTheme.TEXT, Typeface.DEFAULT_BOLD, true);
+        tvBnProgramme.setEllipsize(TextUtils.TruncateAt.END);
+        bottom.addView(tvBnProgramme, lpTopW(MP, WC, u(12)));
+        tvBnNext = text("", 18, TvTheme.MUTED, tfMedium, true); tvBnNext.setEllipsize(TextUtils.TruncateAt.END);
+        bottom.addView(tvBnNext, lpTopW(MP, WC, u(7)));
+        tvBnProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        tvBnProgress.setMax(1000); tvBnProgress.setProgressDrawable(TvTheme.progress(U));
+        bottom.addView(tvBnProgress, lpTopW(MP, u(5), u(12)));
+        tvBnSub = text("", 18, TvTheme.BLUE_LIGHT, tfMedium, true); tvBnSub.setEllipsize(TextUtils.TruncateAt.END);
+        bottom.addView(tvBnSub, lpTopW(MP, WC, u(10)));
+
+        tvBannerActions = new LinearLayout(this); tvBannerActions.setGravity(Gravity.CENTER_VERTICAL);
+        tvBannerActions.setClipChildren(false); tvBannerActions.setClipToPadding(false);
+        View channels = tvBarButton(IC_BARS, "Канали", this::tvShowList);
+        View streams = tvBarButton(IC_PULSE, "Потоци", this::tvStreamPicker);
+        streams.setOnLongClickListener(v -> { if (tvCur != null) tvChannelMenu(tvCur); return true; });
+        View guide = tvBarButton(IC_CLOCK, "Програма", this::tvProgrammeDialog);
+        View favourite = tvBarButton(IC_STAR, "Любими", () -> {
+            if (tvCur != null) { String key = "tvfav:" + tvCur.id;
+                prefs.edit().putBoolean(key, !prefs.getBoolean(key, false)).apply(); tvShowBanner(0, null); }
+        });
+        View settings = tvBarButton(IC_SLIDERS, "Настройки", this::tvPlayerSettings);
+        tvStreamControl = (TextView) ((LinearLayout) streams).getChildAt(1);
+        tvFavouriteControl = (TextView) ((LinearLayout) favourite).getChildAt(1);
+        View[] buttons = {channels, streams, guide, favourite, settings};
+        for (int i = 0; i < buttons.length; i++) {
+            View button = buttons[i]; button.setId(View.generateViewId());
+            button.setNextFocusUpId(button.getId()); button.setNextFocusDownId(button.getId());
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, u(56), 1f);
+            if (i > 0) lp.leftMargin = u(14); tvBannerActions.addView(button, lp);
         }
-        for(int i=1;i<buttons.length;i++){buttons[i].setNextFocusLeftId(buttons[i-1].getId());buttons[i-1].setNextFocusRightId(buttons[i].getId());}
-        tvControlsFirst=streams;
-        bottom.addView(actions,lpTopW(MP,u(62),u(22)));
-        tvKeys=new LinearLayout(this);tvKeys.setGravity(Gravity.CENTER_VERTICAL);
-        tvChipZap=text("↑↓ Канал",17,TvTheme.MUTED,tfMedium,true);tvChipStream=text("← Поток",17,TvTheme.MUTED,tfMedium,true);tvChipSrc=text("→ Сайт",17,TvTheme.MUTED,tfMedium,true);tvKeyEnd=text("OK Управление · MENU Раздели",17,TvTheme.MUTED,tfMedium,true);
-        for(View hintView:new View[]{tvChipZap,tvChipStream,tvChipSrc,tvKeyEnd}){LinearLayout.LayoutParams hintLp=lp(WC,WC);hintLp.rightMargin=u(30);tvKeys.addView(hintView,hintLp);}
-        bottom.addView(tvKeys,lpTopW(MP,WC,u(20)));
-        tvBanner.addView(bottom,new FrameLayout.LayoutParams(MP,WC,Gravity.BOTTOM));
-        tvBnClock=text("",26,TvTheme.TEXT,tfMedium,true);FrameLayout.LayoutParams clockLp=new FrameLayout.LayoutParams(WC,WC,Gravity.TOP|Gravity.END);clockLp.topMargin=u(42);clockLp.rightMargin=u(54);tvBanner.addView(tvBnClock,clockLp);
-        tvBanner.setVisibility(View.GONE);nativeLayer.addView(tvBanner,new FrameLayout.LayoutParams(MP,MP));
+        for (int i = 0; i < buttons.length; i++) {
+            buttons[i].setNextFocusLeftId(buttons[Math.max(0, i - 1)].getId());
+            buttons[i].setNextFocusRightId(buttons[Math.min(buttons.length - 1, i + 1)].getId());
+        }
+        tvControlsFirst = channels;
+        tvBannerActions.setVisibility(View.GONE);
+        bottom.addView(tvBannerActions, lpTopW(MP, WC, u(20)));
+        tvKeys = new LinearLayout(this); tvKeys.setGravity(Gravity.CENTER_VERTICAL);
+        tvChipZap = text("↑↓ Канал", 16, TvTheme.MUTED, tfMedium, true);
+        tvChipStream = text("← Поток", 16, TvTheme.MUTED, tfMedium, true);
+        tvChipSrc = text("→ Сайт", 16, TvTheme.MUTED, tfMedium, true);
+        tvKeyEnd = text("0–9 Номер на канал · OK Управление", 16, TvTheme.MUTED, tfMedium, true);
+        for (View hint : new View[]{tvChipZap, tvChipStream, tvChipSrc, tvKeyEnd}) {
+            LinearLayout.LayoutParams lp = lp(WC, WC); lp.rightMargin = u(30); tvKeys.addView(hint, lp);
+        }
+        bottom.addView(tvKeys, lpTopW(MP, WC, u(16)));
+        tvBanner.addView(bottom, new FrameLayout.LayoutParams(MP, WC, Gravity.BOTTOM));
+        tvBanner.setVisibility(View.GONE); nativeLayer.addView(tvBanner, new FrameLayout.LayoutParams(MP, MP));
     }
 
     // Голям бутон от долния ред: иконка и надпис в средата.
@@ -10117,6 +10140,7 @@ public class MainActivity extends Activity {
         TextView t=text(label,23,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true);t.setSingleLine(true);b.addView(t);
         b.setContentDescription(label);
         b.setOnClickListener(v->action.run());
+        b.setOnFocusChangeListener(TvTheme::focus);
         return b;
     }
 
@@ -10316,12 +10340,12 @@ public class MainActivity extends Activity {
         tvBannerStatus=status;
         tvBannerStatusUntil=status==null?0:hideMs>0?SystemClock.uptimeMillis()+hideMs:Long.MAX_VALUE;
         tvBannerRefresh();
-        if(!tvControlsOpen){((TextView)tvChipZap).setText("↑↓ Канал");((TextView)tvChipStream).setText("← Поток");((TextView)tvChipSrc).setText("→ Сайт");tvKeyEnd.setText("OK Управление · MENU Раздели");}
+        if(!tvControlsOpen){((TextView)tvChipZap).setText("↑↓ Канал");((TextView)tvChipStream).setText("← Поток");((TextView)tvChipSrc).setText("→ Сайт");tvKeyEnd.setText("0–9 Номер на канал · OK Управление");}
         // Подсказки само за това, което има смисъл: един канал не се сменя, един източник също.
         tvChipZap.setVisibility(tvChans.size() > 1 ? View.VISIBLE : View.GONE);
         // ◀ има смисъл и когато няма втори поток: тогава търси още в сайта.
-        tvChipStream.setVisibility(tvStreamCount() > 1 || tvSearchable() ? View.VISIBLE : View.GONE);
-        tvChipSrc.setVisibility(tvCur.srcs.size() > 1 ? View.VISIBLE : View.GONE);
+        tvChipStream.setVisibility(tvControlsOpen ? View.VISIBLE : View.GONE);
+        tvChipSrc.setVisibility(tvControlsOpen ? View.VISIBLE : View.GONE);
         tvFadeIn(tvBanner);
         tvFadeIn(tvKeys);
         ui.removeCallbacks(tvBannerHideRun);
@@ -10332,12 +10356,14 @@ public class MainActivity extends Activity {
         TvChan channel=tvZapIdx>=0 && tvZapIdx<tvChans.size()?tvChans.get(tvZapIdx):tvCur;if(channel==null)return;
         if(tvBannerStatus!=null && SystemClock.uptimeMillis()>=tvBannerStatusUntil)tvBannerStatus=null;
         tvFillBanner(channel,tvBannerStatus!=null?tvBannerStatus:tvLine());
+        tvBannerActions.setVisibility(tvControlsOpen ? View.VISIBLE : View.GONE);
+        tvBnSub.setVisibility(tvBannerStatus != null || tvControlsOpen ? View.VISIBLE : View.GONE);
     }
 
     private void tvShowControls(){
         tvControlsOpen=true;tvShowBanner(0,null);if(tvControlsFirst!=null)tvControlsFirst.requestFocusFromTouch();
         tvChipZap.setVisibility(View.VISIBLE);tvChipStream.setVisibility(View.VISIBLE);tvChipSrc.setVisibility(View.VISIBLE);
-        ((TextView)tvChipZap).setText("←→ Избор");((TextView)tvChipStream).setText("OK Отвори");((TextView)tvChipSrc).setText("Назад Чиста картина");tvKeyEnd.setText("MENU Всички раздели");
+        ((TextView)tvChipZap).setText("←→ Избор");((TextView)tvChipStream).setText("OK Отвори");((TextView)tvChipSrc).setText("Назад Чиста картина");tvKeyEnd.setText("0–9 Номер · MENU Раздели");
     }
 
     private void tvFillBanner(TvChan c, String line) {
@@ -10611,11 +10637,107 @@ public class MainActivity extends Activity {
         tvPlayerGuide=newGuide(true);tvPlayerGuide.setChannels(guideChannels(false),tvCur==null?null:tvCur.id);
         tvPlayerGuide.setGuide(tvGuide,tvEpgError);
         LinearLayout.LayoutParams panel=new LinearLayout.LayoutParams(MP,0,1f);panel.topMargin=u(18);content.addView(tvPlayerGuide,panel);
-        content.addView(text("↑ ↓ Избери канал   OK Гледай   → Програма и източници   Назад Затвори",17,TvTheme.MUTED,tfMedium,true),lpTopW(MP,WC,u(14)));
+        content.addView(text("↑ ↓ Избери канал   OK Гледай   0–9 Номер   → Програма   Назад Затвори",17,TvTheme.MUTED,tfMedium,true),lpTopW(MP,WC,u(14)));
         tvListBox.addView(content,new FrameLayout.LayoutParams(MP,MP));
         tvListBox.setAlpha(1f);tvListBox.setVisibility(View.VISIBLE);tvListBox.bringToFront();
         tvPlayerGuide.focusChannels();
         tvEpgLoad();tvPanelClockTick();
+    }
+
+    private final ChannelNumberInput tvNumberInput = new ChannelNumberInput();
+    private ChannelNumberOverlay tvNumberOverlay;
+    private int tvNumberSwallow = -1;
+    private final Runnable tvNumberHide = () -> {
+        if (tvNumberOverlay != null) tvNumberOverlay.setVisibility(View.GONE);
+    };
+    private final Runnable tvNumberCommit = () -> {
+        if (!tvNumberContext() || !tvNumberInput.pending()) { tvCancelNumberEntry(); return; }
+        long remaining = tvNumberInput.remainingMs(SystemClock.uptimeMillis());
+        if (remaining > 0) { ui.postDelayed(this.tvNumberCommit, remaining); return; }
+        tvConfirmNumberEntry();
+    };
+
+    private boolean tvNumberContext() {
+        if (getCurrentFocus() instanceof EditText || (tvDialog != null && tvDialog.isShowing())
+                || (sectionDialog != null && sectionDialog.isShowing())
+                || (streamDialog != null && streamDialog.isShowing())
+                || (programmeDialog != null && programmeDialog.isShowing())) return false;
+        return !isFinishing() && hasWindowFocus() && (tvMode || tvPanelShown()
+                || (appSection == SECTION_HOME && web == null && !nativeActive()
+                && menuHolder != null && menuHolder.isShown()));
+    }
+
+    private void tvCancelNumberEntry() {
+        tvNumberInput.clear();
+        ui.removeCallbacks(tvNumberCommit);
+        ui.removeCallbacks(tvNumberHide);
+        if (tvNumberOverlay != null) tvNumberOverlay.setVisibility(View.GONE);
+    }
+
+    private void tvPreviewNumberEntry() {
+        if (tvNumberOverlay == null) {
+            tvNumberOverlay = new ChannelNumberOverlay(this, U);
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(u(450), WC, Gravity.TOP | Gravity.END);
+            lp.topMargin = u(116); lp.rightMargin = u(54);
+            root.addView(tvNumberOverlay, lp);
+        }
+        int index = tvNumberInput.channelIndex(tvChans.size());
+        tvNumberOverlay.show(tvNumberInput.digits(), index < 0 ? null : tvChans.get(index).name);
+        tvNumberOverlay.bringToFront();
+    }
+
+    private void tvConfirmNumberEntry() {
+        String digits = tvNumberInput.digits();
+        int index = tvNumberInput.commit(tvChans.size());
+        ui.removeCallbacks(tvNumberCommit);
+        if (index < 0) {
+            if (tvNumberOverlay != null) tvNumberOverlay.show(digits, null);
+            ui.postDelayed(tvNumberHide, 1200);
+            return;
+        }
+        TvChan channel = tvChans.get(index);
+        tvCancelNumberEntry();
+        if (tvMode && channel == tvCur && tvPlaying) {
+            tvCloseTimeline(); tvHideListNow(); tvHideBannerNow();
+            nativeLayer.setFocusableInTouchMode(true); nativeLayer.requestFocusFromTouch();
+            tvShowBanner(2500, null);
+        } else tvTuneUser(channel, -1);
+    }
+
+    private boolean tvNumberKey(KeyEvent event) {
+        int code = event.getKeyCode();
+        boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
+        if (code == tvNumberSwallow) {
+            if (down && event.getRepeatCount() == 0) tvNumberSwallow = -1;
+            else { if (event.getAction() == KeyEvent.ACTION_UP) tvNumberSwallow = -1; return true; }
+        }
+        if (!tvNumberContext()) { tvCancelNumberEntry(); return false; }
+        int digit = ChannelNumberInput.digitForKeyCode(code);
+        if (digit >= 0) {
+            if (down && event.getRepeatCount() == 0 && !event.isCanceled()) {
+                tvLoad();
+                if (tvNumberInput.append(digit, tvChans.size(), SystemClock.uptimeMillis())) {
+                    ui.removeCallbacks(tvZapGo); tvZapIdx = -1;
+                    ui.removeCallbacks(tvNumberCommit); ui.removeCallbacks(tvNumberHide);
+                    tvPreviewNumberEntry();
+                    ui.postDelayed(tvNumberCommit, ChannelNumberInput.TIMEOUT_MS);
+                }
+            }
+            return true;
+        }
+        if (!tvNumberInput.pending()) return false;
+        boolean confirm = code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER
+                || code == KeyEvent.KEYCODE_NUMPAD_ENTER;
+        if (confirm || code == KeyEvent.KEYCODE_BACK) {
+            if (down && event.getRepeatCount() == 0) {
+                tvNumberSwallow = code;
+                if (confirm) tvConfirmNumberEntry(); else tvCancelNumberEntry();
+            }
+            return true;
+        }
+        if (down && code != KeyEvent.KEYCODE_VOLUME_UP && code != KeyEvent.KEYCODE_VOLUME_DOWN
+                && code != KeyEvent.KEYCODE_VOLUME_MUTE) tvCancelNumberEntry();
+        return false;
     }
 
     // Клавиши, докато се гледа канал (списъкът върху видеото сам си взима стрелките и OK).

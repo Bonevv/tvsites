@@ -25,6 +25,9 @@ final class EpgGuide {
     }
 
     private final Map<String, List<Event>> events;
+    private final Map<String, String> channelKeys = new LinkedHashMap<String, String>(64, 0.75f, true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<String, String> eldest) { return size() > 256; }
+    };
     private EpgGuide(Map<String, List<Event>> events) { this.events = events; }
 
     static String key(String name) {
@@ -45,8 +48,18 @@ final class EpgGuide {
         return value;
     }
 
+    private List<Event> eventsFor(String name) {
+        String canonical;
+        synchronized (channelKeys) {
+            canonical = channelKeys.get(name);
+            if (canonical == null) { canonical = key(name); channelKeys.put(name, canonical); }
+        }
+        List<Event> list = events.get(canonical);
+        return list == null ? Collections.emptyList() : list;
+    }
+
     List<Event> forChannel(String name, long now) {
-        List<Event> list = events.get(key(name));
+        List<Event> list = eventsFor(name);
         if (list == null) return Collections.emptyList();
         List<Event> result = new ArrayList<>();
         for (Event e : list) if (e.end > now) result.add(e);
@@ -54,7 +67,7 @@ final class EpgGuide {
     }
 
     Event current(String name, long now) {
-        for (Event e : forChannel(name, now)) if (e.start <= now && e.end > now) return e;
+        for (Event e : eventsFor(name)) if (e.start <= now && e.end > now) return e;
         return null;
     }
 

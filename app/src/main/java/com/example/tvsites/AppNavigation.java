@@ -14,6 +14,7 @@ final class AppNavigation extends FrameLayout {
     private int selected;
     private Runnable contentAction;
     private final TextView memory;
+    private final View footer;
     AppNavigation(Context context, float unit, Listener listener) {
         super(context);this.unit=unit;setClipChildren(false);setClipToPadding(false);setElevation(px(24));
         LinearLayout header=new LinearLayout(context);header.setGravity(Gravity.CENTER_VERTICAL);header.setPadding(px(54),0,px(48),0);header.setBackgroundColor(TvTheme.BACKGROUND);
@@ -39,6 +40,7 @@ final class AppNavigation extends FrameLayout {
             tab.addView(new NavigationIcon(context,index),new LinearLayout.LayoutParams(px(23),px(23)));
             TextView caption=label(names[j],20,false);LinearLayout.LayoutParams textLp=new LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT,LayoutParams.WRAP_CONTENT);textLp.leftMargin=px(9);tab.addView(caption,textLp);
             tab.setOnClickListener(v->listener.select(index));
+            tab.setOnFocusChangeListener(TvTheme::focus);
             tab.setOnKeyListener((v,key,event)->{if(key==KeyEvent.KEYCODE_DPAD_DOWN && contentAction!=null){if(event.getAction()==KeyEvent.ACTION_DOWN)contentAction.run();return true;}return false;});
             LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT,px(53));tp.rightMargin=px(7);header.addView(tab,tp);tabs[index]=tab;
         }
@@ -47,13 +49,13 @@ final class AppNavigation extends FrameLayout {
         TextClock clock=new TextClock(context);clock.setFormat24Hour("HH:mm");clock.setFormat12Hour("HH:mm");clock.setTextColor(TvTheme.TEXT);clock.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,px(24));header.addView(clock,new LinearLayout.LayoutParams(px(82),LayoutParams.WRAP_CONTENT));
         FrameLayout search=new FrameLayout(context);search.setId(View.generateViewId());search.setFocusable(true);search.setClickable(true);search.setContentDescription("Търсене");search.setBackground(TvTheme.control(unit,false));search.addView(new NavigationIcon(context,6),new LayoutParams(px(23),px(23),Gravity.CENTER));search.setOnClickListener(v->{if(searchAction!=null)searchAction.run();});search.setNextFocusLeftId(tabs[4].getId());tabs[4].setNextFocusRightId(search.getId());search.setOnKeyListener((v,key,event)->{if(key==KeyEvent.KEYCODE_DPAD_DOWN && contentAction!=null){if(event.getAction()==KeyEvent.ACTION_DOWN)contentAction.run();return true;}return false;});header.addView(search,new LinearLayout.LayoutParams(px(49),px(49)));
         View divider=new View(context);divider.setBackgroundColor(TvTheme.OUTLINE);LayoutParams dp=new LayoutParams(LayoutParams.MATCH_PARENT,Math.max(1,px(1)));dp.topMargin=px(95);addView(divider,dp);
-        View footer=new View(context);footer.setBackgroundColor(TvTheme.BACKGROUND);addView(footer,new LayoutParams(LayoutParams.MATCH_PARENT,px(56),Gravity.BOTTOM));
+        footer=new View(context);footer.setBackgroundColor(TvTheme.BACKGROUND);addView(footer,new LayoutParams(LayoutParams.MATCH_PARENT,px(56),Gravity.BOTTOM));
         memory=label("RAM процес: …",15,false);memory.setTextColor(TvTheme.MUTED);memory.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
         LayoutParams mp=new LayoutParams(px(650),px(30),Gravity.END|Gravity.BOTTOM);mp.rightMargin=px(48);mp.bottomMargin=px(16);addView(memory,mp);setSection(5);
     }
     private Runnable searchAction;
     void setSearchAction(Runnable action){searchAction=action;}
-    void setSection(int section){selected=Math.max(0,Math.min(5,section));for(int i=0;i<tabs.length;i++){if(tabs[i]==null)continue;tabs[i].setBackground(TvTheme.navigation(unit,i==selected));tabs[i].setSelected(i==selected);}}
+    void setSection(int section){selected=Math.max(0,Math.min(5,section));for(int i=0;i<tabs.length;i++){if(tabs[i]==null)continue;tabs[i].setBackground(TvTheme.navigation(unit,i==selected));tabs[i].setSelected(i==selected);}memory.setVisibility(selected==4?VISIBLE:GONE);footer.setVisibility(selected==4?VISIBLE:GONE);}
     void setContentAction(Runnable action){contentAction=action;}
     void setMemory(long processMb,long freeMb,long totalMb){memory.setText("RAM процес: "+(processMb>0?"≈ "+processMb+" МБ":"…")+" · Свободна: "+freeMb+" / "+totalMb+" МБ");}
     void focusSelected(){tabs[selected].requestFocusFromTouch();}
