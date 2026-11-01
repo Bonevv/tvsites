@@ -14,6 +14,7 @@ import androidx.media3.exoplayer.source.MediaLoadData;
 
 import java.io.IOException;
 import java.util.ArrayDeque;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 
 /**
@@ -51,8 +52,14 @@ final class StreamTrace implements AnalyticsListener {
         String host = "";
     }
 
+    private static final class Loading {
+        long at;
+        String host;
+    }
+
     private final ArrayDeque<Ev> events = new ArrayDeque<>();
     private final ArrayDeque<Chunk> chunks = new ArrayDeque<>();
+    private final LinkedHashMap<Long, Loading> loading = new LinkedHashMap<>();
     private final long[] lastEnd = new long[TYPES];
     private long manifestAt;
     private long manifestMs;
@@ -72,6 +79,7 @@ final class StreamTrace implements AnalyticsListener {
     synchronized void reset() {
         events.clear();
         chunks.clear();
+        loading.clear();
         for (int i = 0; i < TYPES; i++) lastEnd[i] = C.TIME_UNSET;
         manifestAt = 0;
         manifestMs = 0;
@@ -115,12 +123,30 @@ final class StreamTrace implements AnalyticsListener {
     // ---- събития на плеъра ----
 
     @Override
+    public synchronized void onLoadStarted(EventTime eventTime, LoadEventInfo info, MediaLoadData data) {
+        if (data.dataType != C.DATA_TYPE_MEDIA) return;
+        Loading load = new Loading();
+        load.at = SystemClock.elapsedRealtime();
+        load.host = hostOf(info);
+        loading.put(info.loadTaskId, load);
+        while (loading.size() > MAX_CHUNKS) loading.remove(loading.keySet().iterator().next());
+    }
+
+    @Override
+    public synchronized void onLoadCanceled(EventTime eventTime, LoadEventInfo info, MediaLoadData data) {
+        if (loading.remove(info.loadTaskId) != null) {
+            add("отменено парче след " + info.loadDurationMs + " мс, " + info.bytesLoaded / 1024 + " КБ");
+        }
+    }
+
+    @Override
     public synchronized void onPlaybackStateChanged(EventTime eventTime, int state) {
         add("състояние " + stateName(state));
     }
 
     @Override
     public synchronized void onLoadCompleted(EventTime eventTime, LoadEventInfo info, MediaLoadData data) {
+        loading.remove(info.loadTaskId);
         long now = SystemClock.elapsedRealtime();
         if (data.dataType == C.DATA_TYPE_MANIFEST) {
             manifestCount++;
@@ -153,6 +179,7 @@ final class StreamTrace implements AnalyticsListener {
     @Override
     public synchronized void onLoadError(EventTime eventTime, LoadEventInfo info, MediaLoadData data,
                                          IOException error, boolean wasCanceled) {
+        if (wasCanceled) loading.remove(info.loadTaskId);
         String what = data.dataType == C.DATA_TYPE_MANIFEST ? "плейлист"
                 : data.dataType == C.DATA_TYPE_MEDIA ? "парче" : "данни";
         String host = hostOf(info);
@@ -240,6 +267,13 @@ final class StreamTrace implements AnalyticsListener {
             // без броячи
         }
         if (full) {
+            // A missing COMPLETED event does not mean that no media request was made.
+            // Show in-flight segments before the bounded list of completed ones.
+            s.append("¦Незавършени парчета: ");
+            if (loading.isEmpty()) s.append("няма");
+            for (Loading load : loading.values()) {
+                s.append((now - load.at) / 1000).append(" сек от ").append(load.host).append(" · ");
+            }
             s.append("¦Парчета: ");
             if (chunks.isEmpty()) {
                 s.append("няма");

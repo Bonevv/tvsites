@@ -8639,8 +8639,6 @@ public class MainActivity extends Activity {
     private static final long TV_STALL_MS = 15000;         // колко се търпи заседнала картина (на живо)
     private static final long TV_SEEK_MS = 5000;           // колко заседнала картина, преди да се опита скок към живия край
     private static final int TV_HTTP_TIMEOUT_MS = 8000;    // връзка/четене: по-малко от TV_STALL_MS, за да има време за повторен опит
-    // Колко зад живия край стои плеърът: запас срещу кратки забавяния на мрежата (ограничава се до прозореца на потока).
-    private static final long LIVE_OFFSET_MS = 18000;
     private static final long TV_FAIL_MEMORY = 6 * 3600 * 1000L; // толкова време сайтът с неуспех се пробва последен
     private String tvStableUrl = "";
     private int tvStableSi = -1;
@@ -9167,9 +9165,9 @@ public class MainActivity extends Activity {
         }
     }
 
-    // Отстояние от живия край за предаванията на живо (за записи/филми не се ползва).
+    // Източникът определя безопасното отстояние според своя плейлист.
     private static MediaItem.LiveConfiguration liveCfg() {
-        return new MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(LIVE_OFFSET_MS).build();
+        return TvPlaybackPolicy.liveConfiguration();
     }
 
     @androidx.annotation.OptIn(markerClass=androidx.media3.common.util.UnstableApi.class)
@@ -9503,16 +9501,23 @@ public class MainActivity extends Activity {
         public void run() {
             if (!tvMode || !tvPlaying || tvBufAt == 0 || player == null || tvSeekGen != tvBufGen) return;
             ExoPlayer p = player;
-            boolean live = false, can = false, buffering = false;
+            boolean live = false, can = false, buffering = false, forward = false;
             try {
                 live = p.isCurrentMediaItemLive();
                 can = p.isCommandAvailable(Player.COMMAND_SEEK_TO_DEFAULT_POSITION);
                 buffering = p.getPlaybackState() == Player.STATE_BUFFERING;
+                androidx.media3.common.Timeline timeline = p.getCurrentTimeline();
+                if (!timeline.isEmpty()) {
+                    androidx.media3.common.Timeline.Window window = new androidx.media3.common.Timeline.Window();
+                    timeline.getWindow(p.getCurrentMediaItemIndex(), window);
+                    forward = TvPlaybackPolicy.shouldSeekForward(p.getCurrentPosition(), window.getDefaultPositionMs());
+                }
             } catch (Exception ignored) {
                 // непознато състояние: без скок
             }
             String why = !buffering ? "вече не буферира" : !live ? "не е на живо"
-                    : !can ? "скокът не е позволен" : tvSeekTried ? "скокът вече е правен в този опит" : "";
+                    : !can ? "скокът не е позволен" : !forward ? "целта не е напред, запазвам буфера"
+                    : tvSeekTried ? "скокът вече е правен в този опит" : "";
             tvTraceJournal("5 сек. буфериране" + (why.isEmpty() ? " — правя скок към живия край" : " — без скок: " + why), true);
             if (!why.isEmpty()) return;
             tvSeekTried = true;
