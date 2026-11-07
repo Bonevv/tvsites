@@ -201,6 +201,9 @@ final class MovieSources {
                 if(embed.find()){e.embed=embed.group(1);break;}
             }
         }
+        if(e.embed.isEmpty() && e.provider.equals("ZT")){
+            Element frame=doc.selectFirst(".movieplay iframe[src]");if(frame!=null && frame.absUrl("src").startsWith("http"))e.embed=frame.absUrl("src");
+        }
         e.detailed=true; return e;
     }
     static void readEpisodes(MovieCatalog.Entry e,Document doc){

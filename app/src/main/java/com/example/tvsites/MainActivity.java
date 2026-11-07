@@ -2352,6 +2352,9 @@ public class MainActivity extends Activity {
     private boolean movieReady;
     private long movieResume;
     private MovieResolver movieResolver;
+    private MovieSitePlayer movieSitePlayer;
+    private boolean movieOriginal,movieUseSite;
+    private AlertDialog movieCaptionsDialog;
     private MovieResolver.Stream movieStream;
     private FrameLayout movieLoading;
     private TextView movieLoadingInfo;
@@ -2422,10 +2425,13 @@ public class MainActivity extends Activity {
     }
     private void movieStart(MovieCatalog.Movie movie,List<MovieCatalog.Entry> plan,long position){
         teardownSite();if(movieBrowser!=null)movieBrowser.pauseArtwork();movieStore.pause();ensureLayers();movieActive=movie;movieDeadline=SystemClock.uptimeMillis()+75000;moviePlan.clear();moviePlan.addAll(plan);movieSourceIndex=-1;movieResume=position;
+        movieUseSite=!prefs.getString("movie:player","site").equals("native");
         ++movieGeneration;ui.postDelayed(movieOverallTimeout,75000);movieNextSource();
     }
     private void movieNextSource(){
         if(movieActive==null)return;
+        movieCloseSitePlayer();
+        if(movieCaptionsDialog!=null){movieCaptionsDialog.dismiss();movieCaptionsDialog=null;}
         if(movieResolver!=null){movieResolver.close();movieResolver=null;}
         ui.removeCallbacks(movieStartTimeout);ui.removeCallbacks(movieProgressTick);
         if(player!=null){player.removeListener(nativeListener);player.release();player=null;}
@@ -2439,6 +2445,11 @@ public class MainActivity extends Activity {
         }
         MovieCatalog.Entry source=moviePlan.get(movieSourceIndex);movieShowLoading(source);
         final int gen=++movieGeneration;
+        if(movieUseSite && MovieResolver.media(source.embed)){
+            HashMap<String,String> headers=new HashMap<>();headers.put("Referer",source.page.split("#")[0]);String cookie=CookieManager.getInstance().getCookie(source.embed);if(cookie!=null)headers.put("Cookie",cookie);
+            movieHideLoading();movieStream=new MovieResolver.Stream(source.embed,headers,Collections.emptyList());startNativeVideo(source.embed,headers,DESKTOP_UA,true);ui.postDelayed(movieStartTimeout,20000);ui.postDelayed(movieProgressTick,5000);return;
+        }
+        if(movieUseSite){movieOpenSitePlayer(source,gen);return;}
         movieResolver=new MovieResolver(root,source,TV_PLAY_JS,this::isBlocked,new MovieResolver.Callback(){
             @Override public void found(MovieResolver.Stream stream){
                 if(gen!=movieGeneration || movieActive==null)return;
@@ -2454,11 +2465,74 @@ public class MainActivity extends Activity {
         });
         movieResolver.start();
     }
+    private void movieOpenSitePlayer(MovieCatalog.Entry source,int gen){
+        movieOriginal=true;allowedHost=hostOf(source.embed.isEmpty()?source.page:source.embed);curSiteName=movieActive.title();curMode="desktop";
+        cursorEnabled=true;cursorTemp=false;scrollMode=false;pageUrl=null;
+        createWebView();applyUserAgent();if(source.embed.isEmpty())web.getSettings().setBlockNetworkImage(true);menuHolder.setVisibility(View.GONE);
+        movieSitePlayer=new MovieSitePlayer(web,source,new MovieSitePlayer.Events(){
+            @Override public void ready(){if(gen!=movieGeneration || !movieOriginal)return;movieReady=true;ui.removeCallbacks(movieOverallTimeout);movieHideLoading();hideSplash();if(customView==null)web.setVisibility(View.VISIBLE);web.requestFocus();movieSitePlayer.seek(movieResume);ui.postDelayed(movieProgressTick,5000);cx=root.getWidth()/2f;cy=root.getHeight()/2f;updateCursor();pokeCursor();updateState();Toast.makeText(MainActivity.this,"MENU: субтитри и друг плеър · Стрелки: курсор · OK: натисни",Toast.LENGTH_LONG).show();}
+            @Override public void failed(){if(gen==movieGeneration && movieActive!=null)movieNextSource();}
+            @Override public void captionsChanged(){}
+            @Override public void progress(int secondsLeft){if(gen==movieGeneration && movieLoadingInfo!=null)movieLoadingInfo.setText("Зареждане на плеъра · "+MovieSources.Provider.valueOf(source.provider).label+"\nИзточник "+(movieSourceIndex+1)+" / "+moviePlan.size()+" · до "+secondsLeft+" сек.");}
+        });
+        web.setVisibility(View.VISIBLE);if(movieLoading!=null)movieLoading.bringToFront();movieSitePlayer.start();updateState();
+    }
+    private void movieCloseSitePlayer(){
+        if(movieSitePlayer!=null){movieSitePlayer.close();movieSitePlayer=null;}
+        if(movieOriginal){
+            movieOriginal=false;
+            if(customView!=null && chromeClient!=null)chromeClient.onHideCustomView();
+            destroyWeb();
+        }
+    }
+    private void moviePlaybackOptions(){
+        if(movieActive==null)return;
+        String[] labels={"Субтитри от сайта",movieOriginal?"Опитай собствения плеър":"Опитай оригиналния плеър",movieOriginal?"Курсор / управление":"Качество на видеото","Избери източник","Към филмите"};
+        movieDetailDialog=new AlertDialog.Builder(this).setTitle(movieActive.title()).setItems(labels,(d,i)->{
+            if(i==0)movieShowCaptions();
+            else if(i==1){MovieCatalog.Movie movie=movieActive;ArrayList<MovieCatalog.Entry> plan=new ArrayList<>(moviePlan);boolean site=!movieOriginal;long position=movieSitePlayer!=null?movieSitePlayer.position():player==null?movieResume:player.getCurrentPosition();prefs.edit().putString("movie:player",site?"site":"native").apply();movieStart(movie,plan,position);}
+            else if(i==2){if(movieOriginal)toggleCursor();else tvQualityDialog();}
+            else if(i==3){MovieCatalog.Movie movie=movieActive;closeNative(true);movieChooseSource(movie);}
+            else closeNative(true);
+        }).setNegativeButton("Назад",null).create();movieDetailDialog.show();
+    }
+    private void movieShowCaptions(){
+        if(movieOriginal && movieSitePlayer!=null){
+            MovieSitePlayer session=movieSitePlayer;session.refreshCaptions();
+            ui.postDelayed(()->{
+                if(movieSitePlayer!=session || !movieOriginal)return;
+                List<MovieSitePlayer.Caption> tracks=session.captions();
+                if(tracks.isEmpty()){
+                    movieCaptionsDialog=new AlertDialog.Builder(this).setTitle("Субтитри от сайта").setMessage("Този плеър управлява субтитрите през собственото си CC / Субтитри меню. Използвай курсора и OK, за да избереш език или да ги изключиш.")
+                            .setPositiveButton("Отвори CC",(d,w)->{if(movieSitePlayer==session){session.openCaptionControls();pokeCursor();}}).setNegativeButton("Назад",null).create();movieCaptionsDialog.show();return;
+                }
+                ArrayList<String> labels=new ArrayList<>();labels.add("Изключени");
+                for(MovieSitePlayer.Caption track:tracks)labels.add(track.label+(track.selected?" · избрани":""));
+                labels.add("Отвори CC / субтитрите в плеъра");
+                movieCaptionsDialog=new AlertDialog.Builder(this).setTitle("Субтитри от сайта").setItems(labels.toArray(new String[0]),(d,i)->{
+                    if(movieSitePlayer!=session)return;if(i==0)session.off();else if(i<=tracks.size())session.choose(tracks.get(i-1));else{session.openCaptionControls();pokeCursor();Toast.makeText(this,"Използвай CC / Субтитри в плеъра с курсора",Toast.LENGTH_LONG).show();}
+                }).setNegativeButton("Назад",null).create();movieCaptionsDialog.show();
+            },180);return;
+        }
+        if(player==null || vTrackSel==null)return;
+        ArrayList<String> labels=new ArrayList<>();ArrayList<Runnable> actions=new ArrayList<>();
+        labels.add("Изключени");actions.add(()->{vTrackSel.setParameters(vTrackSel.buildUponParameters().clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_TEXT).setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT,true));if(movieSubtitles!=null)movieSubtitles.setCues(Collections.emptyList());});
+        labels.add("Автоматично — български");actions.add(()->vTrackSel.setParameters(vTrackSel.buildUponParameters().clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_TEXT).setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT,false).setPreferredTextLanguage("bg")));
+        for(androidx.media3.common.Tracks.Group group:player.getCurrentTracks().getGroups()){
+            if(group.getType()!=androidx.media3.common.C.TRACK_TYPE_TEXT)continue;
+            for(int i=0;i<group.length;i++){if(!group.isTrackSupported(i))continue;final int index=i;androidx.media3.common.Format format=group.getTrackFormat(i);
+                String name=format.label;if(name==null || name.isEmpty())name=format.language==null?"Субтитри "+(i+1):new Locale(format.language).getDisplayLanguage(new Locale("bg"));
+                labels.add(name+(group.isTrackSelected(i)?" · избрани":""));actions.add(()->vTrackSel.setParameters(vTrackSel.buildUponParameters().setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT,false).setOverrideForType(new androidx.media3.common.TrackSelectionOverride(group.getMediaTrackGroup(),Collections.singletonList(index)))));
+            }
+        }
+        movieCaptionsDialog=new AlertDialog.Builder(this).setTitle("Субтитри").setItems(labels.toArray(new String[0]),(d,i)->{if(player!=null && movieActive!=null)actions.get(i).run();}).setNegativeButton("Назад",null).create();movieCaptionsDialog.show();
+    }
+
     private void movieShowLoading(MovieCatalog.Entry source){
         movieHideLoading();movieLoading=new FrameLayout(this);movieLoading.setBackgroundColor(TvTheme.BACKGROUND);
         LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setGravity(Gravity.CENTER);box.setPadding(u(40),u(40),u(40),u(40));
         box.addView(text(movieActive.title(),34,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true));
-        TextView info=text("Търсене на видео · "+MovieSources.Provider.valueOf(source.provider).label+"\n"+source.language()+" · "+(movieSourceIndex+1)+" / "+moviePlan.size(),22,TvTheme.MUTED,tfMedium,false);
+        TextView info=text((movieUseSite?"Зареждане на плеъра · ":"Търсене на видео · ")+MovieSources.Provider.valueOf(source.provider).label+"\n"+source.language()+" · "+(movieSourceIndex+1)+" / "+moviePlan.size(),22,TvTheme.MUTED,tfMedium,false);
         movieLoadingInfo=info;info.setGravity(Gravity.CENTER);box.addView(info,lpTopW(MP,WC,u(25)));
         if(movieSourceIndex+1<moviePlan.size())box.addView(tvDashboardPill(IC_PLAY,"Следващ източник",()->{++movieGeneration;movieNextSource();}),lpTopW(u(350),u(60),u(25)));
         View cancel=tvDashboardPill(IC_DOWN,"Назад към филмите",()->closeNative(true));box.addView(cancel,lpTopW(u(350),u(60),u(35)));
@@ -2479,13 +2553,15 @@ public class MainActivity extends Activity {
                 .setNegativeButton("Към филмите",(d,w)->closeNative(true)).create();movieDetailDialog.show();
     }
     private void movieSavePosition(boolean ended){
-        if(movieActive==null || player==null || !movieReady)return;
-        long position=player.getCurrentPosition(),duration=player.getDuration();
+        if(movieActive==null || !movieReady || (player==null && movieSitePlayer==null))return;
+        if(movieSitePlayer!=null && movieSitePlayer.duration()<=0)return;
+        long position=movieSitePlayer!=null?movieSitePlayer.position():player.getCurrentPosition(),duration=movieSitePlayer!=null?movieSitePlayer.duration():player.getDuration();
         if(ended || (duration>0 && duration-position<20000))position=0;
         SharedPreferences.Editor edit=prefs.edit();for(MovieCatalog.Entry e:movieActive.sources)edit.putLong("movie:pos:"+e.page,position);edit.apply();
     }
     private void movieStop(){
-        movieSavePosition(false);++movieGeneration;ui.removeCallbacks(movieOverallTimeout);
+        movieSavePosition(false);++movieGeneration;ui.removeCallbacks(movieOverallTimeout);movieCloseSitePlayer();
+        if(movieCaptionsDialog!=null){movieCaptionsDialog.dismiss();movieCaptionsDialog=null;}
         ui.removeCallbacks(movieStartTimeout);ui.removeCallbacks(movieProgressTick);
         if(movieResolver!=null){movieResolver.close();movieResolver=null;}
         movieHideLoading();if(movieSubtitles!=null && nativeLayer!=null){nativeLayer.removeView(movieSubtitles);movieSubtitles=null;}
@@ -3146,6 +3222,7 @@ public class MainActivity extends Activity {
     // Запомня страницата, на която си в момента (вика се малко след всяка смяна на адреса,
     // при излизане от сайта и при изход). Началната страница на сайта не се записва.
     private void rememberPage() {
+        if(movieOriginal)return;
         WebView w = web;
         if (w == null || allowedHost == null || menuHolder.getVisibility() == View.VISIBLE) return;
         String u = w.getUrl();
@@ -3488,8 +3565,12 @@ public class MainActivity extends Activity {
                 return super.shouldInterceptRequest(v, r);
             }
 
+            @Override public boolean shouldOverrideUrlLoading(WebView v,String url){
+                return movieOriginal && (!MovieResolver.http(url) || isBlocked(Uri.parse(url).getHost()));
+            }
             @Override
             public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
+                if(movieOriginal && movieSitePlayer!=null)return isBlocked(r.getUrl().getHost()) || !movieSitePlayer.allowsNavigation(r.getUrl().toString(),r.isForMainFrame());
                 // Вътрешна връзка от страницата за грешка: "Към менюто".
                 if ("tvsites".equals(r.getUrl().getScheme())) {
                     root.post(new Runnable() {
@@ -3510,7 +3591,7 @@ public class MainActivity extends Activity {
             public void onPageStarted(WebView v, String u, Bitmap favicon) {
                 if(v!=web)return;
                 if (u != null && u.startsWith("http")) {
-                    if (!tvCapturing) cacheCheckOnZap();
+                    if (!tvCapturing && !movieOriginal) cacheCheckOnZap();
                     pageUrl = u;
                     // Нова страница: старите видео адреси вече не важат.
                     synchronized (mediaPlaylists) {
@@ -3526,6 +3607,7 @@ public class MainActivity extends Activity {
             // след няколко секунди, ако си останал на нея (не при бързо прелистване).
             @Override
             public void doUpdateVisitedHistory(WebView v, String u, boolean isReload) {
+                if(movieOriginal)return;
                 ui.removeCallbacks(rememberTick);
                 if (u != null && u.startsWith("http")) ui.postDelayed(rememberTick, 6000);
             }
@@ -3533,6 +3615,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView v, String u) {
                 if (v != web) return;
+                if(movieOriginal && movieSitePlayer!=null){movieSitePlayer.pageReady();return;}
                 // След връщане към менюто чистим историята, за да не се връщаме в празна страница.
                 if (clearHistoryPending && "about:blank".equals(u)) {
                     v.clearHistory();
@@ -3548,6 +3631,7 @@ public class MainActivity extends Activity {
                                             WebResourceResponse resp) {
                 if(v!=web)return;
                 if (r == null || resp == null || !r.isForMainFrame()) return;
+                if(resp.getStatusCode()>=400 && movieOriginal && movieSitePlayer!=null){movieSitePlayer.failed();return;}
                 if (resp.getStatusCode() >= 400 && tvCapturing) {
                     tvCaptureError("код " + resp.getStatusCode());
                     return;
@@ -3563,6 +3647,7 @@ public class MainActivity extends Activity {
                 String desc = err == null ? "" : String.valueOf(err.getDescription());
                 if (desc.contains("ERR_ABORTED")) return;
                 logEvent("Грешка при зареждане: " + r.getUrl().getHost() + " " + desc);
+                if(movieOriginal && movieSitePlayer!=null){movieSitePlayer.failed();return;}
                 if (tvCapturing) {
                     tvCaptureError(desc);
                     return;
@@ -3586,6 +3671,7 @@ public class MainActivity extends Activity {
         });
 
         chromeClient = new WebChromeClient() {
+            @Override public boolean onConsoleMessage(android.webkit.ConsoleMessage message){return movieOriginal && movieSitePlayer!=null && movieSitePlayer.console(message.message());}
             @Override
             public void onShowCustomView(View view, CustomViewCallback cb) {
                 if (tvCapturing) {
@@ -3632,7 +3718,7 @@ public class MainActivity extends Activity {
                 } else {
                     loadBar.setVisibility(View.GONE);
                 }
-                if (real && p >= 60) hideSplash();
+                if (real && p >= 60 && !movieOriginal) hideSplash();
             }
         };
         web.setWebChromeClient(chromeClient);
@@ -3648,6 +3734,7 @@ public class MainActivity extends Activity {
     // Страницата е спряна от системата: връщаме се в менюто със съобщение вместо да се затваря всичко.
     private void recoverFromRendererLoss(boolean crashed) {
         if (web == null) return; // страницата вече е затворена
+        if(movieOriginal){movieNextSource();return;}
         if (tvCapturing) {
             // Скритата страница за търсене на поток е спряна: пробва се следващата стъпка.
             tvCaptureError("страницата е спряна от системата");
@@ -5534,6 +5621,7 @@ public class MainActivity extends Activity {
 
     // Задържане на OK: менюто с опции на страницата. От цял екран излизаме първо.
     private void openOptions() {
+        if(movieOriginal){moviePlaybackOptions();return;}
         endSwipe(true);
         if (customView != null && chromeClient != null) chromeClient.onHideCustomView();
         showLog();
@@ -5811,7 +5899,8 @@ public class MainActivity extends Activity {
             return true;
         }
         if (tvMoveChan == null && tvNumberKey(e)) return true;
-        if(code==KeyEvent.KEYCODE_MENU){if(down && e.getRepeatCount()==0)showSectionMenu();return true;}
+        if(code==KeyEvent.KEYCODE_CAPTIONS && movieActive!=null){if(down && e.getRepeatCount()==0)movieShowCaptions();return true;}
+        if(code==KeyEvent.KEYCODE_MENU){if(down && e.getRepeatCount()==0){if(movieActive!=null && movieLoading==null)moviePlaybackOptions();else showSectionMenu();}return true;}
         if(tvTimelineLayer!=null)return super.dispatchKeyEvent(e);
 
         // Моята телевизия: стрелките сменят канала, OK отваря списъка.
@@ -6000,6 +6089,7 @@ public class MainActivity extends Activity {
     }
 
     private void handleBack() {
+        if(movieOriginal && !logShown()){closeNative(true);return;}
         if(movieLoading!=null){closeNative(true);return;}
         if(hvLayer!=null){hvStop(false);return;}
         if(tvTimelineLayer!=null){tvCloseTimeline();return;}
