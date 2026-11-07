@@ -39,9 +39,12 @@ android {
     }
 
     compileOptions {
+        coreLibraryDesugaringEnabled true
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
+    testOptions { unitTests.includeAndroidResources = true }
 
     // Проверките на lint не трябва да спират компилирането на APK.
     lint {
@@ -51,9 +54,14 @@ android {
 }
 
 dependencies {
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
+    testImplementation 'org.json:json:20240303'
+    implementation 'org.jsoup:jsoup:1.17.2'
     // ExoPlayer: родният плеър за директно пускане на видео потоци
     implementation 'androidx.media3:media3-exoplayer:1.4.1'
+    implementation 'androidx.media3:media3-ui:1.4.1'
     implementation 'androidx.media3:media3-exoplayer-hls:1.4.1'
     implementation 'androidx.media3:media3-exoplayer-dash:1.4.1'
     // FileProvider за инсталиране на свалената нова версия
