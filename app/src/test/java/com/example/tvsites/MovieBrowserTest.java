@@ -55,4 +55,23 @@ public class MovieBrowserTest {
         assertNotNull(result[0]);assertEquals("https://filmizip.com",result[0].headers.get("Origin"));assertEquals(e.page,result[0].headers.get("Referer"));assertEquals(0,root.getChildCount());activity.finish();
     }
 
+    @Test public void pageHasTwentyCardsAndUnchangedUpdatesReuseThem(){
+        Activity activity=Robolectric.buildActivity(Activity.class).setup().get();MovieBrowser.State state=new MovieBrowser.State();
+        MovieBrowser browser=new MovieBrowser(activity,1,state,new MovieBrowser.Actions(){public void fetch(boolean more){}public void open(MovieCatalog.Movie movie){}});activity.setContentView(browser);
+        List<MovieCatalog.Entry> entries=new ArrayList<>();for(int i=0;i<40;i++){MovieCatalog.Entry e=new MovieCatalog.Entry();e.title="Title "+i;e.page="page-"+i;entries.add(e);}
+        browser.update(entries,"",false);View first=browser.findViewWithTag("movie:page-0");assertNotNull(first);assertNotNull(browser.findViewWithTag("movie:page-19"));assertNull(browser.findViewWithTag("movie:page-20"));
+        MovieCatalog.Entry alternate=new MovieCatalog.Entry();alternate.title="Title 0";alternate.page="another-source";entries.get(0).year=2020;alternate.year=2020;entries.add(alternate);
+        browser.update(entries,"updated status",true);assertSame(first,browser.findViewWithTag("movie:page-0"));
+        state.page=1;browser.update(entries,"",false);assertNull(browser.findViewWithTag("movie:page-0"));assertNotNull(browser.findViewWithTag("movie:page-20"));activity.finish();
+    }
+    @Test public void consoleDiscoveryAcceptsExtensionlessManifestAndPreservesMime(){
+        Activity activity=Robolectric.buildActivity(Activity.class).setup().get();FrameLayout root=new FrameLayout(activity);activity.setContentView(root);
+        MovieCatalog.Entry entry=new MovieCatalog.Entry();entry.provider="ZIP";entry.page="https://filmizip.com/filmi/test.html";
+        MovieResolver.Stream[] result={null};MovieResolver resolver=new MovieResolver(root,entry,"",host->false,new MovieResolver.Callback(){public void found(MovieResolver.Stream stream){result[0]=stream;}public void failed(){fail("unexpected timeout");}});
+        resolver.start();android.webkit.WebView web=(android.webkit.WebView)root.getChildAt(0);
+        String json="{\"url\":\"https://cdn.test/watch?id=1\",\"mime\":\"application/vnd.apple.mpegurl\",\"page\":\"https://embed.test/player\"}";
+        org.robolectric.Shadows.shadowOf(web).getWebChromeClient().onConsoleMessage(new android.webkit.ConsoleMessage(MovieResolver.MEDIA_PREFIX+json,"",1,android.webkit.ConsoleMessage.MessageLevel.LOG));
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(600));assertNotNull(result[0]);assertEquals("application/x-mpegURL",result[0].mime);assertEquals("https://embed.test/player",result[0].headers.get("Referer"));activity.finish();
+    }
+
 }

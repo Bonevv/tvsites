@@ -8,13 +8,18 @@ final class MovieCatalog {
     static final int ALL = 0, BG_AUDIO = 1, BG_SUBS = 2;
     static final class Entry {
         String provider = "", page = "", title = "", original = "", poster = "", description = "";
-        String imdb = "", tmdb = "";
+        String imdb = "", tmdb = "", embed="";
+        final List<Episode> episodes=new ArrayList<>();
         int year;
-        boolean bgAudio, bgSubs, detailed;
+        boolean bgAudio, bgSubs, detailed, series;
         long added;
         final Set<String> genres = new LinkedHashSet<>();
         String language() { return bgAudio ? "БГ аудио" : bgSubs ? "БГ субтитри" : "Езикът не е указан"; }
         boolean accepts(int language) { return language == ALL || (language == BG_AUDIO ? bgAudio : bgSubs); }
+    }
+    static final class Episode {
+        final String name,page,embed;
+        Episode(String name,String page,String embed){this.name=name;this.page=page;this.embed=embed;}
     }
     static final class Movie {
         final List<Entry> sources = new ArrayList<>();
@@ -48,6 +53,7 @@ final class MovieCatalog {
     }
     static boolean same(Entry a, Entry b) {
         if (a.page.equals(b.page)) return true;
+        if (a.series != b.series) return false;
         // Conflicting authoritative IDs never collapse through a translated title.
         if (!a.imdb.isEmpty() && !b.imdb.isEmpty()) return a.imdb.equals(b.imdb);
         if (!a.tmdb.isEmpty() && !b.tmdb.isEmpty()) return a.tmdb.equals(b.tmdb);
@@ -86,7 +92,7 @@ final class MovieCatalog {
         return out;
     }
     private static boolean conflicts(Entry a,Entry b){
-        return (!a.imdb.isEmpty() && !b.imdb.isEmpty() && !a.imdb.equals(b.imdb))
+        return a.series!=b.series || (!a.imdb.isEmpty() && !b.imdb.isEmpty() && !a.imdb.equals(b.imdb))
                 || (!a.tmdb.isEmpty() && !b.tmdb.isEmpty() && !a.tmdb.equals(b.tmdb));
     }
     private static List<String> keys(Entry e){
@@ -113,6 +119,7 @@ final class MovieCatalog {
             for (String word : q.split(" ")) if (!text.contains(word)) { matches = false; break; }
             if (matches) out.add(movie);
         }
+        if(sort==3)return out;
         Comparator<Movie> alpha = (a,b) -> a.title().compareToIgnoreCase(b.title());
         out.sort(sort == 1 ? alpha : sort == 2 ? Comparator.comparingInt(Movie::year).reversed().thenComparing(alpha)
                 : Comparator.comparingLong(Movie::added).reversed().thenComparing(alpha));

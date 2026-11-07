@@ -43,9 +43,9 @@ public class MovieSourcesTest {
         MovieSources.Page page=MovieSources.parse(MovieSources.Provider.ZENO,"https://zenoplay.to/genre/bg-audio/",fixture("zeno-list"));assertTrue(page.entries.get(0).bgAudio);
         page=MovieSources.parse(MovieSources.Provider.ZENO,"https://zenoplay.to/movies/",fixture("zeno-list"));assertFalse(page.entries.get(0).bgAudio);
     }
-    @Test public void serialsAndForeignLinksAreExcluded(){
+    @Test public void serialsAreIncludedAndForeignLinksAreExcluded(){
         String html="<div class='poster'><a href='/seriali/1-show.html'><img alt='Show'></a></div><div class='poster'><a href='https://ad.example/filmi/1-ad.html'>ad</a></div>";
-        assertTrue(MovieSources.parse(MovieSources.Provider.ZIP,"https://filmizip.com/",html).entries.isEmpty());
+        MovieSources.Page page=MovieSources.parse(MovieSources.Provider.ZIP,"https://filmizip.com/",html);assertEquals(1,page.entries.size());assertTrue(page.entries.get(0).series);
     }
     @Test public void cacheRoundTripRetainsVersionMetadata(){
         MovieCatalog.Entry e=new MovieCatalog.Entry();e.title="Филм";e.provider="FEN";e.bgSubs=true;e.genres.add("Драма");e.added=123;
@@ -61,6 +61,42 @@ public class MovieSourcesTest {
         e=MovieSources.detail(e,Jsoup.parse(fixture("zt-detail"),e.page));
         assertEquals("Съперниците на Амзая Кинг",e.title);assertEquals("The Rivals of Amziah King",e.original);assertEquals("tt27706593",e.imdb);
         assertFalse(e.bgAudio);assertEquals(2026,e.year);assertTrue(e.genres.contains("Трилър"));
+    }
+
+    @Test public void allSixSeriesFormatsAreRecognized()throws Exception{
+        for(MovieSources.Provider provider:MovieSources.Provider.values()){
+            MovieSources.Page page=MovieSources.parse(provider,provider.seriesStart(),fixture(provider.name().toLowerCase()+"-series"));
+            assertFalse(provider.label,page.entries.isEmpty());for(MovieCatalog.Entry entry:page.entries)assertTrue(provider.label+entry.page,entry.series);
+        }
+    }
+    @Test public void episodeListsComeFromSourceMetadata()throws Exception{
+        for(MovieSources.Provider provider:new MovieSources.Provider[]{MovieSources.Provider.ALL,MovieSources.Provider.NINE,MovieSources.Provider.ZENO,MovieSources.Provider.FEN}){
+            MovieCatalog.Entry entry=new MovieCatalog.Entry();entry.provider=provider.name();entry.series=true;entry.page=provider.base+"/serial/example";
+            MovieSources.readEpisodes(entry,Jsoup.parse(fixture(provider.name().toLowerCase()+"-episodes"),entry.page));
+            assertFalse(provider.label,entry.episodes.isEmpty());
+            if(provider==MovieSources.Provider.ALL)assertTrue(entry.episodes.get(0).embed.startsWith("https://"));
+        }
+    }
+    @Test public void genreNamesAndRemoteCategoryLinksAreCanonical(){
+        String html="<nav><a href='/filmi/komediya/'>Комедийни</a><a href='/filmi/trilari/'>Трилъри онлайн</a></nav>";
+        java.util.Map<String,String> genres=MovieSources.genres(MovieSources.Provider.FEN,Jsoup.parse(html,"https://filmifen.com/"));
+        assertEquals("https://filmifen.com/filmi/komediya/",genres.get("Комедия"));assertEquals("https://filmifen.com/filmi/trilari/",genres.get("Трилър"));
+    }
+
+    @Test public void nineGenreUsesTheSitesInfiniteScrollApi(){
+        String html="<script>self.__next_f.push([1,\"{\\\"genre\\\":{\\\"_id\\\":\\\"genre-id\\\",\\\"name\\\":\\\"Комедия\\\"}}\"])</script>";
+        MovieSources.Page first=MovieSources.parse(MovieSources.Provider.NINE,"https://filmi9.com/genre/komediya",html);
+        assertEquals("https://cdn.filmi9.com/movies/?page=2&limit=10&sort=-createdAt&genres=genre-id",first.next);
+        assertTrue(MovieSources.Provider.NINE.owns(first.next));assertFalse(MovieSources.Provider.NINE.owns("https://cdn.filmi9.com/private"));
+        String json="{\"data\":[{\"title\":\"Example / Пример\",\"slug\":\"example\",\"year\":2020,\"type\":\"movie\",\"isBgAudio\":true}]}";
+        org.jsoup.nodes.Document doc=org.jsoup.nodes.Document.createShell("https://cdn.filmi9.com/movies/?page=2&limit=1&genres=genre-id");doc.body().appendChild(new org.jsoup.nodes.TextNode(json));
+        MovieSources.Page second=MovieSources.parse(MovieSources.Provider.NINE,doc);assertEquals(1,second.entries.size());assertEquals("Пример",second.entries.get(0).title);assertTrue(second.entries.get(0).bgAudio);assertTrue(second.next.contains("page=3"));
+    }
+
+    @Test public void publishedPlayerUrlAvoidsDependingOnReactHydration(){
+        MovieCatalog.Entry entry=new MovieCatalog.Entry();entry.provider="NINE";entry.page="https://filmi9.com/film/example";
+        String html="<h1>Пример</h1><script>self.__next_f.push([1,\"{\\\"movie\\\":{\\\"videoUrl\\\":\\\"https://embed.test/player\\\"}}\"])</script>";
+        entry=MovieSources.detail(entry,Jsoup.parse(html,entry.page));assertEquals("https://embed.test/player",entry.embed);
     }
 
 }

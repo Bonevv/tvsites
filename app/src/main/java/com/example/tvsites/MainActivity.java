@@ -569,7 +569,7 @@ public class MainActivity extends Activity {
                 showNativeStatus("Зареждане...", 0);
             } else if (state == Player.STATE_READY) {
                 showNativeStatus(null, 0);
-                if(movieActive!=null){movieReady=true;ui.removeCallbacks(movieStartTimeout);}
+                if(movieActive!=null){movieReady=true;ui.removeCallbacks(movieStartTimeout);ui.removeCallbacks(movieOverallTimeout);}
             } else if (state == Player.STATE_ENDED) {
                 if(movieActive!=null) movieSavePosition(true);
                 showNativeStatus(movieActive==null?"Края на видеото. Назад = към страницата":"Край на филма. Назад = към каталога", 0);
@@ -2354,22 +2354,24 @@ public class MainActivity extends Activity {
     private MovieResolver movieResolver;
     private MovieResolver.Stream movieStream;
     private FrameLayout movieLoading;
+    private TextView movieLoadingInfo;
+    private long movieDeadline;
     private AlertDialog movieDetailDialog;
     private androidx.media3.ui.SubtitleView movieSubtitles;
 
     private void fillMoviesPage(){
         if(movieStore==null)movieStore=new MovieStore(this,this::movieCatalogChanged);
         movieBrowser=new MovieBrowser(this,U,movieState,new MovieBrowser.Actions(){
-            @Override public void fetch(boolean more){movieStore.request(movieState.query,movieState.language,more);}
+            @Override public void fetch(boolean more){movieStore.request(movieState.query,movieState.language,movieState.genre,movieState.kind,movieState.year,more);}
             @Override public void open(MovieCatalog.Movie movie){movieDetails(movie);}
         });
         menu.addView(movieBrowser,lp(MP,WC));firstTile=movieBrowser.first();
         movieCatalogChanged();
-        if(movieStore.stale() && !movieStore.busy())movieStore.request(movieState.query,movieState.language,false);
+        if(movieStore.stale() && !movieStore.busy())movieStore.request(movieState.query,movieState.language,movieState.genre,movieState.kind,movieState.year,false);
     }
     private void movieCatalogChanged(){
         if(appSection==SECTION_MOVIES && movieBrowser!=null && movieActive==null && !isFinishing())
-            movieBrowser.update(movieStore.entries(),movieStore.status(),movieStore.busy());
+            movieBrowser.update(movieStore.entries(),movieStore.status(),movieStore.busy(),movieStore.hasMore(),movieStore.genres());
     }
     private void movieDetails(MovieCatalog.Movie movie){
         if(movieDetailDialog!=null)movieDetailDialog.dismiss();
@@ -2385,9 +2387,21 @@ public class MainActivity extends Activity {
         if(movie.year()>0)message.append(movie.year()).append(" · ");
         message.append(movie.languages()).append("\n").append(movie.sources.size()).append(" източника\n\n").append(movie.description());
         movieDetailDialog=new AlertDialog.Builder(this).setTitle(movie.title()).setMessage(message.toString())
-                .setPositiveButton("Гледай",(d,w)->movieChooseResume(movie,movie.versions(movieState.language)))
+                .setPositiveButton(movie.main().series?"Епизоди":"Гледай",(d,w)->{if(movie.main().series)movieChooseEpisode(movie);else movieChooseResume(movie,movie.versions(movieState.language));})
                 .setNeutralButton("Източници",(d,w)->movieChooseSource(movie)).setNegativeButton("Назад",null).create();
         movieDetailDialog.show();movieDetailDialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(!movie.versions(movieState.language).isEmpty());
+    }
+    private void movieChooseEpisode(MovieCatalog.Movie movie){
+        ArrayList<String> labels=new ArrayList<>();ArrayList<MovieCatalog.Entry> versions=new ArrayList<>();java.util.HashSet<String> seenEpisodes=new java.util.HashSet<>();
+        for(MovieCatalog.Entry source:movie.versions(movieState.language))for(MovieCatalog.Episode episode:source.episodes){
+            if(!seenEpisodes.add(episode.page))continue;
+            MovieCatalog.Entry selected=MovieStore.decodeEntry(MovieStore.encodeEntry(source));selected.page=episode.page;selected.embed=episode.embed;selected.title=movie.title()+" · "+episode.name;selected.episodes.clear();
+            versions.add(selected);labels.add(episode.name+" · "+MovieSources.Provider.valueOf(source.provider).label);
+        }
+        if(labels.isEmpty()){movieChooseSource(movie);return;}
+        movieDetailDialog=new AlertDialog.Builder(this).setTitle(movie.title()).setItems(labels.toArray(new String[0]),(d,i)->{
+            MovieCatalog.Movie episode=new MovieCatalog.Movie();episode.sources.add(versions.get(i));movieChooseResume(episode,episode.sources);
+        }).setNegativeButton("Назад",(d,w)->movieShowDetails(movie)).create();movieDetailDialog.show();
     }
     private void movieChooseSource(MovieCatalog.Movie movie){
         List<MovieCatalog.Entry> versions=movie.versions(movieState.language);
@@ -2407,8 +2421,8 @@ public class MainActivity extends Activity {
                 .setNegativeButton("Отказ",null).create();movieDetailDialog.show();
     }
     private void movieStart(MovieCatalog.Movie movie,List<MovieCatalog.Entry> plan,long position){
-        teardownSite();ensureLayers();movieActive=movie;moviePlan.clear();moviePlan.addAll(plan);movieSourceIndex=-1;movieResume=position;
-        ++movieGeneration;movieNextSource();
+        teardownSite();if(movieBrowser!=null)movieBrowser.pauseArtwork();movieStore.pause();ensureLayers();movieActive=movie;movieDeadline=SystemClock.uptimeMillis()+75000;moviePlan.clear();moviePlan.addAll(plan);movieSourceIndex=-1;movieResume=position;
+        ++movieGeneration;ui.postDelayed(movieOverallTimeout,75000);movieNextSource();
     }
     private void movieNextSource(){
         if(movieActive==null)return;
@@ -2417,7 +2431,7 @@ public class MainActivity extends Activity {
         if(player!=null){player.removeListener(nativeListener);player.release();player=null;}
         if(movieSubtitles!=null){nativeLayer.removeView(movieSubtitles);movieSubtitles=null;}
         nativeLayer.setVisibility(View.GONE);movieReady=false;movieStream=null;
-        if(++movieSourceIndex>=moviePlan.size()){
+        if(++movieSourceIndex>=moviePlan.size() || SystemClock.uptimeMillis()>=movieDeadline){
             MovieCatalog.Movie failed=movieActive;closeNative(true);
             movieDetailDialog=new AlertDialog.Builder(this).setTitle("Филмът не успя да тръгне")
                     .setMessage("Наличните версии за избрания език не предоставиха възпроизводим поток. Може да опиташ друг източник или да обновиш каталога.")
@@ -2433,6 +2447,9 @@ public class MainActivity extends Activity {
                 startNativeVideo(stream.url,headers,ua==null?DESKTOP_UA:ua,true);
                 ui.postDelayed(movieStartTimeout,20000);ui.postDelayed(movieProgressTick,5000);
             }
+            @Override public void progress(int secondsLeft){
+                if(gen==movieGeneration && movieLoadingInfo!=null)movieLoadingInfo.setText("Търсене на видео · "+MovieSources.Provider.valueOf(source.provider).label+"\n"+source.language()+" · източник "+(movieSourceIndex+1)+" / "+moviePlan.size()+" · до "+secondsLeft+" сек.");
+            }
             @Override public void failed(){if(gen==movieGeneration && movieActive!=null){movieResolver=null;movieNextSource();}}
         });
         movieResolver.start();
@@ -2442,12 +2459,14 @@ public class MainActivity extends Activity {
         LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setGravity(Gravity.CENTER);box.setPadding(u(40),u(40),u(40),u(40));
         box.addView(text(movieActive.title(),34,TvTheme.TEXT,Typeface.DEFAULT_BOLD,true));
         TextView info=text("Търсене на видео · "+MovieSources.Provider.valueOf(source.provider).label+"\n"+source.language()+" · "+(movieSourceIndex+1)+" / "+moviePlan.size(),22,TvTheme.MUTED,tfMedium,false);
-        info.setGravity(Gravity.CENTER);box.addView(info,lpTopW(MP,WC,u(25)));
+        movieLoadingInfo=info;info.setGravity(Gravity.CENTER);box.addView(info,lpTopW(MP,WC,u(25)));
+        if(movieSourceIndex+1<moviePlan.size())box.addView(tvDashboardPill(IC_PLAY,"Следващ източник",()->{++movieGeneration;movieNextSource();}),lpTopW(u(350),u(60),u(25)));
         View cancel=tvDashboardPill(IC_DOWN,"Назад към филмите",()->closeNative(true));box.addView(cancel,lpTopW(u(350),u(60),u(35)));
         movieLoading.addView(box,new FrameLayout.LayoutParams(MP,MP));root.addView(movieLoading,new FrameLayout.LayoutParams(MP,MP));
         menuHolder.setVisibility(View.GONE);if(appBar!=null)appBar.setVisibility(View.GONE);cancel.requestFocusFromTouch();
     }
-    private void movieHideLoading(){if(movieLoading!=null){root.removeView(movieLoading);movieLoading=null;}}
+    private void movieHideLoading(){movieLoadingInfo=null;if(movieLoading!=null){root.removeView(movieLoading);movieLoading=null;}}
+    private final Runnable movieOverallTimeout=()->{if(movieActive!=null && !movieReady){movieSourceIndex=moviePlan.size();movieNextSource();}};
     private final Runnable movieStartTimeout=()->{if(movieActive!=null && !movieReady)movieNextSource();};
     private final Runnable movieProgressTick=new Runnable(){@Override public void run(){if(movieActive!=null){movieSavePosition(false);ui.postDelayed(this,5000);}}};
     private void moviePlaybackError(){
@@ -2466,7 +2485,7 @@ public class MainActivity extends Activity {
         SharedPreferences.Editor edit=prefs.edit();for(MovieCatalog.Entry e:movieActive.sources)edit.putLong("movie:pos:"+e.page,position);edit.apply();
     }
     private void movieStop(){
-        movieSavePosition(false);++movieGeneration;
+        movieSavePosition(false);++movieGeneration;ui.removeCallbacks(movieOverallTimeout);
         ui.removeCallbacks(movieStartTimeout);ui.removeCallbacks(movieProgressTick);
         if(movieResolver!=null){movieResolver.close();movieResolver=null;}
         movieHideLoading();if(movieSubtitles!=null && nativeLayer!=null){nativeLayer.removeView(movieSubtitles);movieSubtitles=null;}
@@ -5219,6 +5238,7 @@ public class MainActivity extends Activity {
         String low = url.toLowerCase(Locale.ROOT);
         if (low.contains(".m3u8")) mib.setMimeType(MimeTypes.APPLICATION_M3U8);
         else if (low.contains(".mpd")) mib.setMimeType(MimeTypes.APPLICATION_MPD);
+        if(movie && movieStream!=null && !movieStream.mime.isEmpty())mib.setMimeType(movieStream.mime);
         player.setMediaItem(mib.build());
         if(movie && movieResume>0)player.seekTo(movieResume);
         player.prepare();
