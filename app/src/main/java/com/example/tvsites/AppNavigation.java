@@ -26,19 +26,19 @@ final class AppNavigation extends FrameLayout {
         brandWords.setGravity(Gravity.CENTER_VERTICAL);
         TextView name = label("TVsites", 27, true);
         brandWords.addView(name);
-        TextView tagline = label("ТВ  •  САЙТОВЕ  •  РАДИО", 11, false);
+        TextView tagline = label("ТВ  •  ФИЛМИ  •  РАДИО", 11, false);
         tagline.setTextColor(TvTheme.BLUE_LIGHT);
         brandWords.addView(tagline);
         LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT);
         nl.leftMargin = px(10);
         brand.addView(brandWords, nl);
-        header.addView(brand, new LinearLayout.LayoutParams(px(265),LayoutParams.MATCH_PARENT));
-        int[] sections={5,0,2,3,4};String[] names={"Начало","Телевизия","Радио","Сайтове","Настройки"};
+        header.addView(brand, new LinearLayout.LayoutParams(px(220),LayoutParams.MATCH_PARENT));
+        int[] sections={5,0,1,2,3,4};String[] names={"Начало","Телевизия","Филми","Радио","Сайтове","Настройки"};
         for(int j=0;j<sections.length;j++){
-            final int index=sections[j];LinearLayout tab=new LinearLayout(context);tab.setGravity(Gravity.CENTER_VERTICAL);tab.setPadding(px(14),0,px(14),0);
+            final int index=sections[j];LinearLayout tab=new LinearLayout(context);tab.setGravity(Gravity.CENTER_VERTICAL);tab.setPadding(px(10),0,px(10),0);
             tab.setId(View.generateViewId());tab.setFocusable(true);tab.setFocusableInTouchMode(true);tab.setClickable(true);tab.setTag("nav:"+index);tab.setContentDescription(names[j]);
             tab.addView(new NavigationIcon(context,index),new LinearLayout.LayoutParams(px(23),px(23)));
-            TextView caption=label(names[j],20,false);LinearLayout.LayoutParams textLp=new LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT,LayoutParams.WRAP_CONTENT);textLp.leftMargin=px(9);tab.addView(caption,textLp);
+            TextView caption=label(names[j],18,false);LinearLayout.LayoutParams textLp=new LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT,LayoutParams.WRAP_CONTENT);textLp.leftMargin=px(9);tab.addView(caption,textLp);
             tab.setOnClickListener(v->listener.select(index));
             tab.setOnFocusChangeListener(TvTheme::focus);
             tab.setOnKeyListener((v,key,event)->{if(key==KeyEvent.KEYCODE_DPAD_DOWN && contentAction!=null){if(event.getAction()==KeyEvent.ACTION_DOWN)contentAction.run();return true;}return false;});
