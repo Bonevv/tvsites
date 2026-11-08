@@ -107,15 +107,37 @@ final class MovieStore {
         if(closed)return;
         List<MovieCatalog.Entry> sources=new ArrayList<>(movie.sources);
         worker.execute(()->{
-            Set<String> seriesProviders=new HashSet<>();
             for(MovieCatalog.Entry e:sources){
-                if(closed)return;if(e.detailed && !(e.embed.isEmpty() && (e.provider.equals("NINE") || e.provider.equals("ALL"))))continue;if(e.series && !seriesProviders.add(e.provider))continue;
+                if(closed)return;if(e.detailed && (e.series?e.episodeSchema>=2 && System.currentTimeMillis()-e.episodesUpdated<6*60*60*1000L:!(e.embed.isEmpty() && (e.provider.equals("NINE") || e.provider.equals("ALL")))))continue;
                 try {
                     org.jsoup.nodes.Document doc=fetcher.fetch(e.page);
                     if(!MovieSources.Provider.valueOf(e.provider).owns(doc.location()))continue;
                     MovieCatalog.Entry detail=MovieSources.detail(e,doc);
                     synchronized(this){entries.put(e.page,detail);}
                 }catch(Exception ignored){}
+            }
+            save();if(!closed)ui.post(done);
+        });
+    }
+    void seasonDetails(MovieCatalog.Movie movie,int season,Runnable done){
+        if(closed)return;
+        List<MovieCatalog.Entry> sources=new ArrayList<>(movie.sources);
+        worker.execute(()->{
+            for(MovieCatalog.Entry source:sources){
+                if(closed)return;
+                MovieCatalog.Entry updated=decodeEntry(encodeEntry(source));
+                for(int i=0;i<updated.seasons.size();i++){
+                    MovieCatalog.SeasonLink link=updated.seasons.get(i);if(link.number!=season || link.loaded)continue;
+                    try{
+                        org.jsoup.nodes.Document doc=fetcher.fetch(link.page);if(!MovieSources.Provider.valueOf(source.provider).owns(doc.location()))continue;
+                        MovieCatalog.Entry child=decodeEntry(encodeEntry(source));child.page=link.page;child.episodes.clear();child.seasons.clear();
+                        child=MovieSources.detail(child,doc);
+                        Set<String> seen=new HashSet<>();for(MovieCatalog.Episode ep:updated.episodes)seen.add(ep.page);
+                        for(MovieCatalog.Episode ep:child.episodes)if(seen.add(ep.page))updated.episodes.add(new MovieCatalog.Episode(ep.name,ep.page,ep.embed,ep.season<0?season:ep.season,ep.number));
+                        updated.seasons.set(i,new MovieCatalog.SeasonLink(season,link.page,true));
+                    }catch(Exception ignored){}
+                }
+                synchronized(this){entries.put(source.page,updated);}
             }
             save();if(!closed)ui.post(done);
         });
@@ -167,8 +189,9 @@ final class MovieStore {
     }
     static JSONObject encodeEntry(MovieCatalog.Entry e){
         JSONObject o=new JSONObject();try{
-            JSONArray episodes=new JSONArray();for(MovieCatalog.Episode ep:e.episodes)episodes.put(new JSONObject().put("name",ep.name).put("page",ep.page).put("embed",ep.embed));
-            o.put("episodes",episodes).put("embed",e.embed);
+            JSONArray episodes=new JSONArray();for(MovieCatalog.Episode ep:e.episodes)episodes.put(new JSONObject().put("name",ep.name).put("page",ep.page).put("embed",ep.embed).put("season",ep.season).put("number",ep.number));
+            JSONArray seasons=new JSONArray();for(MovieCatalog.SeasonLink season:e.seasons)seasons.put(new JSONObject().put("number",season.number).put("page",season.page).put("loaded",season.loaded));
+            o.put("episodes",episodes).put("embed",e.embed).put("seasons",seasons).put("episodeSchema",e.episodeSchema).put("episodesUpdated",e.episodesUpdated);
             o.put("provider",e.provider).put("page",e.page).put("title",e.title).put("original",e.original).put("poster",e.poster)
                     .put("description",e.description).put("imdb",e.imdb).put("tmdb",e.tmdb).put("year",e.year)
                     .put("audio",e.bgAudio).put("subs",e.bgSubs).put("detailed",e.detailed).put("series",e.series).put("added",e.added).put("genres",new JSONArray(e.genres));
@@ -177,7 +200,8 @@ final class MovieStore {
     static MovieCatalog.Entry decodeEntry(JSONObject o){
         MovieCatalog.Entry e=new MovieCatalog.Entry();e.provider=o.optString("provider");e.page=o.optString("page");e.title=o.optString("title");
         e.original=o.optString("original");e.poster=o.optString("poster");e.description=o.optString("description");e.imdb=o.optString("imdb");e.tmdb=o.optString("tmdb");e.embed=o.optString("embed");
-        JSONArray episodes=o.optJSONArray("episodes");if(episodes!=null)for(int i=0;i<episodes.length();i++){JSONObject ep=episodes.optJSONObject(i);if(ep!=null)e.episodes.add(new MovieCatalog.Episode(ep.optString("name"),ep.optString("page"),ep.optString("embed")));}
+        JSONArray episodes=o.optJSONArray("episodes");if(episodes!=null)for(int i=0;i<episodes.length();i++){JSONObject ep=episodes.optJSONObject(i);if(ep!=null)e.episodes.add(new MovieCatalog.Episode(ep.optString("name"),ep.optString("page"),ep.optString("embed"),ep.optInt("season",-1),ep.optInt("number",MovieEpisodes.number(ep.optString("name")))));}
+        JSONArray seasons=o.optJSONArray("seasons");if(seasons!=null)for(int i=0;i<seasons.length();i++){JSONObject season=seasons.optJSONObject(i);if(season!=null)e.seasons.add(new MovieCatalog.SeasonLink(season.optInt("number",-1),season.optString("page"),season.optBoolean("loaded")));}e.episodeSchema=o.optInt("episodeSchema");e.episodesUpdated=o.optLong("episodesUpdated");
         e.year=o.optInt("year");e.bgAudio=o.optBoolean("audio");e.bgSubs=o.optBoolean("subs");e.detailed=o.optBoolean("detailed");e.series=o.optBoolean("series");e.added=o.optLong("added");
         JSONArray g=o.optJSONArray("genres");if(g!=null)for(int i=0;i<g.length();i++)e.genres.add(MovieSources.genreName(g.optString(i)));return e;
     }

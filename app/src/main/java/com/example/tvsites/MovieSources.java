@@ -175,7 +175,8 @@ final class MovieSources {
         MovieCatalog.Entry e=MovieStore.decodeEntry(MovieStore.encodeEntry(old));
         Element main=doc.selectFirst("article.pmovie,article.detail-page,#mv-info"); if(main==null)main=doc.selectFirst("main"); if(main==null) main=doc.body();
         String title=text(main,".movie__bg-title");if(title.isEmpty())title=text(main,"h1,h3[itemprop=name]");
-        if(!title.isEmpty()) { if(e.provider.equals("ZIP") || e.provider.equals("ZT")) setNames(e,title); else e.title=title.trim(); }
+        Element heading=main.selectFirst("h1");if(heading!=null && heading.selectFirst(".pmovie__original-title")!=null && !heading.ownText().trim().isEmpty())title=heading.ownText().trim();
+        if(!title.isEmpty()) { if(e.provider.equals("ZIP") || e.provider.equals("ZT") || title.contains(" / ")) setNames(e,title); else e.title=title.trim(); }
         String original=text(main,".pmovie__original-title,.movie__original-title").replaceAll("\\s*\\((19|20)[0-9]{2}\\)\\s*$","").replaceFirst("^\\s*/\\s*","");
         if(!original.isEmpty()) e.original=original;
         String desc=text(main,".page__text,.detail-overview,[itemprop=description],.full-text,.js-schema-description");
@@ -208,29 +209,79 @@ final class MovieSources {
     }
     static void readEpisodes(MovieCatalog.Entry e,Document doc){
         LinkedHashMap<String,MovieCatalog.Episode> found=new LinkedHashMap<>();
-        for(Element a:doc.select("a.episode-card,a.series-episode")){
-            String url=a.absUrl("href");if(!MovieSources.Provider.valueOf(e.provider).owns(url))continue;
-            String label=a.hasAttr("data-episode-number")?"Епизод "+a.attr("data-episode-number"):"Епизод "+a.text().trim();
-            found.put(url,new MovieCatalog.Episode(label,url,""));
+        LinkedHashMap<String,MovieCatalog.SeasonLink> seasons=new LinkedHashMap<>();
+        int current=MovieEpisodes.season(e.title+" "+e.original+" "+e.page);
+        for(Element a:doc.select(".poster a[href],a.item-poster"))if(a.absUrl("href").equals(e.page)){
+            int n=MovieEpisodes.season(a.text());if(n>=0)current=n;
         }
-        // The Next.js sources publish their episode metadata in the initial document.
+        for(Element a:doc.select("a.episode-card,.series-episode,[data-tv_link]:not(.disabled)")){
+            String url=a.hasAttr("href")?a.absUrl("href"):a.hasAttr("data-tv_link")?e.page+"#tvsites-episode="+a.attr("data-tv_link"):e.page;
+            if(!Provider.valueOf(e.provider).owns(url))continue;
+            int season=integer(a.attr("data-season-number"),-1);if(season<0)season=MovieEpisodes.season(url);if(season<0)season=current;
+            int number=integer(a.attr("data-episode-number"),0);if(number==0)number=MovieEpisodes.number(url+" "+a.text());if(number==0)number=MovieEpisodes.number(a.text());
+            if(a.hasAttr("data-tv_link"))number=integer(a.attr("data-tv_link"),number);
+            String label=number>0?"Епизод "+number:a.text().trim();
+            found.put(url,new MovieCatalog.Episode(label,url,"",season,number));
+        }
+        // Public Next.js payloads include the season's episodes and, on Filmi9, other seasons.
         for(Element script:doc.select("script")){
-            String data=script.data();if(!data.contains("episodes"))continue;
-            for(int layer=0;layer<3;layer++)data=data.replace("\\\"","\"").replace("\\/","/");
-            int start=data.indexOf("\"episodes\":[");if(start<0)continue;start=data.indexOf('[',start);
-            int depth=0,end=-1;boolean quoted=false,escaped=false;
-            for(int i=start;i<data.length();i++){char c=data.charAt(i);if(quoted){if(escaped)escaped=false;else if(c=='\\')escaped=true;else if(c=='\"')quoted=false;continue;}if(c=='\"')quoted=true;else if(c=='[')depth++;else if(c==']' && --depth==0){end=i+1;break;}}
-            if(end<0)continue;
-            try{JSONArray episodes=new JSONArray(data.substring(start,end));for(int i=0;i<episodes.length();i++){
-                JSONObject item=episodes.optJSONObject(i);if(item==null)continue;int number=item.optInt("episodeNumber",i+1);String embed=item.optString("videoUrl");
-                if(!embed.startsWith("http")){JSONArray sources=item.optJSONArray("sources");if(sources!=null && sources.length()>0)embed=sources.getJSONObject(0).optString("url");}
-                String page=e.page+"#tvsites-episode="+number;found.put(page,new MovieCatalog.Episode("Епизод "+number,page,embed));
-            }}catch(JSONException ignored){}
+            String data=publicJson(script.data());
+            if(e.provider.equals("ZT")){
+                Matcher vk=Pattern.compile("vk\\.show\\(\\s*\\d+\\s*,\\s*(\\[\\s*\\[[\\s\\S]*?\\]\\s*\\])\\s*\\)").matcher(data);
+                if(vk.find())try{JSONArray players=new JSONArray(vk.group(1).replace('\'', '"'));
+                    for(int player=0;player<players.length();player++){JSONArray episodes=players.optJSONArray(player);if(episodes==null)continue;
+                        for(int ep=0;ep<episodes.length();ep++){String embed=episodes.optString(ep);if(!embed.startsWith("http"))continue;
+                            String page=e.page+"#tvsites-episode="+(ep+1)+"&tvsites-player="+player;
+                            found.put(page,new MovieCatalog.Episode("Епизод "+(ep+1),page,embed,current,ep+1));
+                        }
+                    }
+                }catch(JSONException ignored){}
+            }
+            Object own=jsonField(data,"movie");
+            if(own instanceof JSONObject){JSONObject item=(JSONObject)own;if(!item.optString("title").isEmpty())setNames(e,item.optString("title"));addJsonEpisodes(item,e.page,current,found);}
+            else {Object episodes=jsonField(data,"episodes");if(episodes instanceof JSONArray){try{addJsonEpisodes(new JSONObject().put("episodes",episodes),e.page,current,found);}catch(JSONException ignored){}}}
+            Object related=jsonField(data,"seasons");if(related instanceof JSONArray){JSONArray list=(JSONArray)related;
+                for(int i=0;i<list.length();i++){JSONObject item=list.optJSONObject(i);if(item==null)continue;
+                    String slug=item.optString("slug");if(slug.isEmpty())continue;String page=Provider.valueOf(e.provider).base+"/serial/"+slug;
+                    int season=item.optInt("seasonNumber",MovieEpisodes.season(item.optString("title")+" "+slug));
+                    addJsonEpisodes(item,page,season,found);seasons.put(page,new MovieCatalog.SeasonLink(season,page,item.optJSONArray("episodes")!=null));
+                }
+            }
         }
         if(found.isEmpty())for(Element button:doc.select("button"))if(button.text().trim().matches("Епизод [0-9]+")){
-            String number=button.text().trim().substring(7);String page=e.page+"#tvsites-episode="+number;found.put(page,new MovieCatalog.Episode(button.text().trim(),page,""));
+            int number=MovieEpisodes.number(button.text());String page=e.page+"#tvsites-episode="+number;found.put(page,new MovieCatalog.Episode(button.text().trim(),page,"",current,number));
         }
-        e.episodes.clear();e.episodes.addAll(found.values());
+        // Only links with the same series title are seasons; recommendations stay out.
+        Set<String> titles=new HashSet<>();titles.add(MovieEpisodes.baseTitle(e.title));titles.add(MovieEpisodes.baseTitle(e.original));titles.remove("");
+        for(Element a:doc.select("a[href]")){
+            String page=a.absUrl("href");if(!Provider.valueOf(e.provider).owns(page) || page.equals(e.page))continue;
+            int season=MovieEpisodes.season(a.text()+" "+page);if(season<0)continue;
+            Set<String> labels=new HashSet<>();labels.add(MovieEpisodes.baseTitle(a.attr("title")));labels.add(MovieEpisodes.baseTitle(a.text()));
+            Element img=a.selectFirst("img[alt]");if(img!=null)labels.add(MovieEpisodes.baseTitle(img.attr("alt")));
+            Element title=a.selectFirst(".poster__title,.item-poster__title");if(title!=null)labels.add(MovieEpisodes.baseTitle(title.text()));
+            labels.retainAll(titles);if(labels.isEmpty())continue;
+            if(!seasons.containsKey(page))seasons.put(page,new MovieCatalog.SeasonLink(season,page,found.containsKey(page)));
+        }
+        if(!found.isEmpty() && (current>=0 || found.values().stream().anyMatch(ep->ep.season<0)))seasons.put(e.page,new MovieCatalog.SeasonLink(current,e.page,true));
+        e.episodes.clear();e.episodes.addAll(found.values());e.seasons.clear();e.seasons.addAll(seasons.values());e.episodeSchema=2;e.episodesUpdated=System.currentTimeMillis();
+    }
+    private static int integer(String text,int fallback){try{return Integer.parseInt(text);}catch(NumberFormatException e){return fallback;}}
+    private static void addJsonEpisodes(JSONObject item,String page,int fallback,Map<String,MovieCatalog.Episode> found){
+        JSONArray episodes=item.optJSONArray("episodes");if(episodes==null)return;
+        int season=item.optInt("seasonNumber",MovieEpisodes.season(item.optString("title")+" "+item.optString("slug")));if(season<0)season=fallback;
+        for(int i=0;i<episodes.length();i++){
+            JSONObject ep=episodes.optJSONObject(i);if(ep==null)continue;int number=ep.optInt("episodeNumber",i+1);
+            String embed=ep.optString("videoUrl");JSONArray sources=ep.optJSONArray("sources");
+            if(!embed.startsWith("http") && sources!=null && sources.optJSONObject(0)!=null)embed=sources.optJSONObject(0).optString("url");
+            String url=page+"#tvsites-episode="+number;found.put(url,new MovieCatalog.Episode("Епизод "+number,url,embed,ep.optInt("seasonNumber",season),number));
+        }
+    }
+    private static Object jsonField(String data,String field){
+        Matcher matcher=Pattern.compile(Pattern.quote("\""+field+"\"")+"\\s*:\\s*([\\[{])").matcher(data);if(!matcher.find())return null;
+        int start=matcher.end()-1,depth=0;boolean quoted=false,escaped=false;
+        for(int i=start;i<data.length();i++){char c=data.charAt(i);if(quoted){if(escaped)escaped=false;else if(c=='\\')escaped=true;else if(c=='\"')quoted=false;continue;}
+            if(c=='\"')quoted=true;else if(c=='[' || c=='{')depth++;else if((c==']' || c=='}') && --depth==0){try{return new JSONTokener(data.substring(start,i+1)).nextValue();}catch(JSONException e){return null;}}
+        }return null;
     }
     private static void readMovie(Object value,MovieCatalog.Entry e) {
         if(value instanceof JSONArray) { JSONArray arr=(JSONArray)value;for(int i=0;i<arr.length();i++)readMovie(arr.opt(i),e); }

@@ -10,6 +10,9 @@ final class MovieCatalog {
         String provider = "", page = "", title = "", original = "", poster = "", description = "";
         String imdb = "", tmdb = "", embed="";
         final List<Episode> episodes=new ArrayList<>();
+        final List<SeasonLink> seasons=new ArrayList<>();
+        int episodeSchema;
+        long episodesUpdated;
         int year;
         boolean bgAudio, bgSubs, detailed, series;
         long added;
@@ -19,10 +22,19 @@ final class MovieCatalog {
     }
     static final class Episode {
         final String name,page,embed;
-        Episode(String name,String page,String embed){this.name=name;this.page=page;this.embed=embed;}
+        final int season,number;
+        Episode(String name,String page,String embed){this(name,page,embed,-1,MovieEpisodes.number(name));}
+        Episode(String name,String page,String embed,int season,int number){this.name=name;this.page=page;this.embed=embed;this.season=season;this.number=number;}
+    }
+    static final class SeasonLink {
+        final int number;final String page;final boolean loaded;
+        SeasonLink(int number,String page,boolean loaded){this.number=number;this.page=page;this.loaded=loaded;}
     }
     static final class Movie {
         final List<Entry> sources = new ArrayList<>();
+        Movie parent;
+        int season=-1,episodeNumber;
+        String episodeKey="";
         Entry main() { return sources.get(0); }
         String title() { return main().title; }
         int year() { for (Entry e : sources) if (e.year > 0) return e.year; return 0; }
