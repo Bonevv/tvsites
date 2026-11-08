@@ -2386,7 +2386,8 @@ public class MainActivity extends Activity {
                 .setNegativeButton("Отказ",null).create();movieDetailDialog=waiting;waiting.show();
         movieStore.details(movie,()->{
             if(isFinishing() || movieDetailDialog!=waiting || !waiting.isShowing() || appSection!=SECTION_MOVIES)return;
-            waiting.dismiss();movieCatalogChanged();movieShowDetails(movieStore.find(movie));
+            waiting.dismiss();movieCatalogChanged();MovieCatalog.Movie updated=movieStore.find(movie);
+            if(updated.main().series)movieChooseEpisode(updated);else movieShowDetails(updated);
         });
     }
     private void movieShowDetails(MovieCatalog.Movie movie){
@@ -2407,8 +2408,12 @@ public class MainActivity extends Activity {
                     .setPositiveButton("Отвори плеъра",(d,w)->movieChooseSource(movie)).setNegativeButton("Назад",(d,w)->movieShowDetails(movie)).create();movieDetailDialog.show();return;
         }
         ArrayList<Integer> numbers=new ArrayList<>(seasons);ArrayList<String> labels=new ArrayList<>();for(int number:numbers)labels.add(MovieEpisodes.seasonLabel(number));
-        movieDetailDialog=new AlertDialog.Builder(this).setTitle(movie.title()+" · Сезони").setItems(labels.toArray(new String[0]),(d,i)->movieLoadSeason(movie,numbers.get(i),()->movieShowEpisodes(movieStore.find(movie),numbers.get(i))))
-                .setNegativeButton("Назад",(d,w)->movieShowDetails(movie)).create();movieDetailDialog.show();
+        labels.add("Описание и източници");org.json.JSONObject last=movieHistory.last(movie);
+        AlertDialog.Builder builder=new AlertDialog.Builder(this).setTitle(movie.title()+" · Сезони").setItems(labels.toArray(new String[0]),(d,i)->{
+            if(i==numbers.size())movieShowDetails(movie);else movieLoadSeason(movie,numbers.get(i),()->movieShowEpisodes(movieStore.find(movie),numbers.get(i)));
+        }).setNegativeButton("Назад",null);
+        if(last!=null)builder.setNeutralButton("Продължи",(d,w)->movieContinueSeries(movie,last));
+        movieDetailDialog=builder.create();movieDetailDialog.show();
     }
     private void movieLoadSeason(MovieCatalog.Movie movie,int season,Runnable done){
         AlertDialog waiting=new AlertDialog.Builder(this).setTitle(MovieEpisodes.seasonLabel(season)).setMessage("Зареждане на епизодите…").setNegativeButton("Отказ",null).create();movieDetailDialog=waiting;waiting.show();
