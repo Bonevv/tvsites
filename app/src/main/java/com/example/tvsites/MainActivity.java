@@ -2349,13 +2349,11 @@ public class MainActivity extends Activity {
     private MovieCatalog.Movie movieActive;
     private final ArrayList<MovieCatalog.Entry> moviePlan=new ArrayList<>();
     private int movieSourceIndex,movieGeneration;
-    private boolean movieReady,movieEnded,movieCursor;
+    private boolean movieReady,movieEnded;
     private MovieHistory movieHistory;
-    private final RemoteDoubleTap movieVerticalTap=new RemoteDoubleTap();
     private long movieResume;
     private MovieResolver movieResolver;
-    private MovieSitePlayer movieSitePlayer,siteControls;
-    private boolean webVideoMode,webVideoCursor;
+    private MovieSitePlayer movieSitePlayer;
     private boolean movieOriginal,movieUseSite;
     private AlertDialog movieCaptionsDialog;
     private MovieResolver.Stream movieStream;
@@ -2461,7 +2459,7 @@ public class MainActivity extends Activity {
                 .setNegativeButton("Отказ",null).create();movieDetailDialog.show();
     }
     private void movieStart(MovieCatalog.Movie movie,List<MovieCatalog.Entry> plan,long position){
-        teardownSite();if(movieBrowser!=null)movieBrowser.pauseArtwork();movieStore.pause();ensureLayers();movieActive=movie;movieDeadline=SystemClock.uptimeMillis()+75000;moviePlan.clear();moviePlan.addAll(movieHistory.preferred(movie,plan));movieSourceIndex=-1;movieResume=position;movieEnded=false;movieVerticalTap.reset();
+        teardownSite();if(movieBrowser!=null)movieBrowser.pauseArtwork();movieStore.pause();ensureLayers();movieActive=movie;movieDeadline=SystemClock.uptimeMillis()+75000;moviePlan.clear();moviePlan.addAll(movieHistory.preferred(movie,plan));movieSourceIndex=-1;movieResume=position;movieEnded=false;
         movieUseSite=!prefs.getString("movie:player","site").equals("native");
         ++movieGeneration;ui.postDelayed(movieOverallTimeout,75000);movieNextSource();
     }
@@ -2473,7 +2471,7 @@ public class MainActivity extends Activity {
         ui.removeCallbacks(movieStartTimeout);ui.removeCallbacks(movieProgressTick);
         if(player!=null){player.removeListener(nativeListener);player.release();player=null;}
         if(movieSubtitles!=null){nativeLayer.removeView(movieSubtitles);movieSubtitles=null;}
-        nativeLayer.setVisibility(View.GONE);movieReady=false;movieStream=null;movieVerticalTap.reset();
+        nativeLayer.setVisibility(View.GONE);movieReady=false;movieStream=null;
         if(++movieSourceIndex>=moviePlan.size() || SystemClock.uptimeMillis()>=movieDeadline){
             MovieCatalog.Movie failed=movieActive;closeNative(true);
             movieDetailDialog=new AlertDialog.Builder(this).setTitle("Филмът не успя да тръгне")
@@ -2504,16 +2502,14 @@ public class MainActivity extends Activity {
     }
     private void movieOpenSitePlayer(MovieCatalog.Entry source,int gen){
         movieOriginal=true;allowedHost=hostOf(source.embed.isEmpty()?source.page:source.embed);curSiteName=movieActive.title();curMode="desktop";
-        movieCursor=false;cursorEnabled=false;cursorTemp=false;scrollMode=false;pageUrl=null;
-        createWebView();cursorEnabled=false;applyUserAgent();if(source.embed.isEmpty())web.getSettings().setBlockNetworkImage(true);menuHolder.setVisibility(View.GONE);
+        cursorEnabled=true;cursorTemp=false;scrollMode=false;pageUrl=null;
+        createWebView();applyUserAgent();if(source.embed.isEmpty())web.getSettings().setBlockNetworkImage(true);menuHolder.setVisibility(View.GONE);
         movieSitePlayer=new MovieSitePlayer(web,source,new MovieSitePlayer.Events(){
-            @Override public void ready(){if(gen!=movieGeneration || !movieOriginal)return;movieReady=true;ui.removeCallbacks(movieOverallTimeout);movieHideLoading();hideSplash();if(customView==null)web.setVisibility(View.VISIBLE);web.requestFocus();movieSitePlayer.seek(movieResume);ui.postDelayed(movieProgressTick,5000);cx=root.getWidth()/2f;cy=root.getHeight()/2f;updateCursor();pokeCursor();updateState();Toast.makeText(MainActivity.this,"Видео: ◀ ▶ ±10 сек. · OK: пауза · 2× ↑/↓: скрол · MENU: опции",Toast.LENGTH_LONG).show();}
+            @Override public void ready(){if(gen!=movieGeneration || !movieOriginal)return;movieReady=true;ui.removeCallbacks(movieOverallTimeout);movieHideLoading();hideSplash();if(customView==null)web.setVisibility(View.VISIBLE);web.requestFocus();movieSitePlayer.seek(movieResume);ui.postDelayed(movieProgressTick,5000);cx=root.getWidth()/2f;cy=root.getHeight()/2f;updateCursor();pokeCursor();updateState();Toast.makeText(MainActivity.this,"Стрелки: курсор · OK: клик · Двойно OK: скрол · MENU: опции",Toast.LENGTH_LONG).show();}
             @Override public void failed(){if(gen==movieGeneration && movieActive!=null)movieNextSource();}
             @Override public void captionsChanged(){}
             @Override public void playing(){if(gen==movieGeneration)movieSourceSucceeded();}
             @Override public void ended(){if(gen==movieGeneration)movieFinished();}
-            @Override public void seeked(long position){if(gen==movieGeneration)Toast.makeText(MainActivity.this,"Позиция: "+movieTime(position),Toast.LENGTH_SHORT).show();}
-            @Override public void unsupported(){if(gen==movieGeneration)movieControlFallback();}
             @Override public void progress(int secondsLeft){if(gen==movieGeneration && movieLoadingInfo!=null)movieLoadingInfo.setText("Зареждане на плеъра · "+MovieSources.Provider.valueOf(source.provider).label+"\nИзточник "+(movieSourceIndex+1)+" / "+moviePlan.size()+" · до "+secondsLeft+" сек.");}
         });
         web.setVisibility(View.VISIBLE);if(movieLoading!=null)movieLoading.bringToFront();movieSitePlayer.start();updateState();
@@ -2531,7 +2527,7 @@ public class MainActivity extends Activity {
         ArrayList<String> labels=new ArrayList<>();ArrayList<Runnable> actions=new ArrayList<>();
         labels.add("Субтитри от сайта");actions.add(this::movieShowCaptions);
         labels.add(movieOriginal?"Опитай собствения плеър":"Опитай оригиналния плеър");actions.add(()->{MovieCatalog.Movie movie=movieActive;ArrayList<MovieCatalog.Entry> plan=new ArrayList<>(moviePlan);boolean site=!movieOriginal;long position=movieSitePlayer!=null?movieSitePlayer.position():player==null?movieResume:player.getCurrentPosition();prefs.edit().putString("movie:player",site?"site":"native").apply();movieStart(movie,plan,position);});
-        labels.add(movieOriginal?(movieCursor?"Управление на видео (◀ ▶ и OK)":"Включи курсора за плеъра"):"Качество на видеото");actions.add(()->{if(movieOriginal)movieSetCursor(!movieCursor);else tvQualityDialog();});
+        labels.add(movieOriginal?"Курсор / управление":"Качество на видеото");actions.add(()->{if(movieOriginal)toggleCursor();else tvQualityDialog();});
         labels.add("Избери източник");actions.add(()->{MovieCatalog.Movie movie=movieActive;closeNative(true);movieChooseSource(movie);});
         if(movieActive.parent!=null){
             labels.add("Следващ епизод");actions.add(()->moviePlayNextFrom(movieActive,movieActive.parent));
@@ -2569,13 +2565,13 @@ public class MainActivity extends Activity {
                 List<MovieSitePlayer.Caption> tracks=session.captions();
                 if(tracks.isEmpty()){
                     movieCaptionsDialog=new AlertDialog.Builder(this).setTitle("Субтитри от сайта").setMessage("Този плеър управлява субтитрите през собственото си CC / Субтитри меню. Използвай курсора и OK, за да избереш език или да ги изключиш.")
-                            .setPositiveButton("Отвори CC",(d,w)->{if(movieSitePlayer==session){session.openCaptionControls();movieSetCursor(true);}}).setNegativeButton("Назад",null).create();movieCaptionsDialog.show();return;
+                            .setPositiveButton("Отвори CC",(d,w)->{if(movieSitePlayer==session){session.openCaptionControls();pokeCursor();}}).setNegativeButton("Назад",null).create();movieCaptionsDialog.show();return;
                 }
                 ArrayList<String> labels=new ArrayList<>();labels.add("Изключени");
                 for(MovieSitePlayer.Caption track:tracks)labels.add(track.label+(track.selected?" · избрани":""));
                 labels.add("Отвори CC / субтитрите в плеъра");
                 movieCaptionsDialog=new AlertDialog.Builder(this).setTitle("Субтитри от сайта").setItems(labels.toArray(new String[0]),(d,i)->{
-                    if(movieSitePlayer!=session)return;if(i==0)session.off();else if(i<=tracks.size())session.choose(tracks.get(i-1));else{session.openCaptionControls();movieSetCursor(true);Toast.makeText(this,"Използвай CC / Субтитри в плеъра с курсора",Toast.LENGTH_LONG).show();}
+                    if(movieSitePlayer!=session)return;if(i==0)session.off();else if(i<=tracks.size())session.choose(tracks.get(i-1));else{session.openCaptionControls();pokeCursor();Toast.makeText(this,"Използвай CC / Субтитри в плеъра с курсора",Toast.LENGTH_LONG).show();}
                 }).setNegativeButton("Назад",null).create();movieCaptionsDialog.show();
             },180);return;
         }
@@ -2630,7 +2626,7 @@ public class MainActivity extends Activity {
         ui.removeCallbacks(movieStartTimeout);ui.removeCallbacks(movieProgressTick);
         if(movieResolver!=null){movieResolver.close();movieResolver=null;}
         movieHideLoading();if(movieSubtitles!=null && nativeLayer!=null){nativeLayer.removeView(movieSubtitles);movieSubtitles=null;}
-        movieActive=null;moviePlan.clear();movieStream=null;movieReady=false;movieEnded=false;movieVerticalTap.reset();
+        movieActive=null;moviePlan.clear();movieStream=null;movieReady=false;movieEnded=false;
     }
 
     private static final int SECTION_TV = 0, SECTION_MOVIES = 1, SECTION_RADIO = 2,
@@ -3655,7 +3651,6 @@ public class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView v, String u, Bitmap favicon) {
                 if(v!=web)return;
-                if(siteControls!=null){siteControls.navigationStarted();webVideoMode=false;webVideoCursor=false;movieVerticalTap.reset();}
                 if (u != null && u.startsWith("http")) {
                     if (!tvCapturing && !movieOriginal) cacheCheckOnZap();
                     pageUrl = u;
@@ -3681,7 +3676,6 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView v, String u) {
                 if (v != web) return;
-                if(siteControls!=null)siteControls.pageReady();
                 if(movieOriginal && movieSitePlayer!=null){movieSitePlayer.pageReady();return;}
                 // След връщане към менюто чистим историята, за да не се връщаме в празна страница.
                 if (clearHistoryPending && "about:blank".equals(u)) {
@@ -3738,7 +3732,7 @@ public class MainActivity extends Activity {
         });
 
         chromeClient = new WebChromeClient() {
-            @Override public boolean onConsoleMessage(android.webkit.ConsoleMessage message){return movieOriginal && movieSitePlayer!=null?movieSitePlayer.console(message.message()):siteControls!=null && siteControls.console(message.message());}
+            @Override public boolean onConsoleMessage(android.webkit.ConsoleMessage message){return movieOriginal && movieSitePlayer!=null && movieSitePlayer.console(message.message());}
             @Override
             public void onShowCustomView(View view, CustomViewCallback cb) {
                 if (tvCapturing) {
@@ -3789,14 +3783,6 @@ public class MainActivity extends Activity {
             }
         };
         web.setWebChromeClient(chromeClient);
-        if(!movieOriginal && !tvCapturing){
-            siteControls=new MovieSitePlayer(web,new MovieCatalog.Entry(),new MovieSitePlayer.Events(){
-                public void ready(){}public void failed(){}public void captionsChanged(){}
-                public void playing(){if(siteControls!=null && siteControls.duration()>30000 && !webVideoMode){webVideoMode=true;webVideoCursor=false;cancelOk();updateState();Toast.makeText(MainActivity.this,"Видео: ◀ ▶ ±10 сек. · OK: пауза · 2× ↑/↓: скрол",Toast.LENGTH_LONG).show();}}
-                public void seeked(long position){Toast.makeText(MainActivity.this,"Позиция: "+movieTime(position),Toast.LENGTH_SHORT).show();}
-                public void unsupported(){movieControlFallback();}
-            });siteControls.startControls();
-        }
 
         // WebView е винаги веднага над менюто, под курсора и панелите.
         root.addView(web, 1, new FrameLayout.LayoutParams(
@@ -3848,7 +3834,6 @@ public class MainActivity extends Activity {
     }
 
     private void destroyWeb() {
-        if(siteControls!=null){siteControls.close();siteControls=null;}webVideoMode=false;webVideoCursor=false;movieVerticalTap.reset();
         WebView previous=web;web=null;
         if(websiteToolbar!=null){root.removeView(websiteToolbar);websiteToolbar=null;}
         if(previous==null)return;
@@ -4063,7 +4048,7 @@ public class MainActivity extends Activity {
         int n = prefs.getInt("hintCount3", 0);
         if (n >= 4) return;
         prefs.edit().putInt("hintCount3", n + 1).apply();
-        hintChip.setText("Назад — към менюто    •    Задръж OK — опции    •    2× ↑/↓ — скрол");
+        hintChip.setText("Назад — към менюто    •    Задръж OK — опции    •    Двойно OK — превъртане");
         hintChip.animate().cancel();
         hintChip.setAlpha(0f);
         hintChip.setVisibility(View.VISIBLE);
@@ -4180,7 +4165,6 @@ public class MainActivity extends Activity {
     }
 
     private void toggleCursor() {
-        if(movieOriginal || webVideoMode){movieSetCursor(movieOriginal?!movieCursor:!webVideoCursor);return;}
         cursorEnabled = !cursorEnabled;
         if (allowedHost != null) {
             if (cursorEnabled) cursorOff.remove(allowedHost);
@@ -5566,8 +5550,6 @@ public class MainActivity extends Activity {
 
     // В цял екран курсорът е винаги на разположение (там няма какво друго да се управлява).
     private boolean cursorOn() {
-        if(movieOriginal)return movieCursor || scrollMode;
-        if(webVideoMode)return webVideoCursor || scrollMode;
         return cursorEnabled || cursorTemp || customView != null;
     }
 
@@ -5674,15 +5656,14 @@ public class MainActivity extends Activity {
 
     private void setScrollMode(boolean on) {
         if (scrollMode == on) return;
-        if(on && !cursorOn())cursorTemp=true;
         scrollMode = on;
         if (!on) {
             endSwipe(false);
             scrollExitAt = SystemClock.uptimeMillis();
         }
         if (cursor != null) cursor.setScroll(on);
-        Toast.makeText(this, on ? "Скрол: ↑ ↓ · 2× ↑/↓ или OK: изход"
-                : movieOriginal || webVideoMode?"Видео: ◀ ▶ ±10 сек. · OK: пауза":"Скролът е изключен", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, on ? "Превъртане: стрелки нагоре и надолу. Едно OK го спира."
+                : "Превъртането е спряно", Toast.LENGTH_SHORT).show();
         pokeCursor();
     }
 
@@ -5935,48 +5916,6 @@ public class MainActivity extends Activity {
         pokeCursor();
     }
 
-    private void movieNativeSeek(long delta){
-        if(player==null || !player.isCurrentMediaItemSeekable())return;
-        long target=Math.max(0,player.getCurrentPosition()+delta),duration=player.getDuration();if(duration>0)target=Math.min(target,duration-1);
-        player.seekTo(target);showNativeStatus("Позиция: "+movieTime(player.getCurrentPosition()),1200);
-    }
-    private void movieWebsiteOptions(){
-        new AlertDialog.Builder(this).setTitle("Управление на плеъра").setItems(new String[]{webVideoCursor?"Управление на видео":"Включи курсора",scrollMode?"Изключи скрола":"Включи скрола","Опции за сайта"},(d,i)->{if(i==0)movieSetCursor(!webVideoCursor);else if(i==1)setScrollMode(!scrollMode);else openOptions();}).setNegativeButton("Назад",null).show();
-    }
-    private void movieSetCursor(boolean enabled){
-        cancelOk();endSwipe(false);scrollMode=false;if(cursor!=null)cursor.setScroll(false);movieVerticalTap.reset();
-        MovieSitePlayer session=movieOriginal?movieSitePlayer:siteControls;if(session!=null)session.cancelControl();
-        if(movieOriginal)movieCursor=enabled;else webVideoCursor=enabled;
-        if(enabled){cx=root.getWidth()/2f;cy=root.getHeight()/2f;pokeCursor();}
-        updateState();Toast.makeText(this,enabled?"Курсор: стрелките го местят, OK натиска · MENU: управление на видео":"Видео: ◀ ▶ ±10 сек. · OK: пауза · 2× ↑/↓: скрол",Toast.LENGTH_LONG).show();
-    }
-    private void movieControlFallback(){
-        if(!movieOriginal && !webVideoMode)return;movieSetCursor(true);
-        Toast.makeText(this,"Този плеър не прие командата. Използвай неговите бутони с курсора и OK.",Toast.LENGTH_LONG).show();
-    }
-    private boolean movieWebKey(KeyEvent event,boolean okKey,boolean playKey){
-        if(!movieOriginal && customView==null && websiteToolbar!=null && websiteToolbar.hasFocus())return false;
-        int code=event.getKeyCode();boolean down=event.getAction()==KeyEvent.ACTION_DOWN;
-        boolean vertical=code==KeyEvent.KEYCODE_DPAD_UP || code==KeyEvent.KEYCODE_DPAD_DOWN;
-        if(vertical){
-            if(movieVerticalTap.event(code,down,event.getRepeatCount(),event.isCanceled(),event.getEventTime())){cancelOk();setScrollMode(!scrollMode);return true;}
-        }else if(down)movieVerticalTap.reset();
-        if(!movieOriginal && !webVideoMode)return false;
-        boolean cursorMode=movieOriginal?movieCursor:webVideoCursor;
-        MovieSitePlayer session=movieOriginal?movieSitePlayer:siteControls;
-        if(scrollMode){
-            if(vertical){if(down)cursorArrow(customView==null?web:customView,code,event.getRepeatCount());return true;}
-            if(okKey){if(down && event.getRepeatCount()==0)setScrollMode(false);return true;}
-        }
-        if(cursorMode)return false;
-        if(vertical)return true;
-        if(code==KeyEvent.KEYCODE_DPAD_LEFT || code==KeyEvent.KEYCODE_DPAD_RIGHT || code==KeyEvent.KEYCODE_MEDIA_REWIND || code==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD){
-            if(down && !event.isCanceled() && session!=null && (event.getRepeatCount()==0 || event.getRepeatCount()%3==0))session.seekBy(code==KeyEvent.KEYCODE_DPAD_LEFT || code==KeyEvent.KEYCODE_MEDIA_REWIND?-10:10);return true;
-        }
-        if(okKey || playKey){if(down && event.getRepeatCount()==0 && !event.isCanceled() && session!=null)session.toggle();return true;}
-        return false;
-    }
-
     // ---------- Управление с дистанционно ----------
 
     @Override
@@ -6022,7 +5961,7 @@ public class MainActivity extends Activity {
         }
         if (tvMoveChan == null && tvNumberKey(e)) return true;
         if(code==KeyEvent.KEYCODE_CAPTIONS && movieActive!=null){if(down && e.getRepeatCount()==0)movieShowCaptions();return true;}
-        if(code==KeyEvent.KEYCODE_MENU){if(down && e.getRepeatCount()==0){if(movieActive!=null && movieLoading==null)moviePlaybackOptions();else if(webVideoMode)movieWebsiteOptions();else showSectionMenu();}return true;}
+        if(code==KeyEvent.KEYCODE_MENU){if(down && e.getRepeatCount()==0){if(movieActive!=null && movieLoading==null)moviePlaybackOptions();else showSectionMenu();}return true;}
         if(tvTimelineLayer!=null)return super.dispatchKeyEvent(e);
 
         // Моята телевизия: стрелките сменят канала, OK отваря списъка.
@@ -6036,8 +5975,6 @@ public class MainActivity extends Activity {
                 player.setPlayWhenReady(!player.getPlayWhenReady()); radioPlaybackStatus(); } return true; }
             return super.dispatchKeyEvent(e);
         }
-        if(movieLoading==null && !logShown() && (webActive() || customView!=null) && movieWebKey(e,okKey,playKey))return true;
-
         // Родният плеър: OK = пауза/пускане, наляво/надясно = превъртане.
         if (nativeActive()) {
             if (code == KeyEvent.KEYCODE_BACK) return super.dispatchKeyEvent(e);
@@ -6058,10 +5995,10 @@ public class MainActivity extends Activity {
                     if (e.getRepeatCount() == 0) cycleQuality();
                 } else if (code == KeyEvent.KEYCODE_DPAD_LEFT
                         || code == KeyEvent.KEYCODE_MEDIA_REWIND) {
-                    if(movieActive!=null)movieNativeSeek(-10000);else player.seekBack();
+                    player.seekBack();
                 } else if (code == KeyEvent.KEYCODE_DPAD_RIGHT
                         || code == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) {
-                    if(movieActive!=null)movieNativeSeek(10000);else player.seekForward();
+                    player.seekForward();
                 }
             }
             return true;
